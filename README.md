@@ -3,18 +3,6 @@
     <h1 align="center">Seismic</h1>
 </p>
 
-<p align="center">
-    <a href="-"><img src="https://badgen.net/static/paper/SIGIR 2024/green" /></a>
-    <a href="https://arxiv.org/"><img src="https://badgen.net/static/arXiv/00984389948/red" /></a>
-    <a href="https://https://zenodo.org/"><img src="https://badgen.net/static/Datasets/zenodo/gray" /></a>
-
-</p>
-
-<p align="center">
-<a href="https://crates.io/crates/qwt"><img src="https://badgen.infra.medigy.com/crates/v/qwt" /></a>
-<a href="https://crates.io/crates/qwt"><img src="https://badgen.infra.medigy.com/crates/d/qwt" /></a>
-<a href="LICENSE.md"><img src="https://badgen.net/static/license/MIT/blue" /></a>
-</p>
 
 
 Seismic is designed for effective and efficient retrieval over *learned sparse embeddings*. Pleasantly, the design uses in a new way two familiar data structures: the inverted
