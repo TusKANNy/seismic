@@ -19,6 +19,15 @@ while maintaining high recall. The results indicate that Seismic is one to two o
 
 <h2 align="center">Code is coming soon!</h2>
 
+## <a name="bib">Bibliography</a>
+1. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini, *"Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations,"* In SIGIR, 2024. 
+
+### Citation License
+
+The source code in this repository is subject to the following citation license:
+
+By downloading and using this software, you agree to cite the under noted paper in any kind of material you produce where it was used to conduct a search or experimentation, whether be it a research paper, dissertation, article, poster, presentation, or documentation. By using this software, you have agreed to the citation license.
+
 ```bibtex
 @inproceedings{Seismic,
   author = {Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini},
