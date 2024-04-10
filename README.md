@@ -11,7 +11,7 @@ and the forward index.  The approach organizes inverted lists into geometrically
 The figure below gives an overview of the overall design.
 
 <p align="center">
-  <img src="imgs/index.png" width="100%" alt="The design of Seismic.">
+  <img src="imgs/index.png" width="90%" alt="The design of Seismic.">
 </p>
 
 Experimental results show that single-threaded query processing using Seismic, reaches sub-millisecond per-query latency on various sparse embeddings of the MSMarco dataset
