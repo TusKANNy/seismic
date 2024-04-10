@@ -3,23 +3,21 @@
     <h1 align="center">Seismic</h1>
 </p>
 
-Seismic is designed for effective and efficient retrieval over *learned sparse embeddings*. Pleasantly, the design uses in a new way two familiar data structures: the inverted
-and the forward index.  The approach organizes inverted lists into geometrically-cohesive blocks. Each block is equipped with a sketch, serving as a summary of its vectors. The summaries allow us to skip over many blocks during retrieval and save substantial compute. When a summary indicates that a block must be examined, we use the forward index to retrieve exact embeddings of its documents and compute inner products.
+This is the official source code repository of Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini, "*Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations,*." Long Paper at ACM SIGIR 2024. 
+
+Seismic is designed for effective and efficient retrieval over *learned sparse embeddings*. Pleasantly, the design uses in a new way two familiar data structures: the inverted and the forward index.  The approach organizes inverted lists into geometrically-cohesive blocks. Each block is equipped with a sketch, serving as a summary of its vectors. The summaries allow us to skip over many blocks during retrieval and save substantial computing. When a summary indicates that a block must be examined, we use the forward index to retrieve exact embeddings of its documents and compute inner products.
 
 The figure below gives an overview of the overall design.
 
 <p align="center">
-  <img src="imgs/index.png" width="90%" alt="The design of Seismic.">
+  <img src="imgs/index.png" width="95%" alt="The design of Seismic.">
 </p>
 
-Experimental results show that single-threaded query processing using Seismic, reaches sub-millisecond per-query latency on various sparse embeddings of the MSMarco dataset while maintaining high recall. The results indicate that Seismic is one to two orders of magnitude faster than state-of-the-art inverted index-based solutions and further outperforms the winning (graph-based) submissions to the BigANN Challenge by a significant margin.
+Experimental results show that single-threaded query processing using Seismic reaches sub-millisecond per-query latency on various sparse embeddings of the MSMarco dataset while maintaining high recall. The results indicate that Seismic is one to two orders of magnitude faster than state-of-the-art inverted index-based solutions and further outperforms the winning (graph-based) submissions to the BigANN Challenge by a significant margin.
 
 <h2 align="center">Code is coming soon!</h2>
 
-## <a name="bib">Bibliography</a>
-1. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini, *"Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations,"* In SIGIR, 2024. 
-
-### Citation License
+## Citation License
 
 The source code in this repository is subject to the following citation license:
 
