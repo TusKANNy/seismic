@@ -3,6 +3,11 @@
     <h1 align="center">Seismic</h1>
 </p>
 
+<p align="center">
+    <a href="-"><img src="https://badgen.net/static/paper/SIGIR 2024/green" /></a>
+    <a href="http://arxiv.org/abs/2404.18812"><img src="https://badgen.net/static/arXiv/2404.18812/red" /></a>
+</p>
+
 This is the official software repository of Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini, "*Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations*." Long Paper at ACM SIGIR 2024. 
 
 Seismic is designed for effective and efficient retrieval over *learned sparse embeddings*. Pleasantly, the design uses in a new way two familiar data structures: the inverted and the forward index.  The approach organizes inverted lists into geometrically-cohesive blocks. Each block is equipped with a sketch, serving as a summary of its vectors. The summaries allow us to skip over many blocks during retrieval and save substantial computing. When a summary indicates that a block must be examined, we use the forward index to retrieve exact embeddings of its documents and compute inner products.
