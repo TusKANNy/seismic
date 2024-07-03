@@ -218,6 +218,8 @@ python scripts/convert_json_to_inner_format.py --document-path /path/to/document
 ```
 This will generate a ```data``` directory at the ```/path/to/output``` path, with ```documents.bin``` and ```queries.bin``` binary files inside. 
 
+If you download the NQ dataset from the HuggingFace repo, you need to specify ```--input-format nq``` as it uses a slightly different format. 
+
 ## <a name="code">Using the Rust Code</a>
 
 To incorporate the Seismic library into your Rust project, navigate to your project directory and run the following Cargo command:
