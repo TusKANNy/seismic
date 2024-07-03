@@ -1,0 +1,28 @@
+#
+# Precommit file
+#
+exclude: "^scripts"
+
+default_stages: [commit]
+
+repos:
+  - repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+      - id: fmt
+      - id: cargo-check
+      - id: clippy
+      - id: test
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-added-large-files # prevents giant files from being committed.
+      - id: check-case-conflict # checks for files that would conflict in case-insensitive filesystems.
+      - id: check-merge-conflict # checks for files that contain merge conflict strings.
+      - id: end-of-file-fixer # ensures that a file is either empty, or ends with one newline.
+      - id: trailing-whitespace # trims trailing whitespace.
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0-alpha.8
+    hooks:
+      - id: prettier
+        files: \.(json|markdown|md|yaml|yml)$
