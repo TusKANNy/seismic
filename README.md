@@ -6,12 +6,9 @@
 <p align="center">
     <a href="-"><img src="https://badgen.net/static/paper/SIGIR 2024/green" /></a>
     <a href="http://arxiv.org/abs/2404.18812"><img src="https://badgen.net/static/arXiv/2404.18812/red" /></a>
-    <a href="https://https://zenodo.org/"><img src="https://badgen.net/static/Datasets/zenodo/gray" /></a>
 </p>
 
 <p align="center">
-    <a href="https://crates.io/crates/qwt"><img src="https://badgen.infra.medigy.com/crates/v/qwt" /></a>
-    <a href="https://crates.io/crates/qwt"><img src="https://badgen.infra.medigy.com/crates/d/qwt" /></a>
     <a href="LICENSE.md"><img src="https://badgen.net/static/license/MIT/blue" /></a>
 </p>
 
