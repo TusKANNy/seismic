@@ -6,12 +6,9 @@
 <p align="center">
     <a href="-"><img src="https://badgen.net/static/paper/SIGIR 2024/green" /></a>
     <a href="http://arxiv.org/abs/2404.18812"><img src="https://badgen.net/static/arXiv/2404.18812/red" /></a>
-    <a href="https://https://zenodo.org/"><img src="https://badgen.net/static/Datasets/zenodo/gray" /></a>
 </p>
 
 <p align="center">
-    <a href="https://crates.io/crates/qwt"><img src="https://badgen.infra.medigy.com/crates/v/qwt" /></a>
-    <a href="https://crates.io/crates/qwt"><img src="https://badgen.infra.medigy.com/crates/d/qwt" /></a>
     <a href="LICENSE.md"><img src="https://badgen.net/static/license/MIT/blue" /></a>
 </p>
 
@@ -221,6 +218,8 @@ The script ```convert_json_to_inner_format.py``` allows converting files formatt
 python scripts/convert_json_to_inner_format.py --document-path /path/to/document.jsonl --queries-path /path/to/queries.jsonl --output-dir /path/to/output 
 ```
 This will generate a ```data``` directory at the ```/path/to/output``` path, with ```documents.bin``` and ```queries.bin``` binary files inside.
+
+If you download the NQ dataset from the HuggingFace repo, you need to specify ```--input-format nq``` as it uses a slightly different format. 
 
 ## <a name="code">Using the Rust Code</a>
 
