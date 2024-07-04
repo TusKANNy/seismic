@@ -185,8 +185,6 @@ The script writes the result of the grid search in `results_file_path`. To get t
 python scripts/extract_results.py --file-path $results_file_path
 ```
 
-
-
 ## <a name="scripts">Python Scripts</a>
 
 ### Download the Datasets
