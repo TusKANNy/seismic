@@ -196,14 +196,15 @@ python scripts/extract_results.py --file-path $results_file_path
 
 The embeddings in ```jsonl```  format used in our experiments can be downloaded from this HugginFace [repository](https://huggingface.co/collections/tuskanny/seismic-datasets-6610108d39c0f2299f20fc9b), together with the queries representations. 
 
-As an example, the <span style="font-variant:small-caps;">Splade</span> embeddings for <span style="font-variant:small-caps;">MsMarco</span> can be downloaded and extracted by runnning 
-```
+As an example, the <span style="font-variant:small-caps;">Splade</span> embeddings for <span style="font-variant:small-caps;">MsMarco</span> can be downloaded and extracted by runnning the following commands.
+
+```bash
 wget https://huggingface.co/datasets/tuskanny/seismic-msmarco-splade/resolve/main/documents.tar.gz?download=true -O documents.tar.gz 
 
 tar -xvzf documents.tar.gz
 ```
 
-or by using the Huggingface dataset download [tool](https://huggingface.co/docs/hub/en/datasets-downloading). 
+or by using the Huggingface dataset download [tool](https://huggingface.co/docs/hub/en/datasets-downloading).
 
 ### Convert the Data
 
@@ -212,14 +213,14 @@ Documents and queries should have the following format. Each line should be a JS
 - `content`: the original content of the document, as a string. This field is optional. 
 - `vector`: a dictionary where each key represents a token, and its corresponding value is the score, e.g., `{"dog": 2.45}`.
 
-This is the standard output format of several libraries to train sparse models, such as [`learned-sparse-retrieval`](https://github.com/thongnt99/learned-sparse-retrieval). 
+This is the standard output format of several libraries to train sparse models, such as [`learned-sparse-retrieval`](https://github.com/thongnt99/learned-sparse-retrieval).
 
-The script ```convert_json_to_inner_format.py``` allows converting files formatted accordingly into the ```seismic``` inner format. 
+The script ```convert_json_to_inner_format.py``` allows converting files formatted accordingly into the ```seismic``` inner format.
 
 ```bash
 python scripts/convert_json_to_inner_format.py --document-path /path/to/document.jsonl --queries-path /path/to/queries.jsonl --output-dir /path/to/output 
 ```
-This will generate a ```data``` directory at the ```/path/to/output``` path, with ```documents.bin``` and ```queries.bin``` binary files inside. 
+This will generate a ```data``` directory at the ```/path/to/output``` path, with ```documents.bin``` and ```queries.bin``` binary files inside.
 
 ## <a name="code">Using the Rust Code</a>
 
