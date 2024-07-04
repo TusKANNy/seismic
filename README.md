@@ -179,6 +179,7 @@ gt_path=""
 
 bash scripts/grid_search_only_accuracy.sh $index_path $results_file_path $queries_path $gt_path
 ```
+
 The script writes the result of the grid search in `results_file_path`. To get the fastest configuration at each accuracy cut, simply run
 
 ```bash
