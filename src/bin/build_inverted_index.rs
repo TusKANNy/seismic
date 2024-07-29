@@ -1,5 +1,5 @@
 use seismic::inverted_index::{
-    BlockingStrategy, Configuration, PruningStrategy, SummarizationStrategy,
+    BlockingStrategy, Configuration, KnnConfiguration, PruningStrategy, SummarizationStrategy,
 };
 use seismic::{InvertedIndex, SparseDataset};
 
@@ -52,6 +52,16 @@ struct Args {
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 2)]
     min_cluster_size: usize,
+
+    /// Says how many neighbors to include for each vector of the dataset.
+    /// These neighbors are used to improve the accuracy of the reported results.
+    #[clap(long, value_parser)]
+    #[arg(default_value_t = 30)]
+    knn: usize,
+
+    /// Path to the file of precomputed neareast neighbors.
+    #[clap(long, value_parser)]
+    knn_path: Option<String>,
 }
 
 pub fn main() {
@@ -71,6 +81,8 @@ pub fn main() {
 
     let time = Instant::now();
 
+    let knn_config = KnnConfiguration::new(args.knn, args.knn_path);
+
     let config = Configuration::default()
         .pruning_strategy(PruningStrategy::GlobalThreshold {
             n_postings: args.n_postings,
@@ -82,9 +94,10 @@ pub fn main() {
             truncation_size: args.truncation_size,
             min_cluster_size: args.min_cluster_size,
         })
-        .summarization_strategy(SummarizationStrategy::EnergyPerserving {
+        .summarization_strategy(SummarizationStrategy::EnergyPreserving {
             summary_energy: args.summary_energy,
-        });
+        })
+        .knn(knn_config);
     println!("\nBuilding the index...");
     println!("{:?}", config);
 

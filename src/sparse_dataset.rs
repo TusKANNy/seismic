@@ -498,6 +498,27 @@ where
         self.offsets.binary_search(&offset).unwrap()
     }
 
+    #[must_use]
+    #[inline]
+    pub fn id_to_offset(&self, id: usize) -> usize {
+        assert!(id < self.n_vecs, "The id is out of range");
+        self.offsets[id]
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn id_to_offset_len(&self, id: usize) -> (usize, usize) {
+        assert!(id < self.n_vecs, "The id is out of range");
+        (self.offsets[id], self.offsets[id + 1] - self.offsets[id])
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn id_to_encoded_offset(&self, id: usize) -> usize {
+        assert!(id < self.n_vecs, "The id is out of range");
+        self.offsets[id] / 2
+    }
+
     // The format of this binary file is the following.
     // Number of vectors n_vecs qin 4 bytes, follows n_vecs sparse vectors.
     // For each vector we encode:

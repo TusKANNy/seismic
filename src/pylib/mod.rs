@@ -1,10 +1,12 @@
+use crate::inverted_index::{
+    BlockingStrategy, Configuration, PruningStrategy, SummarizationStrategy,
+};
 use crate::{InvertedIndex, SparseDataset};
 use half::f16;
 use numpy::PyReadonlyArrayDyn;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::fs;
-use crate::inverted_index::{BlockingStrategy, Configuration, PruningStrategy, SummarizationStrategy};
 
 #[pyclass]
 pub struct PySeismicIndex {
@@ -30,13 +32,15 @@ impl PySeismicIndex {
 
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
-    pub fn build(input_file: &str,
-                 n_postings: usize,
-                 centroid_fraction: f32,
-                 truncated_kmeans_training: bool,
-                 truncation_size: usize,
-                 min_cluster_size: usize,
-                 summary_energy: f32) -> PyResult<PySeismicIndex> {
+    pub fn build(
+        input_file: &str,
+        n_postings: usize,
+        centroid_fraction: f32,
+        truncated_kmeans_training: bool,
+        truncation_size: usize,
+        min_cluster_size: usize,
+        summary_energy: f32,
+    ) -> PyResult<PySeismicIndex> {
         let dataset = SparseDataset::<f32>::read_bin_file(input_file)
             .unwrap()
             .quantize_f16();
@@ -52,9 +56,7 @@ impl PySeismicIndex {
                 truncation_size,
                 min_cluster_size,
             })
-            .summarization_strategy(SummarizationStrategy::EnergyPerserving {
-                summary_energy,
-            });
+            .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy });
         println!("\nBuilding the index...");
         println!("{:?}", config);
 
@@ -69,6 +71,7 @@ impl PySeismicIndex {
         k: usize,
         query_cut: usize,
         heap_factor: f32,
+        n_knn: usize,
     ) -> Vec<(f32, usize)> {
         self.inverted_index.search(
             &query_components
@@ -81,6 +84,7 @@ impl PySeismicIndex {
             k,
             query_cut,
             heap_factor,
+            n_knn,
         )
     }
 
@@ -91,6 +95,7 @@ impl PySeismicIndex {
         k: usize,
         query_cut: usize,
         heap_factor: f32,
+        n_knn: usize,
         num_threads: usize,
     ) -> Vec<Vec<(f32, usize)>> {
         rayon::ThreadPoolBuilder::new()
@@ -103,13 +108,8 @@ impl PySeismicIndex {
         queries
             .par_iter()
             .map(|query| {
-                self.inverted_index.search(
-                    query.0,
-                    query.1,
-                    k,
-                    query_cut,
-                    heap_factor,
-                )
+                self.inverted_index
+                    .search(query.0, query.1, k, query_cut, heap_factor, n_knn)
             })
             .collect::<Vec<_>>()
     }

@@ -48,6 +48,14 @@ struct Args {
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.7)]
     heap_factor: f32,
+
+    /// A parameter that specifies how many neighbours of the top results to score in the search algorithm.
+    #[clap(long, value_parser)]
+    #[arg(default_value_t = 0)]
+    n_knn: usize,
+
+    #[clap(short, long, action)]
+    first_sorted: bool,
 }
 
 pub fn main() {
@@ -58,6 +66,8 @@ pub fn main() {
     let query_cut = args.query_cut;
     let heap_factor = args.heap_factor;
     let n_runs = args.n_runs;
+
+    let nknn = args.n_knn;
 
     let serialized: Vec<u8> = fs::read(index_path.unwrap()).unwrap();
 
@@ -86,7 +96,7 @@ pub fn main() {
         results.clear();
         for (query_id, (q_components, q_values)) in queries.iter().take(n_queries).enumerate() {
             let cur_results =
-                inverted_index.search(q_components, q_values, args.k, query_cut, heap_factor);
+                inverted_index.search(q_components, q_values, args.k, query_cut, heap_factor, nknn);
 
             if cur_results.len() < args.k {
                 println!(

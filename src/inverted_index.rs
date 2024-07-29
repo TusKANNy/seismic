@@ -1,10 +1,16 @@
 use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
-use crate::sparse_dataset::SparseDatasetMut;
+use crate::sparse_dataset::{SparseDatasetIter, SparseDatasetMut};
 use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
 use crate::utils::{do_random_kmeans_on_docids, prefetch_read_NTA};
 use crate::{DataType, QuantizedSummary, SpaceUsage, SparseDataset};
 
 use indicatif::ParallelProgressIterator;
+
+use ndarray::Array2;
+use ndarray_npy::ReadNpyExt;
+use qwt::SpaceUsage as SpaceUsageQwt;
+use qwt::{BitVector, BitVectorMut};
+use std::fs::File;
 
 use itertools::Itertools;
 
@@ -22,6 +28,7 @@ where
     forward_index: SparseDataset<T>,
     posting_lists: Box<[PostingList]>,
     config: Configuration,
+    knn: Option<Knn>,
 }
 
 impl<T> SpaceUsage for InvertedIndex<T>
@@ -37,7 +44,9 @@ where
             .map(|list| list.space_usage_byte())
             .sum();
 
-        forward + postings
+        let knn_size = self.knn.as_ref().unwrap().space_usage_byte();
+
+        forward + postings + knn_size
     }
 }
 
@@ -62,6 +71,7 @@ pub struct Configuration {
     pruning: PruningStrategy,
     blocking: BlockingStrategy,
     summarization: SummarizationStrategy,
+    knn: KnnConfiguration,
 }
 
 impl Configuration {
@@ -79,6 +89,12 @@ impl Configuration {
 
     pub fn summarization_strategy(mut self, summarization: SummarizationStrategy) -> Self {
         self.summarization = summarization;
+
+        self
+    }
+
+    pub fn knn(mut self, knn: KnnConfiguration) -> Self {
+        self.knn = knn;
 
         self
     }
@@ -117,6 +133,7 @@ where
         k: usize,
         query_cut: usize,
         heap_factor: f32,
+        n_knn: usize,
     ) -> Vec<(f32, usize)> {
         let mut query = vec![0.0; self.dim()];
 
@@ -127,11 +144,12 @@ where
         let mut visited = HashSet::with_capacity(query_cut * 5000); // 5000 should be n_postings
 
         // Sort query terms by score and evaluate the posting list only for the top ones
-        for (&component_id, &_value) in query_components
+        for (i, (&component_id, &_value)) in query_components
             .iter()
             .zip(query_values)
             .sorted_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap())
             .take(query_cut)
+            .enumerate()
         {
             self.posting_lists[component_id as usize].search(
                 &query,
@@ -142,7 +160,14 @@ where
                 &mut heap,
                 &mut visited,
                 &self.forward_index,
+                i == 0,
             );
+        }
+
+        if let Some(knn) = self.knn.as_ref() {
+            if n_knn > 0 {
+                knn.refine(&query, &mut heap, &mut visited, &self.forward_index, n_knn);
+            }
         }
 
         heap.topk()
@@ -213,13 +238,33 @@ where
             })
             .collect();
 
-        let elapsed = time.elapsed();
-        println!("{} secs", elapsed.as_secs());
-
-        Self {
+        let me = Self {
             forward_index: dataset,
             posting_lists: posting_lists.into_boxed_slice(),
+            config: config.clone(),
+            knn: None,
+        };
+
+        if config.knn.nknn == 0 {
+            let elapsed = time.elapsed();
+            println!("{} secs", elapsed.as_secs());
+            return me;
+        }
+
+        let knn_config = config.knn.clone();
+        let knn = if let Some(knn_path) = knn_config.knn_path {
+            Knn::new_from_path(knn_path)
+        } else {
+            Knn::new(&me, knn_config.nknn)
+        };
+
+        let elapsed = time.elapsed();
+        println!("{} secs", elapsed.as_secs());
+        Self {
+            forward_index: me.forward_index,
+            posting_lists: me.posting_lists,
             config,
+            knn: Some(knn),
         }
     }
 
@@ -254,6 +299,19 @@ where
         for (score, docid, id_posting) in postings.into_iter().take(tot_postings) {
             inverted_pairs[id_posting as usize].push((score, docid));
         }
+    }
+
+    /// Returns an iterator over the underlying SparseDataset
+    #[must_use]
+    pub fn iter(&self) -> SparseDatasetIter<T> {
+        self.forward_index.iter()
+    }
+
+    /// Returns (offset, len) of the "id"-th document
+    #[must_use]
+    #[inline]
+    pub fn id_to_offset_len(&self, id: usize) -> (usize, usize) {
+        self.forward_index.id_to_offset_len(id)
     }
 
     /// Returns the id of the largest component, i.e., the dimensionality of the vectors in the dataset.
@@ -296,20 +354,22 @@ struct PostingList {
 
 impl SpaceUsage for PostingList {
     fn space_usage_byte(&self) -> usize {
-        self.packed_postings.space_usage_byte()
-            + self.block_offsets.space_usage_byte()
+        SpaceUsage::space_usage_byte(&self.packed_postings) +
+        //self.packed_postings.space_usage_byte()
+        SpaceUsage::space_usage_byte(&self.block_offsets)
+        //    + self.block_offsets.space_usage_byte()
             + self.summaries.space_usage_byte()
     }
 }
 
 impl PostingList {
     #[inline]
-    fn pack_offset_len(offset: usize, len: usize) -> u64 {
+    pub fn pack_offset_len(offset: usize, len: usize) -> u64 {
         ((offset as u64) << 16) | (len as u64)
     }
 
     #[inline]
-    fn unpack_offset_len(pack: u64) -> (usize, usize) {
+    pub fn unpack_offset_len(pack: u64) -> (usize, usize) {
         ((pack >> 16) as usize, (pack & (u16::MAX as u64)) as usize)
     }
 
@@ -325,22 +385,30 @@ impl PostingList {
         heap: &mut HeapFaiss,
         visited: &mut HashSet<usize>,
         forward_index: &SparseDataset<T>,
+        sort_summaries: bool,
     ) where
         T: DataType,
     {
         let mut blocks_to_evaluate: Vec<&[u64]> = Vec::new();
+
         let dots = self
             .summaries
             .matmul_with_query(query_components, query_values);
-        //for (block_id, (c_summary, v_summary)) in self.summaries.iter().enumerate() {
-        //let dot = dot_product_dense_sparse(query, c_summary, v_summary);
-        for (block_id, &dot) in dots.iter().enumerate() {
+
+        let mut indexed_dots: Vec<(usize, &f32)> = dots.iter().enumerate().collect();
+
+        // Sort summaries by dot product w.r.t. to the query. Useful only in the first list.
+        if sort_summaries {
+            indexed_dots.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
+        }
+
+        for (block_id, &dot) in indexed_dots.iter() {
             if heap.len() == k && dot < -heap_factor * heap.top() {
                 continue;
             }
 
             let packed_posting_block = &self.packed_postings
-                [self.block_offsets[block_id]..self.block_offsets[block_id + 1]];
+                [self.block_offsets[*block_id]..self.block_offsets[block_id + 1]];
 
             if blocks_to_evaluate.len() == 1 {
                 for cur_packed_posting in blocks_to_evaluate.iter() {
@@ -474,7 +542,7 @@ impl PostingList {
                     n_components,
                 ),
 
-                SummarizationStrategy::EnergyPerserving {
+                SummarizationStrategy::EnergyPreserving {
                     summary_energy: fraction,
                 } => Self::energy_preserving_summary(
                     dataset,
@@ -687,13 +755,178 @@ impl Default for BlockingStrategy {
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub enum SummarizationStrategy {
     FixedSize { n_components: usize },
-    EnergyPerserving { summary_energy: f32 },
+    EnergyPreserving { summary_energy: f32 },
 }
 
 impl Default for SummarizationStrategy {
     fn default() -> Self {
-        Self::EnergyPerserving {
+        Self::EnergyPreserving {
             summary_energy: 0.4,
+        }
+    }
+}
+
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub struct KnnConfiguration {
+    nknn: usize,
+    knn_path: Option<String>,
+}
+
+impl Default for KnnConfiguration {
+    fn default() -> Self {
+        KnnConfiguration {
+            nknn: 0,
+            knn_path: None,
+        }
+    }
+}
+
+impl KnnConfiguration {
+    pub fn new(nknn: usize, knn_path: Option<String>) -> Self {
+        KnnConfiguration { nknn, knn_path }
+    }
+}
+
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Knn {
+    n_vecs: usize,
+    d: usize,
+    neighbours: BitVector,
+    nbits: usize,
+}
+
+impl SpaceUsage for Knn {
+    fn space_usage_byte(&self) -> usize {
+        self.neighbours.space_usage_byte()
+            + SpaceUsage::space_usage_byte(&self.n_vecs)
+            + SpaceUsage::space_usage_byte(&self.d)
+            + SpaceUsage::space_usage_byte(&self.nbits)
+    }
+}
+
+impl Knn {
+    #[must_use]
+    pub fn new<T: PartialOrd + DataType>(index: &InvertedIndex<T>, d: usize) -> Self {
+        const KNN_QUERY_CUT: usize = 10;
+        const KNN_HEAP_FACTOR: f32 = 0.7;
+
+        let n_vecs = index.len();
+        println!("\tComputing KNN");
+        let docs_search_results: Vec<_> = index
+            .forward_index
+            .par_iter()
+            .progress_count(index.forward_index.len() as u64)
+            .enumerate()
+            .map(|(my_doc_id, (components, values))| {
+                let f32_values: Vec<f32> =
+                    values.into_iter().map(|v| v.to_f32().unwrap()).collect();
+
+                index
+                    .search(
+                        components,
+                        &f32_values,
+                        d + 1,
+                        KNN_QUERY_CUT,
+                        KNN_HEAP_FACTOR,
+                        0,
+                    ) // +1 to avoid the be able to filter the document itself if present
+                    .iter()
+                    .map(|(distance, doc_id)| (*distance, *doc_id as usize))
+                    .filter(|(_distance, doc_id)| *doc_id != my_doc_id) // remove the document itself
+                    .take(d)
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        let (bv, nbits) = Self::compress_into_bitvector(
+            docs_search_results
+                .into_iter()
+                .flat_map(|r| r.into_iter())
+                .map(|(_distance, doc_id)| doc_id as u64),
+            n_vecs,
+            d,
+        );
+
+        Self {
+            n_vecs,
+            d,
+            //neighbours: neighbours.into_boxed_slice(),
+            neighbours: bv,
+            nbits,
+        }
+    }
+
+    #[must_use]
+    pub fn new_from_path(path: String) -> Self {
+        println!("Reading KNN from file: {:}", path);
+
+        let reader = File::open(path).unwrap();
+        let arr = Array2::<u64>::read_npy(reader).map_err(|e| e.to_string());
+
+        let arr_data = arr.unwrap();
+        let shapes = arr_data.shape();
+
+        let n_vecs = shapes[0];
+        println!("Number of vectors: {:}", n_vecs);
+
+        let d = shapes[1];
+        println!("Number of neighbors: {:}", d);
+
+        let (bv, nbits) = Self::compress_into_bitvector(arr_data.into_iter(), n_vecs, d);
+
+        Self {
+            n_vecs,
+            d,
+            neighbours: bv,
+            nbits,
+        }
+    }
+
+    #[must_use]
+    fn compress_into_bitvector(
+        data: impl Iterator<Item = u64>,
+        n_vecs: usize,
+        d: usize,
+    ) -> (BitVector, usize) {
+        let nbits = (n_vecs as f32).log2().ceil() as usize;
+        let mut neighbours = BitVectorMut::with_capacity(n_vecs * d * nbits);
+        for x in data {
+            //neighbours.push(x as u32);
+            neighbours.append_bits(x, nbits);
+        }
+        (BitVector::from(neighbours), nbits)
+    }
+
+    #[inline]
+    pub fn refine<T>(
+        &self,
+        query: &[f32],
+        heap: &mut HeapFaiss,
+        visited: &mut HashSet<usize>,
+        forward_index: &SparseDataset<T>,
+        n_knn: usize,
+    ) where
+        T: DataType,
+    {
+        let neighbours: Vec<_> = heap.topk();
+        for &(_distance, offset) in neighbours.iter() {
+            let id = forward_index.offset_to_id(offset);
+
+            for i in 0..n_knn {
+                let bit_offset = id * self.d * self.nbits + i * self.nbits;
+                let neighbour = self.neighbours.get_bits(bit_offset, self.nbits).unwrap();
+
+                let offset = forward_index.vector_offset(neighbour as usize);
+
+                let len = forward_index.vector_len(neighbour as usize);
+
+                if !visited.contains(&offset) {
+                    let (v_components, v_values) = forward_index.get_with_offset(offset, len);
+                    let distance = dot_product_dense_sparse(&query, v_components, v_values);
+                    visited.insert(offset);
+                    heap.push_with_id(-1.0 * distance, offset);
+                }
+            }
         }
     }
 }
