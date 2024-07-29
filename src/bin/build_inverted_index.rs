@@ -56,7 +56,7 @@ struct Args {
     /// Says how many neighbors to include for each vector of the dataset.
     /// These neighbors are used to improve the accuracy of the reported results.
     #[clap(long, value_parser)]
-    #[arg(default_value_t = 30)]
+    #[arg(default_value_t = 0)]
     knn: usize,
 
     /// Path to the file of precomputed neareast neighbors.
