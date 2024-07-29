@@ -246,7 +246,7 @@ let data = vec![
                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
                 ];
 
-let dataset: SparseDataset<f16> = data.into_iter().collect::<SparseDataset<f32>>().into();;
+let dataset: SparseDataset<f16> = data.into_iter().collect::<SparseDataset<f32>>().into();
 
 assert_eq!(dataset.len(), 3);  // Number of vectors  
 assert_eq!(dataset.dim(), 5);  // Number of components
@@ -275,7 +275,7 @@ let data = vec![
                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
                 ];
 
-let dataset: SparseDataset<f16> = data.into_iter().collect::<SparseDataset<f32>>().into();;
+let dataset: SparseDataset<f16> = data.into_iter().collect::<SparseDataset<f32>>().into();
 
 let inverted_index = InvertedIndex::build(dataset, Configuration::default());
 
