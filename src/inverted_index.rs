@@ -43,8 +43,11 @@ where
             .iter()
             .map(|list| list.space_usage_byte())
             .sum();
-
-        let knn_size = self.knn.as_ref().unwrap().space_usage_byte();
+        let knn_size = match &self.knn {
+            Some(knn) => knn.space_usage_byte(),
+            None => 0,
+        };
+        //let knn_size = self.knn.as_ref().unwrap().space_usage_byte();
 
         forward + postings + knn_size
     }
@@ -253,7 +256,7 @@ where
 
         let knn_config = config.knn.clone();
         let knn = if let Some(knn_path) = knn_config.knn_path {
-            Knn::new_from_path(knn_path)
+            Knn::new_from_path(knn_path, knn_config.nknn)
         } else {
             Knn::new(&me, knn_config.nknn)
         };
@@ -857,7 +860,7 @@ impl Knn {
     }
 
     #[must_use]
-    pub fn new_from_path(path: String) -> Self {
+    pub fn new_from_path(path: String, knn: usize) -> Self {
         println!("Reading KNN from file: {:}", path);
 
         let reader = File::open(path).unwrap();
@@ -870,9 +873,16 @@ impl Knn {
         println!("Number of vectors: {:}", n_vecs);
 
         let d = shapes[1];
-        println!("Number of neighbors: {:}", d);
+        println!("Number of neighbors in the file: {:}", d);
+        println!("We only take {:} neighbors per element", knn);
 
-        let (bv, nbits) = Self::compress_into_bitvector(arr_data.into_iter(), n_vecs, d);
+        let mut selected_neighbors: Vec<u64> = Vec::with_capacity(10);
+        for row in arr_data.outer_iter() {
+            for &value in row.iter().take(knn) {
+                selected_neighbors.push(value);
+            }
+        }
+        let (bv, nbits) = Self::compress_into_bitvector(selected_neighbors.into_iter(), n_vecs, d);
 
         Self {
             n_vecs,
