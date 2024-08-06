@@ -886,7 +886,7 @@ impl Knn {
 
         Self {
             n_vecs,
-            d,
+            d: knn,
             neighbours: bv,
             nbits,
         }
