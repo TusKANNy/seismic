@@ -166,7 +166,6 @@ where
                 i == 0,
             );
         }
-
         if let Some(knn) = self.knn.as_ref() {
             if n_knn > 0 {
                 knn.refine(&query, &mut heap, &mut visited, &self.forward_index, n_knn);
@@ -882,7 +881,8 @@ impl Knn {
                 selected_neighbors.push(value);
             }
         }
-        let (bv, nbits) = Self::compress_into_bitvector(selected_neighbors.into_iter(), n_vecs, d);
+        let (bv, nbits) =
+            Self::compress_into_bitvector(selected_neighbors.into_iter(), n_vecs, knn);
 
         Self {
             n_vecs,
