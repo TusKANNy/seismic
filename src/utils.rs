@@ -151,8 +151,7 @@ pub fn do_random_kmeans_on_docids_2<T: DataType>(
     // bincode::serialize_into(writer, &doc_ids).expect("Failed to serialize data");
 
     // let time = Instant::now();
-    // Create a seeded RNG
-    let seed = 42; // You can use any u64 value as the seed
+    let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
     let centroid_ids = doc_ids
         .iter()
@@ -229,7 +228,7 @@ pub fn do_random_kmeans_on_docids_2<T: DataType>(
         .map(|(i, id)| (*id, i))
         .collect::<HashMap<_, _>>();
 
-    final_assigments.sort_unstable_by_key(|(centroid_id, _doc_id)| hash_map.get(centroid_id));
+    final_assigments.sort_unstable_by_key(|(centroid_id, _doc_id)| hash_map.get(centroid_id)); // just to have the same ordering of the original clustering algorithm
 
     assert_eq!(
         final_assigments
@@ -271,12 +270,12 @@ pub fn do_random_kmeans_on_docids<T: DataType>(
     let mut inverted_lists: Vec<Vec<_>> = (0..n_clusters).map(|_| Vec::new()).collect();
 
     for &doc_id in doc_ids {
+        // Densify the vector
         let mut dense_vector: Vec<T> = vec![T::zero(); dataset.dim()];
-        //densify the vector
-
         for (&i, &v) in dataset.iter_vector(doc_id) {
             dense_vector[i as usize] = v;
         }
+
         let mut argmax = 0;
         let mut max = 0_f32;
         for (i, &c_id) in centroid_ids.iter().enumerate() {
@@ -305,9 +304,16 @@ pub fn do_random_kmeans_on_docids<T: DataType>(
         }
     }
 
-    println!("to_be_reassigned: {}", to_be_reassigned.len());
+    let centroids_set = centroid_ids.iter().copied().collect::<HashSet<_>>();
+    let mut to_be_avoided = HashSet::new();
     for &doc_id in to_be_reassigned.iter() {
-        println!("remapping {}", doc_id);
+        if centroids_set.contains(&doc_id) {
+            to_be_avoided.insert(doc_id);
+        }
+    }
+
+    //println!("to_be_reassigned: {}", to_be_reassigned.len());
+    for &doc_id in to_be_reassigned.iter() {
         let mut dense_vector: Vec<T> = vec![T::zero(); dataset.dim()];
 
         // Densify the vector
@@ -321,8 +327,10 @@ pub fn do_random_kmeans_on_docids<T: DataType>(
             if il.len() <= min_cluster_size {
                 continue;
             }
+            if to_be_avoided.contains(&c_id) {
+                continue;
+            }
 
-            // Questo è sbagliato!!!
             let (v_components, v_values) = dataset.get(c_id);
 
             let dot = dot_product_dense_sparse(&dense_vector, v_components, v_values);
