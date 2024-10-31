@@ -1,6 +1,5 @@
 use core::hash::Hash;
-use std::collections::{HashMap, HashSet};
-//use std::time::Instant;
+use std::collections::HashSet;
 
 use rand::{seq::IteratorRandom, thread_rng};
 
@@ -79,7 +78,7 @@ fn compute_centroid_assignments<T: DataType>(
 
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
 
-    let mut centroid_set: HashSet<usize> = centroids.iter().copied().collect();
+    let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
 
     for &doc_id in doc_ids.iter() {
         if centroid_set.contains(&doc_id) && !to_avoid.contains(&doc_id) {
@@ -87,7 +86,7 @@ fn compute_centroid_assignments<T: DataType>(
             continue;
         }
 
-        //densify the vector
+        // Densify the vector
         let mut dense_vector: Vec<T> = vec![T::zero(); dataset.dim()];
         for (&c, &v) in dataset.iter_vector(doc_id) {
             dense_vector[c as usize] = v;
@@ -95,8 +94,6 @@ fn compute_centroid_assignments<T: DataType>(
 
         let mut max = 0_f32;
         let mut max_centroid_id = centroids[0];
-
-        //println!("Start {} max: {}", doc_id, max);
 
         let mut visited = to_avoid.clone();
 
@@ -119,9 +116,7 @@ fn compute_centroid_assignments<T: DataType>(
                     max_centroid_id = centroid_id;
                 }
             }
-            //println!("\tpre max: {} {} doc_id {}", max, max_centroid_id, doc_id);
         }
-        // println!("final max: {} {} doc_id {}\n", max, max_centroid_id, doc_id);
 
         centroid_assignments.push((max_centroid_id, doc_id));
     }
@@ -130,27 +125,14 @@ fn compute_centroid_assignments<T: DataType>(
 }
 
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
-use std::fs::File;
-use std::io::BufWriter;
+use rand::SeedableRng;
 
 pub fn do_random_kmeans_on_docids_2<T: DataType>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &SparseDataset<T>,
     min_cluster_size: usize,
-) -> Vec<Vec<usize>> {
-    // if doc_ids.len() < 5000 {
-    //     return Vec::new();
-    // }
-
-    // let file = File::create("output.bin").unwrap();
-    // let writer = BufWriter::new(file);
-
-    // // Serialize and write to the file using bincode
-    // bincode::serialize_into(writer, &doc_ids).expect("Failed to serialize data");
-
-    // let time = Instant::now();
+) -> Vec<(usize, usize)> {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
     let centroid_ids = doc_ids
@@ -158,7 +140,7 @@ pub fn do_random_kmeans_on_docids_2<T: DataType>(
         .copied()
         .choose_multiple(&mut rng, n_clusters);
 
-    /// Build an inverted index for the centroids
+    // Build an inverted index for the centroids
     let mut inverted_index = Vec::with_capacity(dataset.dim());
     for _ in 0..dataset.dim() {
         inverted_index.push(Vec::new());
@@ -178,7 +160,7 @@ pub fn do_random_kmeans_on_docids_2<T: DataType>(
         &HashSet::new(),
     );
 
-    /// Prune too small clusters and reassign the documents to the closest cluster
+    // Prune too small clusters and reassign the documents to the closest cluster
     let mut to_be_reassigned = Vec::new(); // docids that belong to too small clusters
     let mut final_assigments = Vec::with_capacity(doc_ids.len());
     let mut removed_centroids = HashSet::new();
@@ -197,8 +179,6 @@ pub fn do_random_kmeans_on_docids_2<T: DataType>(
             final_assigments.extend(vec_chunk.into_iter());
         }
     }
-
-    //println!("to_be_reassigned: {}", to_be_reassigned.len());
 
     assert_eq!(
         to_be_reassigned.len() + final_assigments.len(),
@@ -222,35 +202,31 @@ pub fn do_random_kmeans_on_docids_2<T: DataType>(
         "Final assignment size mismatch"
     );
 
-    let hash_map = centroid_ids
-        .iter()
-        .enumerate()
-        .map(|(i, id)| (*id, i))
-        .collect::<HashMap<_, _>>();
+    final_assigments.sort();
 
-    final_assigments.sort_unstable_by_key(|(centroid_id, _doc_id)| hash_map.get(centroid_id)); // just to have the same ordering of the original clustering algorithm
+    final_assigments
 
-    assert_eq!(
-        final_assigments
-            .iter()
-            .map(|(_, d)| d)
-            .copied()
-            .collect::<HashSet<_>>(),
-        doc_ids.iter().copied().collect::<HashSet<_>>(),
-    );
+    // assert_eq!(
+    //     final_assigments
+    //         .iter()
+    //         .map(|(_, d)| d)
+    //         .copied()
+    //         .collect::<HashSet<_>>(),
+    //     doc_ids.iter().copied().collect::<HashSet<_>>(),
+    // );
 
-    let mut inverted_lists = Vec::new();
-    for (_centroid_id, group) in &final_assigments
-        .into_iter()
-        .group_by(|(centroid_id, _doc_id)| *centroid_id)
-    {
-        let vec_group = group
-            .map(|(_centroid_id, doc_id)| doc_id)
-            .collect::<Vec<_>>();
-        inverted_lists.push(vec_group);
-    }
+    // let mut inverted_lists = Vec::new();
+    // for (_centroid_id, group) in &final_assigments
+    //     .into_iter()
+    //     .group_by(|(centroid_id, _doc_id)| *centroid_id)
+    // {
+    //     let vec_group = group
+    //         .map(|(_centroid_id, doc_id)| doc_id)
+    //         .collect::<Vec<_>>();
+    //     inverted_lists.push(vec_group);
+    // }
 
-    inverted_lists
+    // inverted_lists
 }
 
 pub fn do_random_kmeans_on_docids<T: DataType>(

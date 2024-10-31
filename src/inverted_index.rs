@@ -1,7 +1,7 @@
 use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
 use crate::sparse_dataset::{SparseDatasetIter, SparseDatasetMut};
 use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
-use crate::utils::{do_random_kmeans_on_docids, do_random_kmeans_on_docids_2, prefetch_read_NTA};
+use crate::utils::{do_random_kmeans_on_docids_2, prefetch_read_NTA};
 use crate::{DataType, QuantizedSummary, SpaceUsage, SparseDataset};
 
 use indicatif::ParallelProgressIterator;
@@ -620,20 +620,16 @@ impl PostingList {
 
             block_offsets.push(0);
 
-            // let time = Instant::now();
-            for cluster in clustering_results {
-                if cluster.is_empty() {
-                    continue;
-                }
-                reordered_posting_list.extend(cluster);
+            for (_centroid_id, group) in &clustering_results
+                .into_iter()
+                .group_by(|(centroid_id, _doc_id)| *centroid_id)
+            {
+                reordered_posting_list.extend(group.map(|(_centroid_id, doc_id)| doc_id));
                 block_offsets.push(reordered_posting_list.len());
             }
 
             assert_eq!(reordered_posting_list.len(), posting_list.len());
             posting_list.copy_from_slice(&reordered_posting_list);
-
-            // let elapsed = time.elapsed();
-            // println!("Reordering {} secs", elapsed.as_secs());
         }
 
         block_offsets
