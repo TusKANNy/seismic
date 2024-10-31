@@ -1,7 +1,7 @@
 use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
 use crate::sparse_dataset::{SparseDatasetIter, SparseDatasetMut};
 use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
-use crate::utils::{do_random_kmeans_on_docids_2, prefetch_read_NTA};
+use crate::utils::{do_random_kmeans_on_docids_rox, prefetch_read_NTA};
 use crate::{DataType, QuantizedSummary, SpaceUsage, SparseDataset};
 
 use indicatif::ParallelProgressIterator;
@@ -610,10 +610,14 @@ impl PostingList {
             // Need to change only how clustering results is computed
             todo!();
         } else {
-            // let time = Instant::now();
+            //let time = Instant::now();
 
-            let clustering_results =
-                do_random_kmeans_on_docids_2(posting_list, n_centroids, dataset, min_cluster_size);
+            let clustering_results = do_random_kmeans_on_docids_rox(
+                posting_list,
+                n_centroids,
+                dataset,
+                min_cluster_size,
+            );
 
             // let elapsed = time.elapsed();
             // println!("Clustering {} secs", elapsed.as_secs());

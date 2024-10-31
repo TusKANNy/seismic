@@ -69,12 +69,12 @@ use itertools::Itertools;
 
 fn compute_centroid_assignments<T: DataType>(
     doc_ids: &[usize],
-    inverted_index: &[Vec<usize>],
+    inverted_index: &[Vec<(T, usize)>],
     dataset: &SparseDataset<T>,
     centroids: &[usize],
     to_avoid: &HashSet<usize>,
 ) -> Vec<(usize, usize)> {
-    const QUERY_CUT: usize = 10; // Number of current doc terms to evaluate
+    const QUERY_CUT: usize = 2; // Number of current doc terms to evaluate
 
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
 
@@ -103,7 +103,7 @@ fn compute_centroid_assignments<T: DataType>(
             .sorted_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap())
             .take(QUERY_CUT)
         {
-            for &centroid_id in inverted_index[component_id as usize].iter() {
+            for &(_score, centroid_id) in inverted_index[component_id as usize].iter() {
                 if visited.contains(&centroid_id) {
                     continue;
                 }
@@ -127,7 +127,7 @@ fn compute_centroid_assignments<T: DataType>(
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
-pub fn do_random_kmeans_on_docids_2<T: DataType>(
+pub fn do_random_kmeans_on_docids_rox<T: DataType>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &SparseDataset<T>,
@@ -140,6 +140,7 @@ pub fn do_random_kmeans_on_docids_2<T: DataType>(
         .copied()
         .choose_multiple(&mut rng, n_clusters);
 
+    let pruned_list_size = 5.max(doc_ids.len() / 100);
     // Build an inverted index for the centroids
     let mut inverted_index = Vec::with_capacity(dataset.dim());
     for _ in 0..dataset.dim() {
@@ -147,9 +148,14 @@ pub fn do_random_kmeans_on_docids_2<T: DataType>(
     }
 
     for &centroid_id in centroid_ids.iter() {
-        for (&c, _score) in dataset.iter_vector(centroid_id) {
-            inverted_index[c as usize].push(centroid_id);
+        for (&c, &score) in dataset.iter_vector(centroid_id) {
+            inverted_index[c as usize].push((score, centroid_id));
         }
+    }
+
+    for list in inverted_index.iter_mut() {
+        list.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        list.truncate(pruned_list_size);
     }
 
     let mut centroid_assigments = compute_centroid_assignments(
@@ -205,29 +211,109 @@ pub fn do_random_kmeans_on_docids_2<T: DataType>(
     final_assigments.sort();
 
     final_assigments
-
-    // assert_eq!(
-    //     final_assigments
-    //         .iter()
-    //         .map(|(_, d)| d)
-    //         .copied()
-    //         .collect::<HashSet<_>>(),
-    //     doc_ids.iter().copied().collect::<HashSet<_>>(),
-    // );
-
-    // let mut inverted_lists = Vec::new();
-    // for (_centroid_id, group) in &final_assigments
-    //     .into_iter()
-    //     .group_by(|(centroid_id, _doc_id)| *centroid_id)
-    // {
-    //     let vec_group = group
-    //         .map(|(_centroid_id, doc_id)| doc_id)
-    //         .collect::<Vec<_>>();
-    //     inverted_lists.push(vec_group);
-    // }
-
-    // inverted_lists
 }
+
+// pub fn do_random_kmeans_on_docids_2<T: DataType>(
+//     doc_ids: &[usize],
+//     n_clusters: usize,
+//     dataset: &SparseDataset<T>,
+//     min_cluster_size: usize,
+// ) -> Vec<(usize, usize)> {
+//     let seed = 42;
+//     let mut rng = StdRng::seed_from_u64(seed);
+//     let centroid_ids = doc_ids
+//         .iter()
+//         .copied()
+//         .choose_multiple(&mut rng, n_clusters);
+
+//     // Build an inverted index for the centroids
+//     let mut inverted_index = Vec::with_capacity(dataset.dim());
+//     for _ in 0..dataset.dim() {
+//         inverted_index.push(Vec::new());
+//     }
+
+//     for &centroid_id in centroid_ids.iter() {
+//         for (&c, _score) in dataset.iter_vector(centroid_id) {
+//             inverted_index[c as usize].push(centroid_id);
+//         }
+//     }
+
+//     let mut centroid_assigments = compute_centroid_assignments(
+//         doc_ids,
+//         &inverted_index,
+//         dataset,
+//         &centroid_ids,
+//         &HashSet::new(),
+//     );
+
+//     // Prune too small clusters and reassign the documents to the closest cluster
+//     let mut to_be_reassigned = Vec::new(); // docids that belong to too small clusters
+//     let mut final_assigments = Vec::with_capacity(doc_ids.len());
+//     let mut removed_centroids = HashSet::new();
+
+//     centroid_assigments.sort_unstable();
+
+//     for (centroid_id, chunk) in &centroid_assigments
+//         .into_iter()
+//         .group_by(|(centroid_id, _doc_id)| *centroid_id)
+//     {
+//         let vec_chunk = chunk.collect::<Vec<_>>();
+//         if vec_chunk.len() <= min_cluster_size {
+//             to_be_reassigned.extend(vec_chunk.into_iter().map(|(_centroid_id, doc_id)| doc_id));
+//             removed_centroids.insert(centroid_id);
+//         } else {
+//             final_assigments.extend(vec_chunk.into_iter());
+//         }
+//     }
+
+//     assert_eq!(
+//         to_be_reassigned.len() + final_assigments.len(),
+//         doc_ids.len(),
+//         "Final assignment size mismatch"
+//     );
+
+//     let centroid_assigments = compute_centroid_assignments(
+//         to_be_reassigned.as_slice(),
+//         &inverted_index,
+//         dataset,
+//         &centroid_ids,
+//         &removed_centroids,
+//     );
+
+//     final_assigments.extend(centroid_assigments);
+
+//     assert_eq!(
+//         final_assigments.len(),
+//         doc_ids.len(),
+//         "Final assignment size mismatch"
+//     );
+
+//     final_assigments.sort();
+
+//     final_assigments
+
+//     // assert_eq!(
+//     //     final_assigments
+//     //         .iter()
+//     //         .map(|(_, d)| d)
+//     //         .copied()
+//     //         .collect::<HashSet<_>>(),
+//     //     doc_ids.iter().copied().collect::<HashSet<_>>(),
+//     // );
+
+//     // let mut inverted_lists = Vec::new();
+//     // for (_centroid_id, group) in &final_assigments
+//     //     .into_iter()
+//     //     .group_by(|(centroid_id, _doc_id)| *centroid_id)
+//     // {
+//     //     let vec_group = group
+//     //         .map(|(_centroid_id, doc_id)| doc_id)
+//     //         .collect::<Vec<_>>();
+//     //     inverted_lists.push(vec_group);
+//     // }
+
+//     // inverted_lists
+// }
 
 pub fn do_random_kmeans_on_docids<T: DataType>(
     doc_ids: &[usize],
