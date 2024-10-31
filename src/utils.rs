@@ -187,7 +187,7 @@ pub fn do_random_kmeans_on_docids_sebastian<T: DataType>(
     }
 
     for (i, &centroid_id) in centroid_ids.iter().enumerate() {
-        for (&c, score) in dataset.iter_vector(centroid_id) {
+        for (&c, &score) in dataset.iter_vector(centroid_id) {
             inverted_index[c as usize].push((i, score));
         }
     }
