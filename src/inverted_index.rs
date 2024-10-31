@@ -1,7 +1,7 @@
 use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
 use crate::sparse_dataset::{SparseDatasetIter, SparseDatasetMut};
 use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
-use crate::utils::{do_random_kmeans_on_docids, prefetch_read_NTA};
+use crate::utils::{do_random_kmeans_on_docids, do_random_kmeans_on_docids_2, prefetch_read_NTA};
 use crate::{DataType, QuantizedSummary, SpaceUsage, SparseDataset};
 
 use indicatif::ParallelProgressIterator;
@@ -534,6 +534,8 @@ impl PostingList {
             ),
         };
 
+        // let time = Instant::now();
+
         let mut summaries = SparseDatasetMut::<T>::new();
 
         for block_range in block_offsets.windows(2) {
@@ -555,6 +557,8 @@ impl PostingList {
 
             summaries.push(&components, &values);
         }
+        // let elapsed = time.elapsed();
+        // println!("Building summaries {} secs", elapsed.as_secs());
 
         let packed_postings: Vec<_> = posting_list
             .iter()
@@ -606,11 +610,17 @@ impl PostingList {
             // Need to change only how clustering results is computed
             todo!();
         } else {
+            // let time = Instant::now();
+
             let clustering_results =
-                do_random_kmeans_on_docids(posting_list, n_centroids, dataset, min_cluster_size);
+                do_random_kmeans_on_docids_2(posting_list, n_centroids, dataset, min_cluster_size);
+
+            // let elapsed = time.elapsed();
+            // println!("Clustering {} secs", elapsed.as_secs());
 
             block_offsets.push(0);
 
+            // let time = Instant::now();
             for cluster in clustering_results {
                 if cluster.is_empty() {
                     continue;
@@ -621,6 +631,9 @@ impl PostingList {
 
             assert_eq!(reordered_posting_list.len(), posting_list.len());
             posting_list.copy_from_slice(&reordered_posting_list);
+
+            // let elapsed = time.elapsed();
+            // println!("Reordering {} secs", elapsed.as_secs());
         }
 
         block_offsets

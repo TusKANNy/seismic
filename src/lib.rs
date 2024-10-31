@@ -37,7 +37,7 @@ use pyo3::{pymodule, PyResult, Python};
 
 /// Marker for types used as values in a dataset
 pub trait DataType:
-    SpaceUsage + Copy + AsPrimitive<f16> + ToPrimitive + Zero + Send + Sync
+    SpaceUsage + Copy + AsPrimitive<f16> + ToPrimitive + Zero + Send + Sync + PartialOrd
 {
 }
 
