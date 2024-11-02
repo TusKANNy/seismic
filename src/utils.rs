@@ -74,7 +74,7 @@ fn compute_centroid_assignments<T: DataType>(
     centroids: &[usize],
     to_avoid: &HashSet<usize>,
 ) -> Vec<(usize, usize)> {
-    const QUERY_CUT: usize = 10; // Number of current doc terms to evaluate
+    const QUERY_CUT: usize = 15; // Number of current doc terms to evaluate
 
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
 
@@ -131,7 +131,7 @@ fn compute_centroid_assignments_sebastian<T: DataType>(
     centroids: &[usize],
     to_avoid: &HashSet<usize>,
 ) -> Vec<(usize, usize)> {
-    const QUERY_CUT: usize = 10; // Number of current doc terms to evaluate
+    const QUERY_CUT: usize = 15; // Number of current doc terms to evaluate
 
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
     let mut scores = vec![0_f32; centroids.len()];
@@ -173,7 +173,7 @@ pub fn do_random_kmeans_on_docids_sebastian<T: DataType>(
     dataset: &SparseDataset<T>,
     min_cluster_size: usize,
 ) -> Vec<(usize, usize)> {
-    let seed = 42;
+    let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
     let centroid_ids = doc_ids
         .iter()
