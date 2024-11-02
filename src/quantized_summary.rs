@@ -103,7 +103,7 @@ impl QuantizedSummary {
                 .enumerate()
                 .map(|(id, cur_offset)| cur_offset + id) // Add id to make a strictly increasing sequence
                 .collect(),
-                summaries_ids: summaries_ids.into_boxed_slice(),
+            summaries_ids: summaries_ids.into_boxed_slice(),
             values: codes.into_boxed_slice(),
             minimums: minimums.into_boxed_slice(),
             quants: quants.into_boxed_slice(),

@@ -25,7 +25,7 @@ struct Args {
     output_path: Option<String>,
 
     /// The number of queries to evaluate.
-    #[clap(short, long, value_parser)]
+    #[clap(long, value_parser)]
     #[arg(default_value_t = 10000)]
     n_queries: usize,
 
