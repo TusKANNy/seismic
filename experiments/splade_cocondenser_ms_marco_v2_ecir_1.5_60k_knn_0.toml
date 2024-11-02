@@ -1,6 +1,6 @@
 name =          "splade_cocondenser_ms_marco_v2_ecir_1.5_60k_knn_0"
 title =         "ECIR plot - Seismic 1.5"
-description =   "Seismic without KNN with a space usage in within a factor 1.5 the size of the forward index"
+description =   "Seismic without KNN with a space usage within a factor 1.5 the size of the forward index"
 dataset =       "Splade cocondenser on MS-MARCO-v2"
 
 [settings]
@@ -27,26 +27,26 @@ summary-energy =        0.4
 knn =                   0
 
 [query]
-    [query.93]
+    [query.recall_93]
     query-cut =         3
     heap-factor =       0.8
 
-    [query.94]
+    [query.recall_94]
     query-cut =         4
     heap-factor =       0.8
 
-    [query.95]
+    [query.recall_95]
     query-cut =         6
     heap-factor =       0.8
 
-    [query.96]
+    [query.recall_96]
     query-cut =         4
     heap-factor =       0.7
 
-    [query.97]
+    [query.recall_97]
     query-cut =         6
     heap-factor =       0.7
 
-    [query.98]
+    [query.recall_98]
     query-cut =         7
     heap-factor =       0.6
