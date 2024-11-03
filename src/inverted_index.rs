@@ -611,12 +611,14 @@ impl PostingList {
             todo!();
         } else {
             //let time = Instant::now();
+            let pruning_factor = 0.005;
 
-            let clustering_results = do_random_kmeans_on_docids_rox(
+            let clustering_results = do_random_kmeans_on_docids_ii_dot_product(
                 posting_list,
                 n_centroids,
                 dataset,
                 min_cluster_size,
+                pruning_factor,
             );
 
             // let elapsed = time.elapsed();
