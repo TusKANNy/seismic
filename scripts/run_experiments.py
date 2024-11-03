@@ -89,7 +89,8 @@ def build_index(configs, experiment_dir):
     print(f"Dataset filename: {input_file }")
     print(f"Index filename: {output_file}")
 
-    building_parameters = [
+    command_and_params = [
+        "./target/release/build_inverted_index",
         f"--input-file {input_file}",
         f"--output-file {output_file}",
         f"--n-postings {configs['indexing_parameters']['n-postings']}",
@@ -101,9 +102,9 @@ def build_index(configs, experiment_dir):
     ]
 
     if configs['indexing_parameters']['kmeans-approx']:
-        building_parameters.append("--kmeans-approx")   
+        command_and_params.append("--kmeans-approx")   
 
-    command = f"./target/release/build_inverted_index " + ' '.join(building_parameters)
+    command = ' '.join(command_and_params)
 
     # Print the command that will be executed
     print("Building index with command:")
@@ -157,7 +158,9 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
     output_file = os.path.join(experiment_dir, f"results_{subsection_name}")
     log_output_file =  os.path.join(experiment_dir, f"log_{subsection_name}") 
 
-    query_parameters = [
+    command_and_params = [
+        "numactl --physcpubind='0-15' --localalloc " if configs['settings']['NUMA'] else "",
+        "./target/release/query_inverted_index",
         f"--index-file {index_file}.index.seismic",
         f"-k {configs['settings']['k']}",
         f"--query-file {query_file}",
@@ -167,8 +170,7 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
         f"--output-path {output_file}"
     ]
 
-    command_prefix = "numactl --physcpubind='0-15' --localalloc " if configs['settings']['NUMA'] else ""
-    command = f"{command_prefix}./target/release/perf_inverted_index " + " ".join(query_parameters)
+    command = " ".join(command_and_params)
 
     print(f"Executing query for subsection '{subsection_name}' with command:")
     print(command)
