@@ -3,10 +3,11 @@ import sys
 import subprocess
 import time
 import toml
+import pandas as pd
 
 # TODO
 # - Add a file machine.output with information about the machine, its load, free mamory
-# - Compute recall and extract running time. colelct teh results of all teh experiments in a .tsv
+# - Add MRR@k in the report.tsv
 
 def parse_toml(filename):
     """Parse the TOML configuration file."""
@@ -42,22 +43,6 @@ def get_git_info(experiment_dir):
     except Exception as e:
         print("An error occurred while retrieving Git information:", e)
         sys.exit(1)
-
-def read_query_results_from_file(filename):
-    with open(filename, "r") as f:
-        gt = []
-        for line in f:
-            if line.startswith("\t"):
-                continue
-            if "\t" not in line:
-                continue
-            l = line.split("\t")
-            query_id = int(l[0])
-            doc_id = int(l[1])
-            if query_id == len(gt):
-                gt.append(set())
-            gt[query_id].add(doc_id)
-    return gt
 
 
 def compile_rust_code(experiment_dir):
@@ -134,7 +119,26 @@ def build_index(configs, experiment_dir):
 
     print("Index built successfully.")
 
-def compute_accuracy(query, gt):
+
+def compute_accuracy(query_file, gt_file):
+    column_names = ["query_id", "doc_id", "rank", "score"]
+    gt_pd = pd.read_csv(gt_file, sep='\t', names=column_names)
+    res_pd = pd.read_csv(query_file, sep='\t', names=column_names)
+
+    # Group both dataframes by 'query_id' and get unique 'doc_id' sets
+    gt_pd_groups = gt_pd.groupby('query_id')['doc_id'].apply(set)
+    res_pd_groups = res_pd.groupby('query_id')['doc_id'].apply(set)
+
+    # Compute the intersection size for each query_id in both dataframes
+    intersections_size = {
+        query_id: len(gt_pd_groups[query_id] & res_pd_groups[query_id]) if query_id in res_pd_groups else 0
+        for query_id in gt_pd_groups.index
+    }
+
+    # Computes total number of results in the groundtruth
+    total_results = len(gt_pd)
+    total_intersections = sum(intersections_size.values())
+    return total_intersections/total_results
 
 def query_execution(configs, query_config, experiment_dir, subsection_name):
     """Execute a query based on the provided configuration."""
@@ -144,24 +148,28 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
     output_file = os.path.join(experiment_dir, f"results_{subsection_name}")
     log_output_file =  os.path.join(experiment_dir, f"log_{subsection_name}") 
 
-    command_prefix = "numactl -C 0 -l " if configs['settings']['NUMA'] else ""
+    command_prefix = "numactl --physcpubind='0-15' --localalloc " if configs['settings']['NUMA'] else ""
     command = f"{command_prefix}./target/release/perf_inverted_index " \
               f"--index-file {index_file}.index.seismic " \
               f"-k {configs['settings']['k']} " \
               f"--query-file {query_file} " \
               f"--query-cut {query_config['query-cut']} " \
               f"--heap-factor {query_config['heap-factor']} " \
-              f"--n-runs {configs['settings']['n-runs']} --output-path {output_file}"
+              f"--n-runs {configs['settings']['n-runs']} "\
+              f"--output-path {output_file}"
 
     print(f"Executing query for subsection '{subsection_name}' with command:")
     print(command)
 
+    query_time = 0
     # Run the query and display output in real-time
     print(f"Running query for subsection: {subsection_name}...")
     with open(log_output_file, "w") as log:
         query_process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         for line in iter(query_process.stdout.readline, b''):
             decoded_line = line.decode()
+            if decoded_line.startswith("Time ") and decoded_line.strip().endswith("microsecs per query"):
+                query_time = int(decoded_line.split()[1])
             print(decoded_line, end='')  # Print each line as it is produced
             log.write(decoded_line)  # Write each line to the output file
         query_process.stdout.close()
@@ -172,6 +180,10 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
         sys.exit(1)
 
     print(f"Query for subsection '{subsection_name}' executed successfully.")
+
+    gt_file = os.path.join(configs['folder']['data'], configs['filename']['groundtruth'])
+
+    return query_time, compute_accuracy(output_file, gt_file)
 
 def main(experiment_config_filename):
     """Main function to orchestrate the experiment."""
@@ -199,9 +211,11 @@ def main(experiment_config_filename):
         print("Index is already built!")
 
     # Execute queries for each subsection under [query]
-    if 'query' in config_data:
-        for subsection, query_config in config_data['query'].items():
-            query_execution(config_data, query_config, experiment_folder, subsection)
+    with open(os.path.join(experiment_folder, "report.tsv"), 'w') as report_file:
+        if 'query' in config_data:
+            for subsection, query_config in config_data['query'].items():
+                query_time, recall = query_execution(config_data, query_config, experiment_folder, subsection)
+                report_file.write(f"{subsection}\t{query_time}\t{recall}\n")
 
 if __name__ == "__main__":
     import argparse
