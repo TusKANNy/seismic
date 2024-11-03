@@ -89,15 +89,21 @@ def build_index(configs, experiment_dir):
     print(f"Dataset filename: {input_file }")
     print(f"Index filename: {output_file}")
 
-    command = f"./target/release/build_inverted_index --input-file {input_file} " \
-              f"--output-file {output_file} " \
-              f"--n-postings {configs['indexing_parameters']['n-postings']} " \
-              f"--summary-energy {configs['indexing_parameters']['summary-energy']} " \
-              f"--centroid-fraction {configs['indexing_parameters']['centroid-fraction']} " \
-              f"--knn {configs['indexing_parameters']['knn']} " \
-              f"--kmeans-approx {configs['indexing_parameters']['kmeans-approx']} " \
-              f"--kmeans-pruning-factor {configs['indexing_parameters']['kmeans-pruning-factor']} " \
-              f"--kmeans-doc-cut {configs['indexing_parameters']['kmeans-doc-cut']} "
+    building_parameters = [
+        f"--input-file {input_file}",
+        f"--output-file {output_file}",
+        f"--n-postings {configs['indexing_parameters']['n-postings']}",
+        f"--summary-energy {configs['indexing_parameters']['summary-energy']}",
+        f"--centroid-fraction {configs['indexing_parameters']['centroid-fraction']}",
+        f"--knn {configs['indexing_parameters']['knn']}",
+        f"--kmeans-pruning-factor {configs['indexing_parameters']['kmeans-pruning-factor']}",
+        f"--kmeans-doc-cut {configs['indexing_parameters']['kmeans-doc-cut']}"
+    ]
+
+    if configs['indexing_parameters']['kmeans-approx']:
+        building_parameters.append("--kmeans-approx")   
+
+    command = f"./target/release/build_inverted_index " + ' '.join(building_parameters)
 
     # Print the command that will be executed
     print("Building index with command:")
@@ -151,15 +157,18 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
     output_file = os.path.join(experiment_dir, f"results_{subsection_name}")
     log_output_file =  os.path.join(experiment_dir, f"log_{subsection_name}") 
 
+    query_parameters = [
+        f"--index-file {index_file}.index.seismic",
+        f"-k {configs['settings']['k']}",
+        f"--query-file {query_file}",
+        f"--query-cut {query_config['query-cut']}",
+        f"--heap-factor {query_config['heap-factor']}",
+        f"--n-runs {configs['settings']['n-runs']}",
+        f"--output-path {output_file}"
+    ]
+
     command_prefix = "numactl --physcpubind='0-15' --localalloc " if configs['settings']['NUMA'] else ""
-    command = f"{command_prefix}./target/release/perf_inverted_index " \
-              f"--index-file {index_file}.index.seismic " \
-              f"-k {configs['settings']['k']} " \
-              f"--query-file {query_file} " \
-              f"--query-cut {query_config['query-cut']} " \
-              f"--heap-factor {query_config['heap-factor']} " \
-              f"--n-runs {configs['settings']['n-runs']} "\
-              f"--output-path {output_file}"
+    command = f"{command_prefix}./target/release/perf_inverted_index " + " ".join(query_parameters)
 
     print(f"Executing query for subsection '{subsection_name}' with command:")
     print(command)
