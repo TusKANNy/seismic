@@ -1,5 +1,6 @@
 use seismic::inverted_index::{
-    BlockingStrategy, Configuration, KnnConfiguration, PruningStrategy, SummarizationStrategy,
+    BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
+    SummarizationStrategy,
 };
 use seismic::{InvertedIndex, SparseDataset};
 
@@ -41,13 +42,17 @@ struct Args {
     #[arg(default_value_t = 0.5)]
     summary_energy: f32,
 
-    #[clap(short, long, value_parser)]
-    #[arg(default_value_t = false)]
-    truncation: bool,
+    #[clap(long, value_parser)]
+    #[arg(default_value_t = true)]
+    kmeans_approx: bool,
 
-    #[clap(short, long, value_parser)]
-    #[arg(default_value_t = 16)]
-    truncation_size: usize,
+    #[clap(long, value_parser)]
+    #[arg(default_value_t = 0.005)]
+    kmeans_pruning_factor: f32,
+
+    #[clap(long, value_parser)]
+    #[arg(default_value_t = 15)]
+    kmeans_doc_cut: usize,
 
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 2)]
@@ -83,6 +88,17 @@ pub fn main() {
 
     let knn_config = KnnConfiguration::new(args.knn, args.knn_path);
 
+    let my_clustering_algorithm = if args.kmeans_approx {
+        ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
+            doc_cut: args.kmeans_doc_cut,
+        }
+    } else {
+        ClusteringAlgorithm::RandomKmeansInvertedIndex {
+            pruning_factor: args.kmeans_pruning_factor,
+            doc_cut: args.kmeans_doc_cut,
+        }
+    };
+
     let config = Configuration::default()
         .pruning_strategy(PruningStrategy::GlobalThreshold {
             n_postings: args.n_postings,
@@ -90,9 +106,8 @@ pub fn main() {
         })
         .blocking_strategy(BlockingStrategy::RandomKmeans {
             centroid_fraction: args.centroid_fraction,
-            truncated_kmeans_training: args.truncation,
-            truncation_size: args.truncation_size,
             min_cluster_size: args.min_cluster_size,
+            clustering_algorithm: my_clustering_algorithm,
         })
         .summarization_strategy(SummarizationStrategy::EnergyPreserving {
             summary_energy: args.summary_energy,

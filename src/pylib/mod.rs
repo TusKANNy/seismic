@@ -1,5 +1,5 @@
 use crate::inverted_index::{
-    BlockingStrategy, Configuration, PruningStrategy, SummarizationStrategy,
+    BlockingStrategy, ClusteringAlgorithm, Configuration, PruningStrategy, SummarizationStrategy,
 };
 use crate::{InvertedIndex, SparseDataset};
 use half::f16;
@@ -36,8 +36,6 @@ impl PySeismicIndex {
         input_file: &str,
         n_postings: usize,
         centroid_fraction: f32,
-        truncated_kmeans_training: bool,
-        truncation_size: usize,
         min_cluster_size: usize,
         summary_energy: f32,
     ) -> PyResult<PySeismicIndex> {
@@ -52,9 +50,10 @@ impl PySeismicIndex {
             })
             .blocking_strategy(BlockingStrategy::RandomKmeans {
                 centroid_fraction,
-                truncated_kmeans_training,
-                truncation_size,
                 min_cluster_size,
+                clustering_algorithm: ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
+                    doc_cut: 15,
+                },
             })
             .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy });
         println!("\nBuilding the index...");

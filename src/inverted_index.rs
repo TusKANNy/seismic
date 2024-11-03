@@ -1,7 +1,10 @@
 use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
 use crate::sparse_dataset::{SparseDatasetIter, SparseDatasetMut};
 use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
-use crate::utils::{do_random_kmeans_on_docids_rox, prefetch_read_NTA};
+use crate::utils::{
+    do_random_kmeans_on_docids_ii_approx_dot_product, do_random_kmeans_on_docids_ii_dot_product,
+    prefetch_read_NTA,
+};
 use crate::{DataType, QuantizedSummary, SpaceUsage, SparseDataset};
 
 use indicatif::ParallelProgressIterator;
@@ -521,20 +524,16 @@ impl PostingList {
 
             BlockingStrategy::RandomKmeans {
                 centroid_fraction,
-                truncated_kmeans_training,
-                truncation_size,
                 min_cluster_size,
+                clustering_algorithm,
             } => Self::blocking_with_random_kmeans(
                 &mut posting_list,
                 centroid_fraction,
-                truncated_kmeans_training,
-                truncation_size,
                 min_cluster_size,
                 dataset,
+                clustering_algorithm,
             ),
         };
-
-        // let time = Instant::now();
 
         let mut summaries = SparseDatasetMut::<T>::new();
 
@@ -557,8 +556,6 @@ impl PostingList {
 
             summaries.push(&components, &values);
         }
-        // let elapsed = time.elapsed();
-        // println!("Building summaries {} secs", elapsed.as_secs());
 
         let packed_postings: Vec<_> = posting_list
             .iter()
@@ -593,10 +590,9 @@ impl PostingList {
     fn blocking_with_random_kmeans<T: DataType>(
         posting_list: &mut [usize],
         centroid_fraction: f32,
-        truncated_kmeans_training: bool,
-        _truncation_size: usize,
         min_cluster_size: usize,
         dataset: &SparseDataset<T>,
+        clustering_algorithm: ClusteringAlgorithm,
     ) -> Vec<usize> {
         if posting_list.is_empty() {
             return Vec::new();
@@ -606,37 +602,42 @@ impl PostingList {
         let mut reordered_posting_list = Vec::<_>::with_capacity(posting_list.len());
         let mut block_offsets = Vec::with_capacity(n_centroids);
 
-        if truncated_kmeans_training {
-            // Need to change only how clustering results is computed
-            todo!();
-        } else {
-            //let time = Instant::now();
-            let pruning_factor = 0.005;
-
-            let clustering_results = do_random_kmeans_on_docids_ii_dot_product(
+        let clustering_results = match clustering_algorithm {
+            ClusteringAlgorithm::RandomKmeansInvertedIndex {
+                pruning_factor,
+                doc_cut,
+            } => do_random_kmeans_on_docids_ii_dot_product(
                 posting_list,
                 n_centroids,
                 dataset,
                 min_cluster_size,
                 pruning_factor,
-            );
+                doc_cut,
+            ),
 
-            // let elapsed = time.elapsed();
-            // println!("Clustering {} secs", elapsed.as_secs());
-
-            block_offsets.push(0);
-
-            for (_centroid_id, group) in &clustering_results
-                .into_iter()
-                .group_by(|(centroid_id, _doc_id)| *centroid_id)
-            {
-                reordered_posting_list.extend(group.map(|(_centroid_id, doc_id)| doc_id));
-                block_offsets.push(reordered_posting_list.len());
+            ClusteringAlgorithm::RandomKmeansInvertedIndexApprox { doc_cut } => {
+                do_random_kmeans_on_docids_ii_approx_dot_product(
+                    posting_list,
+                    n_centroids,
+                    dataset,
+                    min_cluster_size,
+                    doc_cut,
+                )
             }
+        };
 
-            assert_eq!(reordered_posting_list.len(), posting_list.len());
-            posting_list.copy_from_slice(&reordered_posting_list);
+        block_offsets.push(0);
+
+        for (_centroid_id, group) in &clustering_results
+            .into_iter()
+            .group_by(|(centroid_id, _doc_id)| *centroid_id)
+        {
+            reordered_posting_list.extend(group.map(|(_centroid_id, doc_id)| doc_id));
+            block_offsets.push(reordered_posting_list.len());
         }
+
+        assert_eq!(reordered_posting_list.len(), posting_list.len());
+        posting_list.copy_from_slice(&reordered_posting_list);
 
         block_offsets
     }
@@ -722,7 +723,7 @@ impl PostingList {
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Copy, Clone, Serialize, Deserialize)]
 /// Represents the possible choices for the strategy used to prune the posting
 /// lists at building time.
 /// There are the following possible strategies:
@@ -744,7 +745,7 @@ impl Default for PruningStrategy {
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum BlockingStrategy {
     FixedSize {
         block_size: usize,
@@ -752,9 +753,8 @@ pub enum BlockingStrategy {
 
     RandomKmeans {
         centroid_fraction: f32,
-        truncated_kmeans_training: bool,
-        truncation_size: usize,
         min_cluster_size: usize,
+        clustering_algorithm: ClusteringAlgorithm,
     },
 }
 
@@ -762,14 +762,13 @@ impl Default for BlockingStrategy {
     fn default() -> Self {
         BlockingStrategy::RandomKmeans {
             centroid_fraction: 0.1,
-            truncated_kmeans_training: false,
-            truncation_size: 32,
             min_cluster_size: 2,
+            clustering_algorithm: ClusteringAlgorithm::default(),
         }
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum SummarizationStrategy {
     FixedSize { n_components: usize },
     EnergyPreserving { summary_energy: f32 },
@@ -780,6 +779,19 @@ impl Default for SummarizationStrategy {
         Self::EnergyPreserving {
             summary_energy: 0.4,
         }
+    }
+}
+
+#[derive(PartialEq, Debug, Copy, Clone, Serialize, Deserialize)]
+pub enum ClusteringAlgorithm {
+    // RandomKmeans {}, // This is the original implementation of RandomKmeans, no longer in use because too slow
+    RandomKmeansInvertedIndex { pruning_factor: f32, doc_cut: usize }, // call do_random_kmeans_on_docids_ii_dot_product
+    RandomKmeansInvertedIndexApprox { doc_cut: usize }, // call do_random_kmeans_on_docids_ii_approx_dot_product
+}
+
+impl Default for ClusteringAlgorithm {
+    fn default() -> Self {
+        Self::RandomKmeansInvertedIndexApprox { doc_cut: 15 }
     }
 }
 

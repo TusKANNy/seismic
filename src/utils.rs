@@ -1,6 +1,8 @@
 use core::hash::Hash;
 use std::collections::HashSet;
 
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use rand::{seq::IteratorRandom, thread_rng};
 
 use crate::{distances::dot_product_dense_sparse, DataType, SparseDataset};
@@ -67,54 +69,36 @@ pub fn binary_search_branchless(data: &[u16], target: u16) -> usize {
 
 use itertools::Itertools;
 
-fn compute_centroid_assignments<T: DataType>(
+fn compute_centroid_assignments_approx_dot_product<T: DataType>(
     doc_ids: &[usize],
-    inverted_index: &[Vec<(T, usize)>],
+    inverted_index: &[Vec<(usize, T)>],
     dataset: &SparseDataset<T>,
     centroids: &[usize],
     to_avoid: &HashSet<usize>,
+    doc_cut: usize,
 ) -> Vec<(usize, usize)> {
-    const QUERY_CUT: usize = 2; // Number of current doc terms to evaluate
-
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
-
-    let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
+    let mut scores = vec![0_f32; centroids.len()];
 
     for &doc_id in doc_ids.iter() {
-        if centroid_set.contains(&doc_id) && !to_avoid.contains(&doc_id) {
-            centroid_assignments.push((doc_id, doc_id));
-            continue;
-        }
-
-        // Densify the vector
-        let mut dense_vector: Vec<T> = vec![T::zero(); dataset.dim()];
-        for (&c, &v) in dataset.iter_vector(doc_id) {
-            dense_vector[c as usize] = v;
+        scores.iter_mut().for_each(|v| *v = 0_f32);
+        for (&component_id, &value) in dataset
+            .iter_vector(doc_id)
+            .sorted_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap())
+            .take(doc_cut)
+        {
+            for &(centroid_id, score) in inverted_index[component_id as usize].iter() {
+                scores[centroid_id] += score.to_f32().unwrap() * value.to_f32().unwrap();
+            }
         }
 
         let mut max = 0_f32;
         let mut max_centroid_id = centroids[0];
 
-        let mut visited = to_avoid.clone();
-
-        // Sort query terms by score and evaluate the posting list only for the top ones
-        for (&component_id, &_value) in dataset
-            .iter_vector(doc_id)
-            .sorted_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap())
-            .take(QUERY_CUT)
-        {
-            for &(_score, centroid_id) in inverted_index[component_id as usize].iter() {
-                if visited.contains(&centroid_id) {
-                    continue;
-                }
-                visited.insert(centroid_id);
-
-                let (v_components, v_values) = dataset.get(centroid_id);
-                let dot = dot_product_dense_sparse(&dense_vector, v_components, v_values);
-                if dot > max {
-                    max = dot;
-                    max_centroid_id = centroid_id;
-                }
+        for (centroid_id, &score) in scores.iter().enumerate() {
+            if score > max && !to_avoid.contains(&centroid_id) {
+                max = score;
+                max_centroid_id = centroid_id;
             }
         }
 
@@ -124,31 +108,26 @@ fn compute_centroid_assignments<T: DataType>(
     centroid_assignments
 }
 
-use rand::rngs::StdRng;
-use rand::SeedableRng;
-
 /// Perform a random k-means clustering on a set of document ids.
 /// The function returns a vector of pairs (cluster_id, doc_id) where cluster_id is the id of the cluster to which the document belongs.
 /// The vector is sorted by cluster_id.
 ///
 /// The function uses a simple pruned inverted index to speed up the computation and computes the
 /// true dot product between the document and the centroids.
-/// The paramenter `pruning_factor` controls the size of the pruned inverted index.
-pub fn do_random_kmeans_on_docids_ii_dot_product<T: DataType>(
+/// The paramenter `doc_cut` specifies how many components of the document vector to consider whiel computing the dot product.
+pub fn do_random_kmeans_on_docids_ii_approx_dot_product<T: DataType>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &SparseDataset<T>,
     min_cluster_size: usize,
-    pruning_factor: usize,
+    doc_cut: usize,
 ) -> Vec<(usize, usize)> {
-    let seed = 42;
+    let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
     let centroid_ids = doc_ids
         .iter()
         .copied()
         .choose_multiple(&mut rng, n_clusters);
-
-    let pruned_list_size = 5.max(doc_ids.len() * pruning_factor);
 
     // Build an inverted index for the centroids
     let mut inverted_index = Vec::with_capacity(dataset.dim());
@@ -156,23 +135,19 @@ pub fn do_random_kmeans_on_docids_ii_dot_product<T: DataType>(
         inverted_index.push(Vec::new());
     }
 
-    for &centroid_id in centroid_ids.iter() {
+    for (i, &centroid_id) in centroid_ids.iter().enumerate() {
         for (&c, &score) in dataset.iter_vector(centroid_id) {
-            inverted_index[c as usize].push((score, centroid_id));
+            inverted_index[c as usize].push((i, score));
         }
     }
 
-    for list in inverted_index.iter_mut() {
-        list.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-        list.truncate(pruned_list_size);
-    }
-
-    let mut centroid_assigments = compute_centroid_assignments(
+    let mut centroid_assigments = compute_centroid_assignments_approx_dot_product(
         doc_ids,
         &inverted_index,
         dataset,
         &centroid_ids,
         &HashSet::new(),
+        doc_cut,
     );
 
     // Prune too small clusters and reassign the documents to the closest cluster
@@ -201,12 +176,168 @@ pub fn do_random_kmeans_on_docids_ii_dot_product<T: DataType>(
         "Final assignment size mismatch"
     );
 
-    let centroid_assigments = compute_centroid_assignments(
+    let centroid_assigments = compute_centroid_assignments_approx_dot_product(
         to_be_reassigned.as_slice(),
         &inverted_index,
         dataset,
         &centroid_ids,
         &removed_centroids,
+        doc_cut,
+    );
+
+    final_assigments.extend(centroid_assigments);
+
+    assert_eq!(
+        final_assigments.len(),
+        doc_ids.len(),
+        "Final assignment size mismatch"
+    );
+
+    final_assigments.sort();
+
+    final_assigments
+}
+
+fn compute_centroid_assignments_dot_product<T: DataType>(
+    doc_ids: &[usize],
+    inverted_index: &[Vec<(T, usize)>],
+    dataset: &SparseDataset<T>,
+    centroids: &[usize],
+    to_avoid: &HashSet<usize>,
+    doc_cut: usize,
+) -> Vec<(usize, usize)> {
+    let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
+
+    let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
+
+    for &doc_id in doc_ids.iter() {
+        if centroid_set.contains(&doc_id) && !to_avoid.contains(&doc_id) {
+            centroid_assignments.push((doc_id, doc_id));
+            continue;
+        }
+
+        // Densify the vector
+        let mut dense_vector: Vec<T> = vec![T::zero(); dataset.dim()];
+        for (&c, &v) in dataset.iter_vector(doc_id) {
+            dense_vector[c as usize] = v;
+        }
+
+        let mut max = 0_f32;
+        let mut max_centroid_id = centroids[0];
+
+        let mut visited = to_avoid.clone();
+
+        // Sort query terms by score and evaluate the posting list only for the top ones
+        for (&component_id, &_value) in dataset
+            .iter_vector(doc_id)
+            .sorted_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap())
+            .take(doc_cut)
+        {
+            for &(_score, centroid_id) in inverted_index[component_id as usize].iter() {
+                if visited.contains(&centroid_id) {
+                    continue;
+                }
+                visited.insert(centroid_id);
+
+                let (v_components, v_values) = dataset.get(centroid_id);
+                let dot = dot_product_dense_sparse(&dense_vector, v_components, v_values);
+                if dot > max {
+                    max = dot;
+                    max_centroid_id = centroid_id;
+                }
+            }
+        }
+
+        centroid_assignments.push((max_centroid_id, doc_id));
+    }
+
+    centroid_assignments
+}
+
+/// Perform a random k-means clustering on a set of document ids.
+/// The function returns a vector of pairs (cluster_id, doc_id) where cluster_id is the id of the cluster to which the document belongs.
+/// The vector is sorted by cluster_id.
+///
+/// The function uses a simple pruned inverted index to speed up the computation and computes the
+/// true dot product between the document and the centroids.
+/// The paramenter `pruning_factor` controls the size of the pruned inverted index.
+/// The parameter `doc_cut` specifies how many components of the document vector to consider while computing the dot product.
+pub fn do_random_kmeans_on_docids_ii_dot_product<T: DataType>(
+    doc_ids: &[usize],
+    n_clusters: usize,
+    dataset: &SparseDataset<T>,
+    min_cluster_size: usize,
+    pruning_factor: f32,
+    doc_cut: usize,
+) -> Vec<(usize, usize)> {
+    let seed = 42;
+    let mut rng = StdRng::seed_from_u64(seed);
+    let centroid_ids = doc_ids
+        .iter()
+        .copied()
+        .choose_multiple(&mut rng, n_clusters);
+
+    let pruned_list_size = 5.max((doc_ids.len() as f32 * pruning_factor) as usize);
+
+    // Build an inverted index for the centroids
+    let mut inverted_index = Vec::with_capacity(dataset.dim());
+    for _ in 0..dataset.dim() {
+        inverted_index.push(Vec::new());
+    }
+
+    for &centroid_id in centroid_ids.iter() {
+        for (&c, &score) in dataset.iter_vector(centroid_id) {
+            inverted_index[c as usize].push((score, centroid_id));
+        }
+    }
+
+    for list in inverted_index.iter_mut() {
+        list.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        list.truncate(pruned_list_size);
+    }
+
+    let mut centroid_assigments = compute_centroid_assignments_dot_product(
+        doc_ids,
+        &inverted_index,
+        dataset,
+        &centroid_ids,
+        &HashSet::new(),
+        doc_cut,
+    );
+
+    // Prune too small clusters and reassign the documents to the closest cluster
+    let mut to_be_reassigned = Vec::new(); // docids that belong to too small clusters
+    let mut final_assigments = Vec::with_capacity(doc_ids.len());
+    let mut removed_centroids = HashSet::new();
+
+    centroid_assigments.sort_unstable();
+
+    for (centroid_id, chunk) in &centroid_assigments
+        .into_iter()
+        .group_by(|(centroid_id, _doc_id)| *centroid_id)
+    {
+        let vec_chunk = chunk.collect::<Vec<_>>();
+        if vec_chunk.len() <= min_cluster_size {
+            to_be_reassigned.extend(vec_chunk.into_iter().map(|(_centroid_id, doc_id)| doc_id));
+            removed_centroids.insert(centroid_id);
+        } else {
+            final_assigments.extend(vec_chunk.into_iter());
+        }
+    }
+
+    assert_eq!(
+        to_be_reassigned.len() + final_assigments.len(),
+        doc_ids.len(),
+        "Final assignment size mismatch"
+    );
+
+    let centroid_assigments = compute_centroid_assignments_dot_product(
+        to_be_reassigned.as_slice(),
+        &inverted_index,
+        dataset,
+        &centroid_ids,
+        &removed_centroids,
+        doc_cut,
     );
 
     final_assigments.extend(centroid_assigments);
