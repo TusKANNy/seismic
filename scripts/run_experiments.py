@@ -4,6 +4,7 @@ import subprocess
 import time
 import toml
 import pandas as pd
+import re 
 
 # TODO
 # - Add a file machine.output with information about the machine, its load, free mamory
@@ -173,6 +174,9 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
     print(f"Executing query for subsection '{subsection_name}' with command:")
     print(command)
 
+
+    pattern = r"\tTotal: (\d+) Bytes" # Pattern to match the total memory usage
+
     query_time = 0
     # Run the query and display output in real-time
     print(f"Running query for subsection: {subsection_name}...")
@@ -182,6 +186,10 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
             decoded_line = line.decode()
             if decoded_line.startswith("Time ") and decoded_line.strip().endswith("microsecs per query"):
                 query_time = int(decoded_line.split()[1])
+
+            match = re.search(pattern, decoded_line)
+            if match:
+                memory_usage = int(match.group(1))
             print(decoded_line, end='')  # Print each line as it is produced
             log.write(decoded_line)  # Write each line to the output file
         query_process.stdout.close()
@@ -195,7 +203,7 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
 
     gt_file = os.path.join(configs['folder']['data'], configs['filename']['groundtruth'])
 
-    return query_time, compute_accuracy(output_file, gt_file)
+    return query_time, compute_accuracy(output_file, gt_file), memory_usage
 
 def main(experiment_config_filename):
     """Main function to orchestrate the experiment."""
@@ -225,10 +233,11 @@ def main(experiment_config_filename):
 
     # Execute queries for each subsection under [query]
     with open(os.path.join(experiment_folder, "report.tsv"), 'w') as report_file:
+        report_file.write("Subsection\tQuery Time (microsecs)\tRecall\tMemory Usage (Bytes)\n")
         if 'query' in config_data:
             for subsection, query_config in config_data['query'].items():
-                query_time, recall = query_execution(config_data, query_config, experiment_folder, subsection)
-                report_file.write(f"{subsection}\t{query_time}\t{recall}\n")
+                query_time, recall, memory_usage = query_execution(config_data, query_config, experiment_folder, subsection)
+                report_file.write(f"{subsection}\t{query_time}\t{recall}\t{memory_usage}\n")
 
 if __name__ == "__main__":
     import argparse
