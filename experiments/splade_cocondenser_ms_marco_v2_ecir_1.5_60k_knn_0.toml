@@ -7,7 +7,7 @@ dataset =       "Splade cocondenser on MS-MARCO-v2"
 k =             10
 n-runs =        1       # Number of runs. PLEASE think carefully how increasing this may influence your query time
 NUMA =          true    # Is the machine NUMA and need to prepend numactl -C 0 -l <COMANDO>?
-build =         true    # Need to build the index or the index is already built?
+build =         false   # Need to build the index or the index is already built?
 
 [folder] 
 data =          "/data2/cosimorulli/splade_cocondenser_MS-MARCO-v2/data/"
