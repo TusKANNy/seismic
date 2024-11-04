@@ -1,6 +1,6 @@
 name =          "evaluate_ii_contruction_ms_marco"
 title =         "Evaluate approximated construction algorithm"
-description =   "Evaluate new constructuin algorithm with inverted index based Kmeans with approximated dot product computations"
+description =   "Evaluate new construction algorithm with inverted index-based Kmeans with exact dot product computations"
 dataset =       "Splade cocondenser on MS-MARCO"
 
 [settings]
@@ -12,8 +12,8 @@ NUMA =          true    # Is the machine NUMA and need to prepend
 build =         true    # Need to build the index or the index is already built?
 
 [folder] 
-data =          "/data2/sparse_vectors/msmarco-cocondenser/data"
-index =         "/data2/sparse_vectors/msmarco-cocondenser/indexes"
+data =          "~/sparse_vectors/msmarco-cocondenser/data"
+index =         "~/sparse_vectors/msmarco-cocondenser/indexes"
 experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
 
 [filename]

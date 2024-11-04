@@ -10,8 +10,8 @@ NUMA =          "numactl --physcpubind='0-15' --localalloc"    # Is the machine 
 build =         false   # Need to build the index or the index is already built?
 
 [folder] 
-data =          "/data2/cosimorulli/splade_cocondenser_MS-MARCO-v2/data/"
-index =         "../"
+data =          "~/sparse_datasets/splade_cocondenser_MS-MARCO-v2/data/"
+index =         "~/sparse_datasets/splade_cocondenser_MS-MARCO-v2/indexes/"
 experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
 
 [filename]
