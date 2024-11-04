@@ -157,7 +157,7 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
     log_output_file =  os.path.join(experiment_dir, f"log_{subsection_name}") 
 
     command_and_params = [
-        "numactl --physcpubind='0-15' --localalloc " if configs['settings']['NUMA'] else "",
+        configs['settings']['NUMA'] if "NUMA" in configs['settings'] else "",
         "./target/release/perf_inverted_index",
         f"--index-file {index_file}.index.seismic",
         f"-k {configs['settings']['k']}",

@@ -1,9 +1,8 @@
 use core::hash::Hash;
 use std::collections::HashSet;
 
-use rand::rngs::StdRng;
-use rand::SeedableRng;
-use rand::{seq::IteratorRandom, thread_rng};
+#[allow(unused_imports)]
+use rand::{rngs::StdRng, seq::IteratorRandom, thread_rng, SeedableRng};
 
 use crate::{distances::dot_product_dense_sparse, DataType, SparseDataset};
 
@@ -357,8 +356,8 @@ fn compute_centroid_assignments<T: DataType>(
     doc_ids: &[usize],
     dataset: &SparseDataset<T>,
     centroids: &[usize],
-    to_avoid: &HashSet<usize>,) -> Vec<(usize, usize)> {
-
+    to_avoid: &HashSet<usize>,
+) -> Vec<(usize, usize)> {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
 
     let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
@@ -377,21 +376,18 @@ fn compute_centroid_assignments<T: DataType>(
         let mut centroid_max = centroids[0];
         let mut max = 0_f32;
         for &centroid_id in centroids.iter() {
-
             let (v_components, v_values) = dataset.get(centroid_id);
             let dot = dot_product_dense_sparse(&dense_vector, v_components, v_values);
             if dot > max {
                 max = dot;
-                centroid_max  = centroid_id;
+                centroid_max = centroid_id;
             }
         }
         centroid_assignments.push((centroid_max, doc_id));
     }
 
     centroid_assignments
-
-    }
-
+}
 
 pub fn do_random_kmeans_on_docids<T: DataType>(
     doc_ids: &[usize],
@@ -406,7 +402,8 @@ pub fn do_random_kmeans_on_docids<T: DataType>(
         .copied()
         .choose_multiple(&mut rng, n_clusters);
 
-    let mut centroid_assigments = compute_centroid_assignments(doc_ids, dataset, &centroid_ids, &HashSet::new());
+    let mut centroid_assigments =
+        compute_centroid_assignments(doc_ids, dataset, &centroid_ids, &HashSet::new());
 
     // Prune too small clusters and reassign the documents to the closest cluster
     let mut to_be_reassigned = Vec::new(); // docids that belong to too small clusters
@@ -434,8 +431,13 @@ pub fn do_random_kmeans_on_docids<T: DataType>(
         "Final assignment size mismatch"
     );
 
-    let centroid_assigments = compute_centroid_assignments(to_be_reassigned.as_slice(), dataset, &centroid_ids, &removed_centroids);
-    
+    let centroid_assigments = compute_centroid_assignments(
+        to_be_reassigned.as_slice(),
+        dataset,
+        &centroid_ids,
+        &removed_centroids,
+    );
+
     final_assigments.extend(&centroid_assigments);
 
     assert_eq!(

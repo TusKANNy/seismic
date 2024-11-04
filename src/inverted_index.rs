@@ -808,19 +808,10 @@ impl Default for ClusteringAlgorithm {
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Default, Debug, Clone, Serialize, Deserialize)]
 pub struct KnnConfiguration {
     nknn: usize,
     knn_path: Option<String>,
-}
-
-impl Default for KnnConfiguration {
-    fn default() -> Self {
-        KnnConfiguration {
-            nknn: 0,
-            knn_path: None,
-        }
-    }
 }
 
 impl KnnConfiguration {
@@ -860,8 +851,7 @@ impl Knn {
             .progress_count(index.forward_index.len() as u64)
             .enumerate()
             .map(|(my_doc_id, (components, values))| {
-                let f32_values: Vec<f32> =
-                    values.into_iter().map(|v| v.to_f32().unwrap()).collect();
+                let f32_values: Vec<f32> = values.iter().map(|v| v.to_f32().unwrap()).collect();
 
                 index
                     .search(
@@ -873,7 +863,7 @@ impl Knn {
                         0,
                     ) // +1 to avoid the be able to filter the document itself if present
                     .iter()
-                    .map(|(distance, doc_id)| (*distance, *doc_id as usize))
+                    .map(|(distance, doc_id)| (*distance, *doc_id))
                     .filter(|(_distance, doc_id)| *doc_id != my_doc_id) // remove the document itself
                     .take(d)
                     .collect::<Vec<_>>()
@@ -972,7 +962,7 @@ impl Knn {
 
                 if !visited.contains(&offset) {
                     let (v_components, v_values) = forward_index.get_with_offset(offset, len);
-                    let distance = dot_product_dense_sparse(&query, v_components, v_values);
+                    let distance = dot_product_dense_sparse(query, v_components, v_values);
                     visited.insert(offset);
                     heap.push_with_id(-1.0 * distance, offset);
                 }
