@@ -97,12 +97,10 @@ def build_index(configs, experiment_dir):
         f"--summary-energy {configs['indexing_parameters']['summary-energy']}",
         f"--centroid-fraction {configs['indexing_parameters']['centroid-fraction']}",
         f"--knn {configs['indexing_parameters']['knn']}",
+        f"--clustering-algorithm {configs['indexing_parameters']['clustering-algorithm']}",
         f"--kmeans-pruning-factor {configs['indexing_parameters']['kmeans-pruning-factor']}",
         f"--kmeans-doc-cut {configs['indexing_parameters']['kmeans-doc-cut']}"
-    ]
-
-    if configs['indexing_parameters']['kmeans-approx']:
-        command_and_params.append("--kmeans-approx")   
+    ] 
 
     command = ' '.join(command_and_params)
 
@@ -160,7 +158,7 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
 
     command_and_params = [
         "numactl --physcpubind='0-15' --localalloc " if configs['settings']['NUMA'] else "",
-        "./target/release/query_inverted_index",
+        "./target/release/perf_inverted_index",
         f"--index-file {index_file}.index.seismic",
         f"-k {configs['settings']['k']}",
         f"--query-file {query_file}",

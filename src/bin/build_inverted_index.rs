@@ -1,6 +1,6 @@
 use seismic::inverted_index::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
-    SummarizationStrategy,
+    SummarizationStrategy, ClusteringAlgorithmClap
 };
 use seismic::{InvertedIndex, SparseDataset};
 
@@ -43,8 +43,8 @@ struct Args {
     summary_energy: f32,
 
     #[clap(long, value_parser)]
-    #[arg(default_value_t = true)]
-    kmeans_approx: bool,
+   // #[arg(default_value_t = ClusteringAlgorithmClap::default())]
+    clustering_algorithm: ClusteringAlgorithmClap,
 
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.005)]
@@ -88,15 +88,17 @@ pub fn main() {
 
     let knn_config = KnnConfiguration::new(args.knn, args.knn_path);
 
-    let my_clustering_algorithm = if args.kmeans_approx {
+    let my_clustering_algorithm = match args.clustering_algorithm {
+        ClusteringAlgorithmClap::RandomKmeansInvertedIndexApprox =>
         ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
             doc_cut: args.kmeans_doc_cut,
-        }
-    } else {
+        }, 
+        ClusteringAlgorithmClap::RandomKmeansInvertedIndex =>
         ClusteringAlgorithm::RandomKmeansInvertedIndex {
             pruning_factor: args.kmeans_pruning_factor,
             doc_cut: args.kmeans_doc_cut,
-        }
+        },
+        ClusteringAlgorithmClap::RandomKmeans => ClusteringAlgorithm::RandomKmeans {},
     };
 
     let config = Configuration::default()

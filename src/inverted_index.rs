@@ -1,10 +1,7 @@
 use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
 use crate::sparse_dataset::{SparseDatasetIter, SparseDatasetMut};
 use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
-use crate::utils::{
-    do_random_kmeans_on_docids_ii_approx_dot_product, do_random_kmeans_on_docids_ii_dot_product,
-    prefetch_read_NTA,
-};
+use crate::utils::prefetch_read_NTA;
 use crate::{DataType, QuantizedSummary, SpaceUsage, SparseDataset};
 
 use indicatif::ParallelProgressIterator;
@@ -603,10 +600,16 @@ impl PostingList {
         let mut block_offsets = Vec::with_capacity(n_centroids);
 
         let clustering_results = match clustering_algorithm {
+            ClusteringAlgorithm::RandomKmeans {} => crate::utils::do_random_kmeans_on_docids(
+                posting_list,
+                n_centroids,
+                dataset,
+                min_cluster_size,
+            ),
             ClusteringAlgorithm::RandomKmeansInvertedIndex {
                 pruning_factor,
                 doc_cut,
-            } => do_random_kmeans_on_docids_ii_dot_product(
+            } => crate::utils::do_random_kmeans_on_docids_ii_dot_product(
                 posting_list,
                 n_centroids,
                 dataset,
@@ -616,7 +619,7 @@ impl PostingList {
             ),
 
             ClusteringAlgorithm::RandomKmeansInvertedIndexApprox { doc_cut } => {
-                do_random_kmeans_on_docids_ii_approx_dot_product(
+                crate::utils::do_random_kmeans_on_docids_ii_approx_dot_product(
                     posting_list,
                     n_centroids,
                     dataset,
@@ -782,11 +785,21 @@ impl Default for SummarizationStrategy {
     }
 }
 
+// we need this because clap does not support enums with associated values
+#[derive(clap::ValueEnum, Default, Debug, Clone, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClusteringAlgorithmClap {
+    RandomKmeans,
+    RandomKmeansInvertedIndex,
+    #[default]
+    RandomKmeansInvertedIndexApprox,
+}
+
 #[derive(PartialEq, Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum ClusteringAlgorithm {
-    // RandomKmeans {}, // This is the original implementation of RandomKmeans, no longer in use because too slow
-    RandomKmeansInvertedIndex { pruning_factor: f32, doc_cut: usize }, // call do_random_kmeans_on_docids_ii_dot_product
-    RandomKmeansInvertedIndexApprox { doc_cut: usize }, // call do_random_kmeans_on_docids_ii_approx_dot_product
+    RandomKmeans {}, // This is the original implementation of RandomKmeans, the algorith is very slow for big datasets
+    RandomKmeansInvertedIndex { pruning_factor: f32, doc_cut: usize }, // call crate::utils::do_random_kmeans_on_docids_ii_dot_product
+    RandomKmeansInvertedIndexApprox { doc_cut: usize }, // call crate::utils::do_random_kmeans_on_docids_ii_approx_dot_product
 }
 
 impl Default for ClusteringAlgorithm {

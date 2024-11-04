@@ -353,13 +353,52 @@ pub fn do_random_kmeans_on_docids_ii_dot_product<T: DataType>(
     final_assigments
 }
 
+fn compute_centroid_assignments<T: DataType>(
+    doc_ids: &[usize],
+    dataset: &SparseDataset<T>,
+    centroids: &[usize],
+    to_avoid: &HashSet<usize>,) -> Vec<(usize, usize)> {
+
+    let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
+
+    let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
+
+    for &doc_id in doc_ids.iter() {
+        if centroid_set.contains(&doc_id) && !to_avoid.contains(&doc_id) {
+            centroid_assignments.push((doc_id, doc_id));
+            continue;
+        }
+
+        let mut dense_vector: Vec<T> = vec![T::zero(); dataset.dim()];
+        for (&i, &v) in dataset.iter_vector(doc_id) {
+            dense_vector[i as usize] = v;
+        }
+
+        let mut centroid_max = centroids[0];
+        let mut max = 0_f32;
+        for &centroid_id in centroids.iter() {
+
+            let (v_components, v_values) = dataset.get(centroid_id);
+            let dot = dot_product_dense_sparse(&dense_vector, v_components, v_values);
+            if dot > max {
+                max = dot;
+                centroid_max  = centroid_id;
+            }
+        }
+        centroid_assignments.push((centroid_max, doc_id));
+    }
+
+    centroid_assignments
+
+    }
+
+
 pub fn do_random_kmeans_on_docids<T: DataType>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &SparseDataset<T>,
     min_cluster_size: usize,
-) -> Vec<Vec<usize>> {
-    // let time = Instant::now();
+) -> Vec<(usize, usize)> {
     let seed = 42; // You can use any u64 value as the seed
     let mut rng = StdRng::seed_from_u64(seed);
     let centroid_ids = doc_ids
@@ -367,89 +406,47 @@ pub fn do_random_kmeans_on_docids<T: DataType>(
         .copied()
         .choose_multiple(&mut rng, n_clusters);
 
-    let mut inverted_lists: Vec<Vec<_>> = (0..n_clusters).map(|_| Vec::new()).collect();
+    let mut centroid_assigments = compute_centroid_assignments(doc_ids, dataset, &centroid_ids, &HashSet::new());
 
-    for &doc_id in doc_ids {
-        // Densify the vector
-        let mut dense_vector: Vec<T> = vec![T::zero(); dataset.dim()];
-        for (&i, &v) in dataset.iter_vector(doc_id) {
-            dense_vector[i as usize] = v;
-        }
+    // Prune too small clusters and reassign the documents to the closest cluster
+    let mut to_be_reassigned = Vec::new(); // docids that belong to too small clusters
+    let mut final_assigments = Vec::with_capacity(doc_ids.len());
+    let mut removed_centroids = HashSet::new();
 
-        let mut argmax = 0;
-        let mut max = 0_f32;
-        for (i, &c_id) in centroid_ids.iter().enumerate() {
-            let (v_components, v_values) = dataset.get(c_id);
-            let dot = dot_product_dense_sparse(&dense_vector, v_components, v_values);
-            if dot > max {
-                max = dot;
-                argmax = i;
-            }
-        }
-        inverted_lists[argmax].push(doc_id);
-    }
+    centroid_assigments.sort_unstable();
 
-    let mut to_be_reassigned = Vec::new(); // docids that belong to too small clusters.
-
-    //let mut how_many = 0;
-    //let mut total = 0;
-    for inverted_list in inverted_lists.iter_mut() {
-        // if !inverted_list.is_empty() {
-        //     total += 1;
-        // }
-        if !inverted_list.is_empty() && inverted_list.len() <= min_cluster_size {
-            //how_many += 1;
-            to_be_reassigned.extend(inverted_list.iter());
-            inverted_list.clear();
+    for (centroid_id, chunk) in &centroid_assigments
+        .into_iter()
+        .group_by(|(centroid_id, _doc_id)| *centroid_id)
+    {
+        let vec_chunk = chunk.collect::<Vec<_>>();
+        if vec_chunk.len() <= min_cluster_size {
+            to_be_reassigned.extend(vec_chunk.into_iter().map(|(_centroid_id, doc_id)| doc_id));
+            removed_centroids.insert(centroid_id);
+        } else {
+            final_assigments.extend(vec_chunk.into_iter());
         }
     }
 
-    let centroids_set = centroid_ids.iter().copied().collect::<HashSet<_>>();
-    let mut to_be_avoided = HashSet::new();
-    for &doc_id in to_be_reassigned.iter() {
-        if centroids_set.contains(&doc_id) {
-            to_be_avoided.insert(doc_id);
-        }
-    }
+    assert_eq!(
+        to_be_reassigned.len() + final_assigments.len(),
+        doc_ids.len(),
+        "Final assignment size mismatch"
+    );
 
-    //println!("to_be_reassigned: {}", to_be_reassigned.len());
-    for &doc_id in to_be_reassigned.iter() {
-        let mut dense_vector: Vec<T> = vec![T::zero(); dataset.dim()];
+    let centroid_assigments = compute_centroid_assignments(to_be_reassigned.as_slice(), dataset, &centroid_ids, &removed_centroids);
+    
+    final_assigments.extend(&centroid_assigments);
 
-        // Densify the vector
-        for (&i, &v) in dataset.iter_vector(doc_id) {
-            dense_vector[i as usize] = v;
-        }
+    assert_eq!(
+        final_assigments.len(),
+        doc_ids.len(),
+        "Final assignment size mismatch"
+    );
 
-        let mut argmax = 0;
-        let mut max = 0_f32;
-        for (i, (il, &c_id)) in inverted_lists.iter().zip(centroid_ids.iter()).enumerate() {
-            if il.len() <= min_cluster_size {
-                continue;
-            }
-            if to_be_avoided.contains(&c_id) {
-                continue;
-            }
+    final_assigments.sort();
 
-            let (v_components, v_values) = dataset.get(c_id);
-
-            let dot = dot_product_dense_sparse(&dense_vector, v_components, v_values);
-
-            if dot > max {
-                max = dot;
-                argmax = i;
-            }
-        }
-
-        inverted_lists[argmax].push(doc_id);
-    }
-
-    // println!("\tto_be_reassigned: {}", to_be_reassigned.len());
-    // println!("\thow many: {how_many} out of {total}");
-
-    // println!("Elapsed Time {:}", time.elapsed().as_micros());
-
-    inverted_lists
+    final_assigments
 }
 
 #[cfg(test)]
