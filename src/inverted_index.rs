@@ -584,6 +584,7 @@ impl PostingList {
         block_offsets
     }
 
+    // Panics if the number of centroids is greater than u16::MAX.
     fn blocking_with_random_kmeans<T: DataType>(
         posting_list: &mut [usize],
         centroid_fraction: f32,
@@ -596,6 +597,9 @@ impl PostingList {
         }
 
         let n_centroids = ((centroid_fraction * posting_list.len() as f32) as usize).max(1);
+
+        assert!(n_centroids <= u16::MAX as usize,  "In the current implementation the number of centroids cannot be greater than u16::MAX. This is due that the quantizied summary uses u16 to store the centroids ids (aka summaries ids).\n Please, decrease centroid_fraction!");
+
         let mut reordered_posting_list = Vec::<_>::with_capacity(posting_list.len());
         let mut block_offsets = Vec::with_capacity(n_centroids);
 

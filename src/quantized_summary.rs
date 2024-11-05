@@ -13,7 +13,7 @@ pub struct QuantizedSummary {
     n_summaries: usize,
     d: usize,
     offsets: DArray<false>,
-    summaries_ids: Box<[u16]>, // There cannot be more than 2^16-1 summaries
+    summaries_ids: Box<[u16]>, // There cannot be more than 2^16 summaries
     values: Box<[u8]>,
     minimums: Box<[f32]>,
     quants: Box<[f32]>,
@@ -61,11 +61,16 @@ impl QuantizedSummary {
     }
 
     /// # Panics
-    /// Panics if the number of summmaries is more than 2^16-1
+    /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)
     pub fn new(dataset: SparseDataset<f16>, original_dim: usize) -> QuantizedSummary {
         // We need the original dim because the summaries for the current posting list
         // may not contain all the components. An alternative is to use an HashMap to map
         // the components
+
+        assert!(
+            dataset.len() <= u16::MAX as usize,
+            "Number of summaries cannot be more than 2^16"
+        );
 
         // TODO: if dim is big it may be better to use a HashMap to map the components to the summaries
         let mut inverted_pairs = Vec::with_capacity(original_dim);
@@ -94,7 +99,7 @@ impl QuantizedSummary {
         offsets.push(0);
         for ip in inverted_pairs.iter() {
             codes.extend(ip.iter().map(|(s, _)| *s));
-            summaries_ids.extend(ip.iter().map(|(_, id)| u16::try_from(*id).unwrap())); // Panics if the number of summmaries is more than 2^16-1
+            summaries_ids.extend(ip.iter().map(|(_, id)| *id as u16));
             offsets.push(summaries_ids.len())
         }
 

@@ -1,6 +1,6 @@
 name =          "splade_cocondenser_ms_marco_v2_ecir_1.5_60k_knn_0"
-title =         "ECIR plot - Seismic 1.5"
-description =   "Seismic without KNN with a space usage within a factor 2.0 the size of the forward index. We use 60k postings, no knn, centriod fraction 0.1, and summary energy 0.4. We use kmeans implemented with inverted indexes and dot product approximated."
+title =         "ECIR plot - Seismic 2.0"
+description =   "Seismic without KNN with a space usage within a factor 2.0 the size of the forward index. We use 90k postings, no knn, centriod fraction 0.1, and summary energy 0.4. We use kmeans implemented with inverted indexes and dot product approximated."
 dataset =       "Splade cocondenser on MS-MARCO-v2"
 
 [settings]

@@ -33,7 +33,7 @@ struct Args {
     #[arg(default_value_t = 10)]
     block_size: usize,
 
-    /// Regulates the number of centroids built for each posting list. The number of centroids is at most the fraction of the posting list lenght.
+    /// Regulates the number of centroids built for each posting list. The number of centroids is at most the specified fraction of the posting list lenght.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.1)]
     centroid_fraction: f32,
