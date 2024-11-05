@@ -20,6 +20,8 @@ pub struct QuantizedSummary {
 }
 
 impl QuantizedSummary {
+    const N_CLASSES: usize = 256; // we store quantized values in a u8. Number of classes cannot be more than 256
+
     pub fn space_usage_byte(&self) -> usize {
         SpaceUsage::space_usage_byte(&self.n_summaries)
             + SpaceUsage::space_usage_byte(&self.d)
@@ -58,21 +60,24 @@ impl QuantizedSummary {
         accumulator
     }
 
+    /// # Panics
+    /// Panics if the number of summmaries is more than 2^16-1
     pub fn new(dataset: SparseDataset<f16>, original_dim: usize) -> QuantizedSummary {
-        // We need the original dim because the summaries for the current posting list may not
-        // contain all the components. An alternative is to use an HashMap to map
+        // We need the original dim because the summaries for the current posting list
+        // may not contain all the components. An alternative is to use an HashMap to map
         // the components
+
+        // TODO: if dim is big it may be better to use a HashMap to map the components to the summaries
         let mut inverted_pairs = Vec::with_capacity(original_dim);
         for _ in 0..original_dim {
             inverted_pairs.push(Vec::new());
         }
-        let n_classes = 256;
 
         let mut minimums = Vec::with_capacity(inverted_pairs.len());
         let mut quants = Vec::with_capacity(inverted_pairs.len());
 
         for (doc_id, (components, values)) in dataset.iter().enumerate() {
-            let (minimum, quant, current_codes) = quantize(values, n_classes);
+            let (minimum, quant, current_codes) = Self::quantize(values);
 
             minimums.push(minimum);
             quants.push(quant);
@@ -87,16 +92,14 @@ impl QuantizedSummary {
         let mut codes = Vec::with_capacity(dataset.nnz());
 
         offsets.push(0);
-
         for ip in inverted_pairs.iter() {
             codes.extend(ip.iter().map(|(s, _)| *s));
-            summaries_ids.extend(ip.iter().map(|(_, id)| *id as u16));
+            summaries_ids.extend(ip.iter().map(|(_, id)| u16::try_from(*id).unwrap())); // Panics if the number of summmaries is more than 2^16-1
             offsets.push(summaries_ids.len())
         }
 
         QuantizedSummary {
             n_summaries: dataset.len(),
-
             d: dataset.dim(),
             offsets: offsets
                 .into_iter()
@@ -109,27 +112,29 @@ impl QuantizedSummary {
             quants: quants.into_boxed_slice(),
         }
     }
-}
 
-#[inline]
-pub fn quantize(values: &[f16], n_classes: usize) -> (f32, f32, Vec<u8>) {
-    assert!(!values.is_empty());
+    #[inline]
+    fn quantize(values: &[f16]) -> (f32, f32, Vec<u8>) {
+        assert!(!values.is_empty());
 
-    // Compute min and max values in the vector
-    let (min, max) = values.iter().fold((values[0], values[0]), |acc, &v| {
-        (acc.0.min(v), acc.1.max(v))
-    });
+        // Compute min and max values in the vector
+        let (min, max) = values.iter().fold((values[0], values[0]), |acc, &v| {
+            (acc.0.min(v), acc.1.max(v))
+        });
 
-    let (min, max) = (min.to_f32(), max.to_f32());
-    // Quantization splits the range [min ,max] into n_classes blocks of equal size (max-m)/n_clasess
-    // exponential quantization copuld be possible as well.
+        let (min, max) = (min.to_f32(), max.to_f32());
 
-    let mut query_values = Vec::with_capacity(values.len());
-    let quant = (max - min) / (n_classes as f32);
-    for &v in values {
-        let q = ((f32::from(v) - min) / quant) as u8;
-        query_values.push(q);
+        // Quantization splits the range [min, max] into Self::N_CLASSES blocks of equal size
+        // (max-m)/Self::N_CLASSES.
+        // Exponential quantization could be possible as well.
+
+        let mut quantized_values = Vec::with_capacity(values.len());
+        let quant = (max - min) / (Self::N_CLASSES as f32);
+        for &v in values {
+            let q = ((f32::from(v) - min) / quant) as u8;
+            quantized_values.push(q);
+        }
+
+        (min, quant, quantized_values)
     }
-
-    (min, quant, query_values)
 }
