@@ -8,7 +8,7 @@ k =             10
 n-runs =        1       # Number of runs. PLEASE think carefully how increasing 
                         # this may influence your query time
 # NUMA =        ""      # "numactl --physcpubind='0-15' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
-build =         true    # Need to build the index or the index is already built?
+build =         true   # Need to build the index or the index is already built?
 
 [folder] 
 data =          "~/sparse_datasets/msmarco_v1/cocondenser/data"
@@ -33,28 +33,28 @@ kmeans-pruning-factor = 0.005 # Only used by random-kmeans-inverted-index
 [query]
     [query.recall_90]
     query-cut =         4
-    heap-factor =       0.9
+    heap-factor =       0.89
 
     [query.recall_91]
     query-cut =         6
-    heap-factor =       0.9
+    heap-factor =       0.89
     
     [query.recall_92]
     query-cut =         10
-    heap-factor =       0.9
+    heap-factor =       0.89
 
     [query.recall_93]
     query-cut =         5
-    heap-factor =       0.8
+    heap-factor =       0.79
 
     [query.recall_94]
     query-cut =         6  
-    heap-factor =       0.8
+    heap-factor =       0.79
 
     [query.recall_95]
     query-cut =         13
-    heap-factor =       0.8
+    heap-factor =       0.79
 
     [query.recall_96]
     query-cut =         11
-    heap-factor =       0.7
+    heap-factor =       0.69

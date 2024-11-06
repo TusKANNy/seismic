@@ -163,7 +163,7 @@ where
                 &mut heap,
                 &mut visited,
                 &self.forward_index,
-                false,
+                false,  
             );
         }
         if let Some(knn) = self.knn.as_ref() {
