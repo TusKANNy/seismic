@@ -156,16 +156,16 @@ pub fn do_random_kmeans_on_docids_ii_approx_dot_product<T: DataType>(
 
     centroid_assigments.sort_unstable();
 
-    for (centroid_id, chunk) in &centroid_assigments
-        .into_iter()
-        .group_by(|(centroid_id, _doc_id)| *centroid_id)
-    {
-        let vec_chunk = chunk.collect::<Vec<_>>();
-        if vec_chunk.len() <= min_cluster_size {
-            to_be_reassigned.extend(vec_chunk.into_iter().map(|(_centroid_id, doc_id)| doc_id));
+    for group in centroid_assigments.chunk_by(
+        // group by centroid_id
+        |&(centroid_id_a, _doc_id_a), &(centroid_id_b, _doc_id_b)| centroid_id_a == centroid_id_b,
+    ) {
+        let centroid_id = group[0].0;
+        if group.len() <= min_cluster_size {
+            to_be_reassigned.extend(group.iter().map(|(_centroid_id, doc_id)| doc_id));
             removed_centroids.insert(centroid_id);
         } else {
-            final_assigments.extend(vec_chunk.into_iter());
+            final_assigments.extend(group.iter());
         }
     }
 
@@ -311,16 +311,16 @@ pub fn do_random_kmeans_on_docids_ii_dot_product<T: DataType>(
 
     centroid_assigments.sort_unstable();
 
-    for (centroid_id, chunk) in &centroid_assigments
-        .into_iter()
-        .group_by(|(centroid_id, _doc_id)| *centroid_id)
-    {
-        let vec_chunk = chunk.collect::<Vec<_>>();
-        if vec_chunk.len() <= min_cluster_size {
-            to_be_reassigned.extend(vec_chunk.into_iter().map(|(_centroid_id, doc_id)| doc_id));
+    for group in centroid_assigments.chunk_by(
+        // group by centroid_id
+        |&(centroid_id_a, _doc_id_a), &(centroid_id_b, _doc_id_b)| centroid_id_a == centroid_id_b,
+    ) {
+        let centroid_id = group[0].0;
+        if group.len() <= min_cluster_size {
+            to_be_reassigned.extend(group.iter().map(|(_centroid_id, doc_id)| doc_id));
             removed_centroids.insert(centroid_id);
         } else {
-            final_assigments.extend(vec_chunk.into_iter());
+            final_assigments.extend(group.iter());
         }
     }
 
@@ -412,16 +412,16 @@ pub fn do_random_kmeans_on_docids<T: DataType>(
 
     centroid_assigments.sort_unstable();
 
-    for (centroid_id, chunk) in &centroid_assigments
-        .into_iter()
-        .group_by(|(centroid_id, _doc_id)| *centroid_id)
-    {
-        let vec_chunk = chunk.collect::<Vec<_>>();
-        if vec_chunk.len() <= min_cluster_size {
-            to_be_reassigned.extend(vec_chunk.into_iter().map(|(_centroid_id, doc_id)| doc_id));
+    for group in centroid_assigments.chunk_by(
+        // group by centroid_id
+        |&(centroid_id_a, _doc_id_a), &(centroid_id_b, _doc_id_b)| centroid_id_a == centroid_id_b,
+    ) {
+        let centroid_id = group[0].0;
+        if group.len() <= min_cluster_size {
+            to_be_reassigned.extend(group.iter().map(|(_centroid_id, doc_id)| doc_id));
             removed_centroids.insert(centroid_id);
         } else {
-            final_assigments.extend(vec_chunk.into_iter());
+            final_assigments.extend(group.iter());
         }
     }
 

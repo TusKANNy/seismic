@@ -225,10 +225,10 @@ where
         let elapsed = time.elapsed();
         println!("{} secs", elapsed.as_secs());
 
+        println!("\tNumber of posting lists: {}", inverted_pairs.len());
+
         print!("\tBuilding summaries ");
         let time = Instant::now();
-
-        println!("\tNumber of posting lists: {}", inverted_pairs.len());
         // Build summaries and blocks for each posting list
         let posting_lists: Vec<_> = inverted_pairs
             .par_iter()
@@ -634,11 +634,13 @@ impl PostingList {
 
         block_offsets.push(0);
 
-        for (_centroid_id, group) in &clustering_results
-            .into_iter()
-            .group_by(|(centroid_id, _doc_id)| *centroid_id)
-        {
-            reordered_posting_list.extend(group.map(|(_centroid_id, doc_id)| doc_id));
+        for group in clustering_results.chunk_by(
+            // group by centroid_id
+            |&(centroid_id_a, _doc_id_a), &(centroid_id_b, _doc_id_b)| {
+                centroid_id_a == centroid_id_b
+            },
+        ) {
+            reordered_posting_list.extend(group.iter().map(|(_centroid_id, doc_id)| doc_id));
             block_offsets.push(reordered_posting_list.len());
         }
 
