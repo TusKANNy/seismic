@@ -11,8 +11,8 @@ n-runs =        1       # Number of runs. PLEASE think carefully how increasing
 build =         true    # Need to build the index or the index is already built?
 
 [folder] 
-data =          "~/sparse_vectors/msmarco/cocondenser/data"
-index =         "~/sparse_vectors/msmarco/cocondenser/indexes"
+data =          "~/sparse_datasets/msmarco/cocondenser/data"
+index =         "~/sparse_datasets/msmarco/cocondenser/indexes"
 experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
 
 [filename]

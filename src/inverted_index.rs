@@ -235,7 +235,6 @@ where
             .progress_count(inverted_pairs.len() as u64)
             .enumerate()
             .map(|(_component_id, posting_list)| {
-                //println!("\tDealing with component {_component_id}");
                 PostingList::build(&dataset, posting_list, &config)
             })
             .collect();

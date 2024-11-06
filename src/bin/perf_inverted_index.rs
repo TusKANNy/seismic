@@ -94,6 +94,7 @@ pub fn main() {
     let time = Instant::now();
     for _ in 0..n_runs {
         results.clear();
+
         for (query_id, (q_components, q_values)) in queries.iter().take(n_queries).enumerate() {
             let cur_results =
                 inverted_index.search(q_components, q_values, args.k, query_cut, heap_factor, nknn);

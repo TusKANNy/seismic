@@ -22,6 +22,8 @@ pub mod quantized_summary;
 
 pub use quantized_summary::QuantizedSummary;
 
+pub mod elias_fano;
+
 pub mod space_usage;
 
 pub use space_usage::SpaceUsage;

@@ -4,15 +4,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{SpaceUsage, SparseDataset};
 
-use qwt::SpaceUsage as QwtSpaceUsage;
-
-use qwt::{DArray, SelectBin};
+use crate::elias_fano::EliasFano;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct QuantizedSummary {
     n_summaries: usize,
     d: usize,
-    offsets: DArray<false>,
+    offsets: EliasFano,
     summaries_ids: Box<[u16]>, // There cannot be more than 2^16 summaries
     values: Box<[u8]>,
     minimums: Box<[f32]>,
@@ -25,7 +23,7 @@ impl QuantizedSummary {
     pub fn space_usage_byte(&self) -> usize {
         SpaceUsage::space_usage_byte(&self.n_summaries)
             + SpaceUsage::space_usage_byte(&self.d)
-            + QwtSpaceUsage::space_usage_byte(&self.offsets)
+            + SpaceUsage::space_usage_byte(&self.offsets)
             + SpaceUsage::space_usage_byte(&self.summaries_ids)
             + SpaceUsage::space_usage_byte(&self.values)
             + SpaceUsage::space_usage_byte(&self.minimums)
@@ -36,8 +34,8 @@ impl QuantizedSummary {
         let mut accumulator = vec![0_f32; self.n_summaries];
 
         for (&qc, &qv) in query_components.iter().zip(query_values) {
-            let current_offset = self.offsets.select1(qc as usize).unwrap() - qc as usize;
-            let next_offset = self.offsets.select1((qc + 1) as usize).unwrap() - qc as usize - 1;
+            let current_offset = self.offsets.select(qc as usize).unwrap() - qc as usize;
+            let next_offset = self.offsets.select((qc + 1) as usize).unwrap() - qc as usize - 1;
 
             if next_offset - current_offset == 0 {
                 continue;
@@ -106,11 +104,14 @@ impl QuantizedSummary {
         QuantizedSummary {
             n_summaries: dataset.len(),
             d: dataset.dim(),
-            offsets: offsets
-                .into_iter()
-                .enumerate()
-                .map(|(id, cur_offset)| cur_offset + id) // Add id to make a strictly increasing sequence
-                .collect(),
+            offsets: EliasFano::from(
+                // TODO: Remove id which is not needed in EF
+                &offsets
+                    .into_iter()
+                    .enumerate()
+                    .map(|(id, cur_offset)| cur_offset + id) // Add id to make a strictly increasing sequence
+                    .collect::<Vec<usize>>(),
+            ),
             summaries_ids: summaries_ids.into_boxed_slice(),
             values: codes.into_boxed_slice(),
             minimums: minimums.into_boxed_slice(),
