@@ -34,8 +34,8 @@ impl QuantizedSummary {
         let mut accumulator = vec![0_f32; self.n_summaries];
 
         for (&qc, &qv) in query_components.iter().zip(query_values) {
-            let current_offset = self.offsets.select(qc as usize).unwrap() - qc as usize;
-            let next_offset = self.offsets.select((qc + 1) as usize).unwrap() - qc as usize - 1;
+            let current_offset = self.offsets.select(qc as usize).unwrap();
+            let next_offset = self.offsets.select((qc + 1) as usize).unwrap();
 
             if next_offset - current_offset == 0 {
                 continue;
@@ -104,14 +104,7 @@ impl QuantizedSummary {
         QuantizedSummary {
             n_summaries: dataset.len(),
             d: dataset.dim(),
-            offsets: EliasFano::from(
-                // TODO: Remove id which is not needed in EF
-                &offsets
-                    .into_iter()
-                    .enumerate()
-                    .map(|(id, cur_offset)| cur_offset + id) // Add id to make a strictly increasing sequence
-                    .collect::<Vec<usize>>(),
-            ),
+            offsets: EliasFano::from(&offsets),
             summaries_ids: summaries_ids.into_boxed_slice(),
             values: codes.into_boxed_slice(),
             minimums: minimums.into_boxed_slice(),
