@@ -46,15 +46,17 @@ def get_git_info(experiment_dir):
         sys.exit(1)
 
 
-def compile_rust_code(experiment_dir):
+def compile_rust_code(experiment_dir, configs):
     """Compile the Rust code and save output."""
-    rust_flags = "RUSTFLAGS='-C target-cpu=native' cargo build --release"
+    
+    compile_command = configs.get("compile-command", "RUSTFLAGS='-C target-cpu=native' cargo build --release")
+
     compilation_output_file = os.path.join(experiment_dir, "compiler.output")
 
     try:
-        print("Compiling Rust code...")
+        print("Compiling Rust code with", compile_command)
         with open(compilation_output_file, "w") as comp_output:
-            compile_process = subprocess.Popen(rust_flags, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            compile_process = subprocess.Popen(compile_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             for line in iter(compile_process.stdout.readline, b''):
                 decoded_line = line.decode()
                 print(decoded_line, end='')  # Print each line as it is produced
@@ -90,8 +92,10 @@ def build_index(configs, experiment_dir):
     print(f"Dataset filename: {input_file }")
     print(f"Index filename: {output_file}")
 
+    build_command = configs.get("build-command", "./target/release/build_inverted_index")
+
     command_and_params = [
-        "./target/release/build_inverted_index",
+        build_command,
         f"--input-file {input_file}",
         f"--output-file {output_file}",
         f"--n-postings {configs['indexing_parameters']['n-postings']}",
@@ -157,10 +161,11 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
     output_file = os.path.join(experiment_dir, f"results_{subsection_name}")
     log_output_file =  os.path.join(experiment_dir, f"log_{subsection_name}") 
 
+    query_command = configs.get("query-command", "./target/release/perf_inverted_index")
 
     command_and_params = [
         configs['settings']['NUMA'] if "NUMA" in configs['settings'] else "",
-        "./target/release/perf_inverted_index",
+        query_command, 
         f"--index-file {index_file}.index.seismic",
         f"-k {configs['settings']['k']}",
         f"--query-file {query_file}",
@@ -177,7 +182,6 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
 
     print(f"Executing query for subsection '{subsection_name}' with command:")
     print(command)
-
 
     pattern = r"\tTotal: (\d+) Bytes" # Pattern to match the total memory usage
 
@@ -229,7 +233,7 @@ def main(experiment_config_filename):
 
     # Store the output of the Rust compilation and index building processes
     get_git_info(experiment_folder)
-    compile_rust_code(experiment_folder)
+    compile_rust_code(experiment_folder, config_data)
     if config_data['settings']['build']:
         build_index(config_data, experiment_folder)
     else:
