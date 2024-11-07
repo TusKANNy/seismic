@@ -84,6 +84,7 @@ impl PySeismicIndex {
             query_cut,
             heap_factor,
             n_knn,
+            false // first_sorted is set to false
         )
     }
 
@@ -108,7 +109,7 @@ impl PySeismicIndex {
             .par_iter()
             .map(|query| {
                 self.inverted_index
-                    .search(query.0, query.1, k, query_cut, heap_factor, n_knn)
+                    .search(query.0, query.1, k, query_cut, heap_factor, n_knn, false)
             })
             .collect::<Vec<_>>()
     }

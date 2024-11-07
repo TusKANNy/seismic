@@ -137,6 +137,7 @@ where
         query_cut: usize,
         heap_factor: f32,
         n_knn: usize,
+        first_sorted: bool,
     ) -> Vec<(f32, usize)> {
         let mut query = vec![0.0; self.dim()];
 
@@ -163,7 +164,7 @@ where
                 &mut heap,
                 &mut visited,
                 &self.forward_index,
-                false,  
+                i == 0 && first_sorted,  
             );
         }
         if let Some(knn) = self.knn.as_ref() {
@@ -862,11 +863,12 @@ impl Knn {
                     .search(
                         components,
                         &f32_values,
-                        d + 1,
+                        d + 1, // +1 to filter the document itself if present
                         KNN_QUERY_CUT,
                         KNN_HEAP_FACTOR,
                         0,
-                    ) // +1 to avoid the be able to filter the document itself if present
+                        false,
+                    ) 
                     .iter()
                     .map(|(distance, doc_id)| (*distance, *doc_id))
                     .filter(|(_distance, doc_id)| *doc_id != my_doc_id) // remove the document itself

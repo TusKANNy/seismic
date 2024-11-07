@@ -157,6 +157,7 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
     output_file = os.path.join(experiment_dir, f"results_{subsection_name}")
     log_output_file =  os.path.join(experiment_dir, f"log_{subsection_name}") 
 
+
     command_and_params = [
         configs['settings']['NUMA'] if "NUMA" in configs['settings'] else "",
         "./target/release/perf_inverted_index",
@@ -168,6 +169,9 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
         f"--n-runs {configs['settings']['n-runs']}",
         f"--output-path {output_file}"
     ]
+
+    if "first-sorted" in query_config:
+        command_and_params.append("--first-sorted")
 
     command = " ".join(command_and_params)
 
