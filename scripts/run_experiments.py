@@ -90,7 +90,10 @@ def get_index_filename(base_filename, configs):
 def build_index(configs, experiment_dir):
     """Build the index using the provided configuration."""
     input_file =  os.path.join(configs["folder"]["data"], configs["filename"]["dataset"])
-    output_file = os.path.join(configs["folder"]["index"], get_index_filename(configs["filename"]["index"], configs))
+    index_folder = configs["folder"]["index"]
+    if not os.path.exists(index_folder):
+        os.makedirs(index_folder)
+    output_file = os.path.join(index_folder, get_index_filename(configs["filename"]["index"], configs))
     print(f"Dataset filename: {input_file }")
     print(f"Index filename: {output_file}")
 
