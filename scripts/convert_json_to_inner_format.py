@@ -45,7 +45,7 @@ def write_sparse_vectors_to_binary_file_2(filename, term_id):
             write_binary_sequence(lst, fout)
 
 ## This is meant to be used for the NQ dataset in our format. 
-def convert_documents_from_nq(document_folder):
+def convert_documents_with_no_con(document_folder):
     sorted_files = sorted(filter(lambda x: x.endswith(".json"), os.listdir(document_folder)), key=lambda x: x.split(".", maxsplit=1))
     documents = []
     doc_ids = []
@@ -73,7 +73,7 @@ def convert_queries_from_nq(queries_path):
     
     return queries, query_ids
 
-def convert_documents_from_splade(document_path):
+def convert_documents_from_file(document_path):
     '''
     Documents and queries must be a jsonl (note the final "l") file.
     Each line is a json file with the following fields:
@@ -82,40 +82,34 @@ def convert_documents_from_splade(document_path):
         - "vector": a dictionary where each key represents a token, 
                 and its corresponding value is the score.
     '''
-
-    print("Converting from splade format..")
-    with open(document_path, "r") as f:
-        json_list = list(f)
 
     tokens_set = set()
 
-    for json_str in tqdm(json_list):
-        result = json.loads(json_str)
-        tokens_set.update(result['vector'].keys())
-    # Tokens are sorted to ensure reproducibility
+
+    print("Scanning the documents to build the token to ids mapping")
+    with open(document_path, "r") as file:
+        for line in tqdm(file):
+            line_data = json.loads(line.strip())
+            tokens_set.update(line_data['vector'].keys())
+
+    # Tokens are sorted to ensure portability
     sorted_tokens_set = sorted(tokens_set)
-
     token_to_id_mapping = {v:i for i, v in enumerate(list(sorted_tokens_set))}
-
-    documents = [None] * len(json_list)
-
-    for json_str in tqdm(json_list):
-        result = json.loads(json_str)
-        integer_id = int(result['id'])
-
-        new_dict = { token_to_id_mapping[k]:v for k,v in result['vector'].items() }
-        documents[integer_id] = new_dict
-
-        vs = np.array(list(result['vector'].values()), dtype=np.float32)
-        ks = np.array(list(result['vector'].keys()))
-        new_ks = np.array([token_to_id_mapping[k] for k in ks])
-
-        documents[integer_id] = (new_ks, vs)
-
-
-    return documents, token_to_id_mapping
     
-def convert_queries_from_splade(queries_path, token_to_id_mapping=None):
+
+    documents = []
+    doc_ids = []
+    with open(document_path, 'r') as file:
+        for line in tqdm(file):
+            line_data = json.loads(line.strip())
+            vs = np.array([v for v in line_data['vector'].values()], dtype=np.float32)
+            ks = np.array([token_to_id_mapping[k] for k in line_data['vector'].keys()])
+            #new_ks = np.array([token_to_id_mapping[k] for k in ks])
+            documents.append((ks, vs))
+            doc_ids.append(line_data['id'])
+    return documents, doc_ids, token_to_id_mapping
+    
+def convert_queries_from_file(queries_path, token_to_id_mapping=None):
     '''
     Documents and queries must be a jsonl (note the final "l") file.
     Each line is a json file with the following fields:
@@ -125,31 +119,32 @@ def convert_queries_from_splade(queries_path, token_to_id_mapping=None):
                 and its corresponding value is the score.
     '''
 
-    print("Converting from splade format..")
+
     with open(queries_path, "r") as f:
         json_list = list(f)
    
     queries = []
-    
+    queries_ids = []
     for json_str in tqdm(json_list):
         result = json.loads(json_str)
         new_dict = { token_to_id_mapping[k]:v for k,v in result['vector'].items() }
         #integer_id = int(result['id'])
         queries.append(new_dict)
+        queries_ids.append(result['id'])
 
-    return queries
+    return queries, queries_ids
 
 def main():
     parser = argparse.ArgumentParser(description="Parser for documents and queries conversion to Seismic format.")
 
     # Add arguments
-    parser.add_argument("--document-path", help="Path to the documents file")
+    parser.add_argument("--document-path-or-folder", help="Path to the documents file")
     parser.add_argument("--query-path", help="Path to the queries file")
     parser.add_argument("--output-dir", help="Path to the output dir. Will create a 'data' repo inside it. ")
-    parser.add_argument("--input-format", help="Kind of input format, can be msmarco (default) or nq", type=str, choices=["msmarco", "nq"], default="msmarco")
+    parser.add_argument("--skip-token-conversion", action="store_true", default=False, help="Whether you want to skip the token to id converison (if you already have done it)")
     
     args = parser.parse_args()
-    document_path = args.document_path
+    document_path = args.document_path_or_folder
     query_path = args.query_path
     output_dir = args.output_dir
     
@@ -157,37 +152,52 @@ def main():
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)   
     print(f"Saving into {data_dir}")
-    print("Document Path:", document_path)
-    print("Query Path:", query_path)
-
-    if args.input_format == "msmarco":
-        print("Reading and converting documents...")
-        documents, token_id_mapping = convert_documents_from_splade(document_path)
+    #print("Document Path:", document_path)
+    #print("Query Path:", query_path)
         
-        print("Reading and converting queries...")
-        queries = convert_queries_from_splade(query_path, token_id_mapping)
+    
+    if not args.skip_token_conversion:
+        print(f"Reading and converting documents from {document_path}")
+        documents, doc_ids, token_id_mapping = convert_documents_from_file(document_path)
+        
+        print(f"Reading and converting queries from {query_path}")
+        queries, queries_ids = convert_queries_from_file(query_path, token_id_mapping)
         
         print("Saving to Seismic format")
+        #Saving documents
         seismic_format_doc_path = os.path.join(data_dir, "documents.bin")
         write_sparse_vectors_to_binary_file_2(seismic_format_doc_path, documents)
-        seismic_format_query_path = os.path.join(data_dir, "queries.bin")
-        write_sparse_vectors_to_binary_file(seismic_format_query_path, queries)
         
-    elif args.input_format == "nq":
-        
-        print("Reading and converting documents (NQ format)...")
-        documents, doc_ids = convert_documents_from_nq(document_path)
-        
-        print("Reading and converting queries (NQ format)...")
-        queries, query_ids = convert_queries_from_nq(query_path)
-        
-        print("Saving to Seismic format")
-        seismic_format_doc_path = os.path.join(data_dir, "documents.bin")
-        write_sparse_vectors_to_binary_file(seismic_format_doc_path, documents)
-        seismic_format_query_path = os.path.join(data_dir, "queries.bin")
-        write_sparse_vectors_to_binary_file(seismic_format_query_path, queries)
+        #Saving doc_ids 
         np.save(os.path.join(data_dir, "doc_ids.npy"), doc_ids)
-        np.save(os.path.join(data_dir, "queries_ids.npy"), query_ids)
+
+        #Saving queries
+        seismic_format_query_path = os.path.join(data_dir, "queries.bin")
+        write_sparse_vectors_to_binary_file(seismic_format_query_path, queries)
+        
+        #Saving query_ids 
+        np.save(os.path.join(data_dir, "queries_ids.npy"), queries_ids)
+        
+        #Saving token to id mapping
+        token2id_path = os.path.join(data_dir, "token_to_id_mapping.json")
+        with open(token2id_path, 'w') as fp:
+            json.dump(token_id_mapping, fp)
+        
+    else:
+        raise NotImplementedError("Not implemented yet")        
+        # print("Reading and converting documents (NQ format)...")
+        # documents, doc_ids = convert_documents_from_nq(document_path)
+        
+        # print("Reading and converting queries (NQ format)...")
+        # queries, query_ids = convert_queries_from_nq(query_path)
+        
+        # print("Saving to Seismic format")
+        # seismic_format_doc_path = os.path.join(data_dir, "documents.bin")
+        # write_sparse_vectors_to_binary_file(seismic_format_doc_path, documents)
+        # seismic_format_query_path = os.path.join(data_dir, "queries.bin")
+        # write_sparse_vectors_to_binary_file(seismic_format_query_path, queries)
+        # np.save(os.path.join(data_dir, "doc_ids.npy"), doc_ids)
+        # np.save(os.path.join(data_dir, "queries_ids.npy"), query_ids)
         
 
     

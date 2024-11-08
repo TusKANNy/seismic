@@ -5,6 +5,8 @@ import time
 import toml
 import pandas as pd
 import re 
+import numpy as np
+import ir_measures
 
 # TODO
 # - Add a file machine.output with information about the machine, its load, free mamory
@@ -128,6 +130,37 @@ def build_index(configs, experiment_dir):
 
     print("Index built successfully.")
 
+def compute_metric(configs, output_file, gt_file, metric):
+    
+    column_names = ["query_id", "doc_id", "rank", "score"]
+    gt_pd = pd.read_csv(gt_file, sep='\t', names=column_names)
+    res_pd = pd.read_csv(output_file, sep='\t', names=column_names)
+    
+    query_ids_path = os.path.join(configs['folder']['data'], configs['filename']['query_ids'])
+    queries_ids = np.load(query_ids_path)
+
+    document_ids_path = os.path.join(configs['folder']['data'], configs['filename']['doc_ids'])
+    doc_ids = np.load(os.path.realpath(document_ids_path))
+    
+    gt_pd['query_id'] = gt_pd['query_id'].apply(lambda x: queries_ids[x])
+    res_pd['query_id'] = res_pd['query_id'].apply(lambda x: queries_ids[x])
+    
+    gt_pd['doc_id'] = gt_pd['doc_id'].apply(lambda x: doc_ids[x])
+    res_pd['doc_id'] = res_pd['doc_id'].apply(lambda x: doc_ids[x])
+    
+    qrels_path = configs['folder']['qrels_path']
+    df_qrels = pd.read_csv(qrels_path, sep="\t", names=["query_id", "useless", "doc_id", "relevance"])
+
+    ir_metric = ir_measures.parse_measure(metric)
+    
+    metric_val = ir_measures.calc_aggregate([ir_metric], df_qrels, res_pd)[ir_metric]
+    metric_gt = ir_measures.calc_aggregate([ir_metric], df_qrels, gt_pd)[ir_metric]
+    
+    print(f"Metri of the run: {ir_metric}: {metric_val}")
+    print(f"Metric of the gt : {ir_metric}: {metric_gt}")
+    
+    return metric_val
+    
 
 def compute_accuracy(query_file, gt_file):
     column_names = ["query_id", "doc_id", "rank", "score"]
@@ -202,8 +235,8 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
     print(f"Query for subsection '{subsection_name}' executed successfully.")
 
     gt_file = os.path.join(configs['folder']['data'], configs['filename']['groundtruth'])
-
-    return query_time, compute_accuracy(output_file, gt_file), memory_usage
+    metric = configs['settings']['metric']
+    return query_time, compute_accuracy(output_file, gt_file), compute_metric(configs, output_file, gt_file, metric), memory_usage
 
 def main(experiment_config_filename):
     """Main function to orchestrate the experiment."""
@@ -231,13 +264,16 @@ def main(experiment_config_filename):
     else:
         print("Index is already built!")
 
+    metric = config_data['settings']['metric']
+    print(f"Evaluation runs with metric {metric}")
+    
     # Execute queries for each subsection under [query]
     with open(os.path.join(experiment_folder, "report.tsv"), 'w') as report_file:
-        report_file.write("Subsection\tQuery Time (microsecs)\tRecall\tMemory Usage (Bytes)\n")
+        report_file.write(f"Subsection\tQuery Time (microsecs)\tRecall\t{metric}\tMemory Usage (Bytes)\n")
         if 'query' in config_data:
             for subsection, query_config in config_data['query'].items():
-                query_time, recall, memory_usage = query_execution(config_data, query_config, experiment_folder, subsection)
-                report_file.write(f"{subsection}\t{query_time}\t{recall}\t{memory_usage}\n")
+                query_time, recall, metric, memory_usage = query_execution(config_data, query_config, experiment_folder, subsection)
+                report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\n")
 
 if __name__ == "__main__":
     import argparse
