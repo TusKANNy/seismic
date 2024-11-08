@@ -39,22 +39,24 @@ struct Args {
     #[arg(default_value_t = 1)]
     n_runs: usize,
 
-    /// A paramenter that trade-off efficiency and accuracy. The search algorithm will only consider the top `query_cut` components of the query.
+    /// This paramenter introduces an efficiency and accuracy trade-off. The search algorithm only considers the top `query_cut` components of the query.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 10)]
     query_cut: usize,
 
-    /// A parameter that trade-off efficiency and accuracy. The search algorithm will skip a block which estimated dot product is greater than `heap_factor` times the smallest dot product of the top-k results in the current heap.
+    /// This paramenter introduces an efficiency and accuracy trade-off. The search algorithm skips any block which estimated dot product is greater than `heap_factor` times the smallest dot product of the top-k results in the current heap.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.7)]
     heap_factor: f32,
 
-    /// A parameter that specifies how many neighbours of the top results to score in the search algorithm.
+    /// The algorithm can score some vectors which are neighbours of the top results discovered in the previous phase. This parameter specifies how many neighbours of the top results the algorithmw will score to score in the search algorithm. The knn must be computed and stored at building time.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0)]
     n_knn: usize,
 
+    /// This parameter specifies whether the list of the first component mus be first sorted by estimated dot products. This introduces an efficiency and accuracy trade-off.
     #[clap(short, long, action)]
+    #[arg(default_value_t = false)]
     first_sorted: bool,
 }
 
@@ -97,7 +99,7 @@ pub fn main() {
 
         for (query_id, (q_components, q_values)) in queries.iter().take(n_queries).enumerate() {
             let cur_results =
-                inverted_index.search(q_components, q_values, args.k, query_cut, heap_factor, nknn);
+                inverted_index.search(q_components, q_values, args.k, query_cut, heap_factor, nknn, args.first_sorted);
 
             if cur_results.len() < args.k {
                 println!(
