@@ -7,10 +7,11 @@ import pandas as pd
 import re 
 import numpy as np
 import ir_measures
+from termcolor import colored
 
 # TODO
 # - Add a file machine.output with information about the machine, its load, free mamory
-# - Add MRR@k in the report.tsv
+
 
 def parse_toml(filename):
     """Parse the TOML configuration file."""
@@ -22,6 +23,8 @@ def parse_toml(filename):
     
 def get_git_info(experiment_dir):
     """Get Git repository information and save it to git.output."""
+    print("\n\n")
+    print(colored("Git Info:", "green"))
     git_output_file = os.path.join(experiment_dir, "git.output")
 
     try:
@@ -46,10 +49,12 @@ def get_git_info(experiment_dir):
     except Exception as e:
         print("An error occurred while retrieving Git information:", e)
         sys.exit(1)
+    print("\n\n")
 
 
 def compile_rust_code(experiment_dir, configs):
     """Compile the Rust code and save output."""
+    print(colored("Compiling the Rust code:", "red"))
     
     compile_command = configs.get("compile-command", "RUSTFLAGS='-C target-cpu=native' cargo build --release")
 
@@ -74,6 +79,7 @@ def compile_rust_code(experiment_dir, configs):
     except Exception as e:
         print("An error occurred during Rust compilation:", e)
         sys.exit(1)
+    print("\n\n")
 
 def get_index_filename(base_filename, configs):
     """Generate the index filename based on the provided parameters."""
