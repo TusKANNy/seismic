@@ -11,13 +11,13 @@ k =             10
 n-runs =        1       # Number of runs. PLEASE think carefully how increasing 
                         # this may influence your query time
 # NUMA =        ""      # "numactl --physcpubind='0-15' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
-build =         false   # Need to build the index or the index is already built?
+build =         true   # Need to build the index or the index is already built?
 metric =        "RR@10"
 
 [folder] 
-data =          "/home/cosimorulli/sparse_datasets/msmarco_v1/unicoil-t5/data"
-index =         "/home/cosimorulli/sparse_datasets/msmarco_v1/unicoil-t5/indexes"
-qrels_path =    "/home/cosimorulli/sparse_datasets/msmarco_v1/qrels.dev.small.tsv"
+data =          "~/sparse_datasets/msmarco_v1/unicoil-t5/data"
+index =         "~/sparse_datasets/msmarco_v1/unicoil-t5/indexes"
+qrels_path =    "~/sparse_datasets/msmarco_v1/qrels.dev.small.tsv"
 experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
 
 [filename]
