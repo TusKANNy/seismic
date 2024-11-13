@@ -83,7 +83,6 @@ def compile_rust_code(configs, experiment_dir):
     except Exception as e:
         print("An error occurred during Rust compilation:", e)
         sys.exit(1)
-    print("\n\n")
 
 
 def get_index_filename(base_filename, configs):
@@ -106,8 +105,10 @@ def build_index(configs, experiment_dir):
 
     os.makedirs(index_folder, exist_ok=True)
     output_file = os.path.join(index_folder, get_index_filename(configs["filename"]["index"], configs))
-    print(f"Dataset filename: {input_file }")
-    print(f"Index filename: {output_file}")
+    
+    print()
+    print(colored(f"Dataset filename: {input_file }", "blue"))
+    print(colored(f"Index filename: {output_file}", "blue"))
 
     build_command = configs.get("build-command", "./target/release/build_inverted_index")
 
@@ -129,7 +130,7 @@ def build_index(configs, experiment_dir):
     # Print the command that will be executed
     print()
     print(colored(f"Building index", "green"))
-    print(f"Indexing command: {command}")
+    print(colored(f"Indexing command: {command}", "yellow"))
 
     building_output_file = os.path.join(experiment_dir, "building.output")
 
