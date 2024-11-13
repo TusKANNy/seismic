@@ -5,6 +5,7 @@ import time
 import toml
 import psutil
 import socket
+import argparse
 import subprocess
 
 import ir_measures
@@ -406,8 +407,6 @@ def main(experiment_config_filename):
     
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="Run a seismic experiment on a dataset and query it.")
     parser.add_argument("--exp", required=True, help="Path to the experiment configuration TOML file.")
     args = parser.parse_args()
