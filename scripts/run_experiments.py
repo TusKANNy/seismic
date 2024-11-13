@@ -287,6 +287,18 @@ def get_machine_info(configs, experiment_folder):
     machine_info.write(f"Memory (free): {psutil.virtual_memory().free}\n")
     machine_info.write(f"Load: {psutil.getloadavg()}\n")
 
+    machine_info.write(f"\n---------------------\n")
+    machine_info.write(f"cpufreq configuration\n")
+    machine_info.write(f"---------------------\n")
+
+    command_governor = 'cpufreq-info | grep "performance" | grep -v "available" | wc -l'
+    governor = subprocess.Popen(command_governor, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    governor.wait()
+
+    for line in iter(governor.stdout.readline, b''):
+        decoded_line = line.decode()
+        machine_info.write(f'Number of CPUs with governor set to "performance" (should be equal to the number of CPUs below): {decoded_line}')
+
     machine_info.write(f"\n-----------------\n")
     machine_info.write(f"CPU configuration\n")
     machine_info.write(f"-----------------\n")
@@ -299,19 +311,13 @@ def get_machine_info(configs, experiment_folder):
         decoded_line = line.decode()
         machine_info.write(decoded_line)
 
-    machine_info.write(f"\n---------------------\n")
-    machine_info.write(f"cpufreq configuration\n")
-    machine_info.write(f"---------------------\n")
-
-    command_governor = 'cpufreq-info | grep "performance" | grep -v "available" | wc -l'
-    governor = subprocess.Popen(command_governor, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    governor.wait()
-
-    for line in iter(governor.stdout.readline, b''):
-        decoded_line = line.decode()
-        machine_info.write(f"Number of CPUs with performance governor (should be equal to the number of CPUs above): {decoded_line}")
-
     if ("NUMA" in configs['settings']):
+        machine_info.write(f"\n------------------\n")
+        machine_info.write(f"NUMA execution command\n")
+        machine_info.write(f"------------------\n")
+        machine_info.write(f"{configs['settings']['NUMA']}\n")
+
+
         machine_info.write(f"\n------------------\n")
         machine_info.write(f"NUMA configuration\n")
         machine_info.write(f"------------------\n")
