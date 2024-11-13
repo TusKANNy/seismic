@@ -282,10 +282,9 @@ def get_machine_info(configs, experiment_folder):
     cpu = psutil.cpu_percent(interval=1)
     
     memory_total = psutil.virtual_memory().total // (1024 ** 3)
-    memory_free = psutil.virtual_memory().free // (1024 ** 3)
-    load = psutil.getloadavg()
-
-    num_cpus = (int) os.cpu_count()
+    memory_free = psutil.virtual_memory().available // (1024 ** 3)
+    load = str(psutil.getloadavg())[1:-1]
+    num_cpus = psutil.cpu_count()
 
     machine_info.write(f"----------------------\n")
     machine_info.write(f"Hardware configuration\n")
