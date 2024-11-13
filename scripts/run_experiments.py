@@ -129,13 +129,13 @@ def build_index(configs, experiment_dir):
 
     # Print the command that will be executed
     print()
-    print(colored(f"Building index", "green"))
+    print(colored(f"Indexing", "green"))
     print(colored(f"Indexing command:", "blue"), command)
 
     building_output_file = os.path.join(experiment_dir, "building.output")
 
     # Build the index and display output in real-time
-    print(colored("Indexing...", "yellow"))
+    print(colored("Building index...", "yellow"))
     with open(building_output_file, "w") as build_output:
         build_process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         for line in iter(build_process.stdout.readline, b''):
