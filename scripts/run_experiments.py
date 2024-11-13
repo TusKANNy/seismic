@@ -130,12 +130,12 @@ def build_index(configs, experiment_dir):
     # Print the command that will be executed
     print()
     print(colored(f"Building index", "green"))
-    print(colored(f"Indexing command: {command}", "yellow"))
+    print(colored(f"Indexing command:", "yellow"), {command})
 
     building_output_file = os.path.join(experiment_dir, "building.output")
 
     # Build the index and display output in real-time
-    print("Building index...")
+    print("Indexing...")
     with open(building_output_file, "w") as build_output:
         build_process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         for line in iter(build_process.stdout.readline, b''):
@@ -146,10 +146,10 @@ def build_index(configs, experiment_dir):
         build_process.wait()
 
     if build_process.returncode != 0:
-        print("Index building failed.")
+        print(colored("Indexing failed!", "red"))
         sys.exit(1)
 
-    print("Index built successfully.")
+    print(colored("Index built successfully!", "green"))
 
 
 def compute_metric(configs, output_file, gt_file, metric):    
