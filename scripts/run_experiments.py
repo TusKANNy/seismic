@@ -277,8 +277,9 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
 def get_machine_info(configs, experiment_folder):
     machine_info_file = os.path.join(experiment_folder, "machine.output")
     machine_info = open(machine_info_file, "w")
+    machine_info.write(f"----------------------\n")
     machine_info.write(f"Hardware configuration\n")
-    machine_info.write(f"----------------------\n ")
+    machine_info.write(f"----------------------\n")
     machine_info.write(f"Date: {datetime.now()}\n")
     machine_info.write(f"Machine: {socket.gethostname()}\n")
     machine_info.write(f"CPU: {psutil.cpu_percent(interval=1)}\n")
@@ -286,10 +287,11 @@ def get_machine_info(configs, experiment_folder):
     machine_info.write(f"Memory (free): {psutil.virtual_memory().free}\n")
     machine_info.write(f"Load: {psutil.getloadavg()}\n")
 
-    machine_info.write(f"\nCPU configuration\n")
-    machine_info.write(f"-------------------\n")
+    machine_info.write(f"\n-----------------\n")
+    machine_info.write(f"CPU configuration\n")
+    machine_info.write(f"-----------------\n")
 
-    command_cpu = 'lscpu | grep "CPU"'
+    command_cpu = 'lscpu'
     cpu = subprocess.Popen(command_cpu, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     cpu.wait()
 
@@ -297,8 +299,9 @@ def get_machine_info(configs, experiment_folder):
         decoded_line = line.decode()
         machine_info.write(decoded_line)
 
-    machine_info.write(f"\ncpufreq configuration\n")
-    machine_info.write(f"-----------------------\n")
+    machine_info.write(f"\n---------------------\n")
+    machine_info.write(f"cpufreq configuration\n")
+    machine_info.write(f"---------------------\n")
 
     command_governor = 'cpufreq-info | grep "performance" | grep -v "available" | wc -l'
     governor = subprocess.Popen(command_governor, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -306,11 +309,12 @@ def get_machine_info(configs, experiment_folder):
 
     for line in iter(governor.stdout.readline, b''):
         decoded_line = line.decode()
-        machine_info.write(decoded_line)
+        machine_info.write(f"Number of CPUs with performance governor (should be equal to the number of CPUs above): {decoded_line}")
 
     if ("NUMA" in configs['settings']):
-        machine_info.write(f"\nNUMA configuration\n")
-        machine_info.write(f"-----------------------\n")
+        machine_info.write(f"\n------------------\n")
+        machine_info.write(f"NUMA configuration\n")
+        machine_info.write(f"------------------\n")
 
         command_numa = 'numactl --hardware'
         numa = subprocess.Popen(command_numa, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
