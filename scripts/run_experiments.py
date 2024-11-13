@@ -375,7 +375,7 @@ def main(experiment_config_filename):
     print(f"Running experiment:", colored(experiment_name, "green"))
 
     # Create an experiment folder with date and hour
-    timestamp  = str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    timestamp  = str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S"))
     experiment_folder = os.path.join(config_data["folder"]["experiment"], f"{experiment_name}_{timestamp}")
     os.makedirs(experiment_folder, exist_ok=True)
 
