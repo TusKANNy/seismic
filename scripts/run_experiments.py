@@ -285,6 +285,8 @@ def get_machine_info(configs, experiment_folder):
     memory_free = psutil.virtual_memory().free // (1024 ** 3)
     load = psutil.getloadavg()
 
+    num_cpus = (int) os.cpu_count()
+
     machine_info.write(f"----------------------\n")
     machine_info.write(f"Hardware configuration\n")
     machine_info.write(f"----------------------\n")
@@ -314,8 +316,13 @@ def get_machine_info(configs, experiment_folder):
     governor.wait()
 
     for line in iter(governor.stdout.readline, b''):
-        decoded_line = line.decode()
-        machine_info.write(f'Number of CPUs with governor set to "performance" (should be equal to the number of CPUs below): {decoded_line}')
+        cpus_with_performance_governor = (int) line.decode()
+        machine_info.write(f'Number of CPUs with governor set to "performance" (should be equal to the number of CPUs below): {cpus_with_performance_governor}')
+
+    if (num_cpus != cpus_with_performance_governor):
+        print(colored("Problems with hardware configuration found!", "red"))
+        print(f"for detailed information, check the hardware log file: {machine_info_file}")
+        sys.exit(1)
 
     machine_info.write(f"\n-----------------\n")
     machine_info.write(f"CPU configuration\n")
