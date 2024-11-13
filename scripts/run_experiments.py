@@ -27,8 +27,8 @@ def parse_toml(filename):
 
 def get_git_info(experiment_dir):
     """Get Git repository information and save it to git.output."""
-    print("\n\n")
-    print(colored("Git Info:", "green"))
+    print()
+    print(colored("Git info:", "green"))
     git_output_file = os.path.join(experiment_dir, "git.output")
 
     try:
@@ -53,11 +53,11 @@ def get_git_info(experiment_dir):
     except Exception as e:
         print("An error occurred while retrieving Git information:", e)
         sys.exit(1)
-    print("\n\n")
 
 
 def compile_rust_code(configs, experiment_dir):
     """Compile the Rust code and save output."""
+    print()
     print(colored("Compiling the Rust code:", "red"))
     
     compile_command = configs.get("compile-command", "RUSTFLAGS='-C target-cpu=native' cargo build --release")
@@ -169,11 +169,9 @@ def compute_metric(configs, output_file, gt_file, metric):
     
     qrels_path = configs['folder']['qrels_path']
     
-    
     df_qrels = pd.read_csv(qrels_path, sep="\t", names=["query_id", "useless", "doc_id", "relevance"])
     if "nq" in configs['name']: # the order of the fields in nq is different. 
         df_qrels = pd.read_csv(qrels_path, sep="\t", names=["query_id", "doc_id", "relevance", "useless"])
-    
 
     gt_pd['doc_id'] = gt_pd['doc_id'].astype(df_qrels.doc_id.dtype)
     res_pd['doc_id'] = res_pd['doc_id'].astype(df_qrels.doc_id.dtype)
@@ -277,9 +275,6 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
 def get_machine_info(configs, experiment_folder):
     machine_info_file = os.path.join(experiment_folder, "machine.output")
     machine_info = open(machine_info_file, "w")
-    machine_info.write(f"----------------------\n")
-    machine_info.write(f"Hardware configuration\n")
-    machine_info.write(f"----------------------\n")
 
     date = datetime.now()
     machine = socket.gethostname()
@@ -290,6 +285,9 @@ def get_machine_info(configs, experiment_folder):
     memory_percentage = psutil.virtual_memory().percent
     load = psutil.getloadavg()
 
+    machine_info.write(f"----------------------\n")
+    machine_info.write(f"Hardware configuration\n")
+    machine_info.write(f"----------------------\n")
     machine_info.write(f"Date: {date}\n")
     machine_info.write(f"Machine: {machine}\n")
     machine_info.write(f"CPU: {cpu}\n")
@@ -298,6 +296,7 @@ def get_machine_info(configs, experiment_folder):
     machine_info.write(f"Memory (percentage): {memory_percentage}\n")
     machine_info.write(f"Load: {load}\n")
 
+    print()
     print(colored("Hardware configuration", "red"))
     print(f"Date: {date}")
     print(f"Machine: {machine}")
@@ -306,7 +305,7 @@ def get_machine_info(configs, experiment_folder):
     print(f"Memory (free, GiB): {memory_free}")
     print(f"Memory (percentage): {memory_percentage}")
     print(f"Load: {load}")
-    print(f"for more information, check {machine_info_file}", sep='\n\n')
+    print(f"for more information, check {machine_info_file}")
 
     machine_info.write(f"\n---------------------\n")
     machine_info.write(f"cpufreq configuration\n")
