@@ -28,7 +28,7 @@ def parse_toml(filename):
 def get_git_info(experiment_dir):
     """Get Git repository information and save it to git.output."""
     print()
-    print(colored("Git info:", "green"))
+    print(colored("Git info", "green"))
     git_output_file = os.path.join(experiment_dir, "git.output")
 
     try:
@@ -58,7 +58,7 @@ def get_git_info(experiment_dir):
 def compile_rust_code(configs, experiment_dir):
     """Compile the Rust code and save output."""
     print()
-    print(colored("Compiling the Rust code:", "red"))
+    print(colored("Compiling the Rust code", "green"))
     
     compile_command = configs.get("compile-command", "RUSTFLAGS='-C target-cpu=native' cargo build --release")
 
@@ -297,7 +297,7 @@ def get_machine_info(configs, experiment_folder):
     machine_info.write(f"Load: {load}\n")
 
     print()
-    print(colored("Hardware configuration", "red"))
+    print(colored("Hardware configuration", "green"))
     print(f"Date: {date}")
     print(f"Machine: {machine}")
     print(f"CPU: {cpu}")
@@ -357,12 +357,12 @@ def main(experiment_config_filename):
     config_data = parse_toml(experiment_config_filename)
 
     if not config_data:
-        print("Error: Configuration data is empty.")
+        print(colored("Error: Configuration data is empty.", "red"))
         sys.exit(1)
 
     # Get the experiment name from the configuration
     experiment_name = config_data.get("name")
-    print(colored(f"Running experiment: {experiment_name}", "green"))
+    print(f"Running experiment: ", colored(experiment_name, "green"))
 
     # Create an experiment folder with date and hour
     timestamp  = str(datetime.now()).replace(" ", "_")
