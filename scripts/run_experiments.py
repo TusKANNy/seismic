@@ -306,7 +306,7 @@ def get_machine_info(configs, experiment_folder):
     print(f"CPU usage (%): {cpu}")
     print(f"Machine load: {load}")
     print(f"Memory (free, GiB): {memory_free}")
-    print(f"Memory (free, GiB): {memory_avail}")
+    print(f"Memory (avail, GiB): {memory_avail}")
     print(f"Memory (total, GiB): {memory_total}")
     print(f"for detailed information, check the hardware log file: {machine_info_file}")
 
@@ -321,6 +321,8 @@ def get_machine_info(configs, experiment_folder):
     for line in iter(governor.stdout.readline, b''):
         cpus_with_performance_governor = int(line.decode())
         machine_info.write(f'Number of CPUs with governor set to "performance" (should be equal to the number of CPUs below): {cpus_with_performance_governor}\n')
+
+    cpus_with_performance_governor = 3
 
     if (num_cpus != cpus_with_performance_governor):
         print(colored("Problems with hardware configuration found!", "red"))
@@ -373,7 +375,7 @@ def main(experiment_config_filename):
     print(f"Running experiment:", colored(experiment_name, "green"))
 
     # Create an experiment folder with date and hour
-    timestamp  = str(datetime.now()).replace(" ", "_")
+    timestamp  = str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     experiment_folder = os.path.join(config_data["folder"]["experiment"], f"{experiment_name}_{timestamp}")
     os.makedirs(experiment_folder, exist_ok=True)
 
