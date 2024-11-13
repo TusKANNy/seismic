@@ -315,7 +315,7 @@ def get_machine_info(configs, experiment_folder):
     governor.wait()
 
     for line in iter(governor.stdout.readline, b''):
-        cpus_with_performance_governor = (int) line.decode()
+        cpus_with_performance_governor = int(line.decode())
         machine_info.write(f'Number of CPUs with governor set to "performance" (should be equal to the number of CPUs below): {cpus_with_performance_governor}')
 
     if (num_cpus != cpus_with_performance_governor):
