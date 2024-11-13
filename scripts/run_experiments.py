@@ -305,7 +305,7 @@ def get_machine_info(configs, experiment_folder):
     print(f"Memory (free, GiB): {memory_free}")
     print(f"Memory (percentage): {memory_percentage}")
     print(f"Load: {load}")
-    print(f"for more information, check {machine_info_file}")
+    print(f"for detailed information, check the hardware log file: {machine_info_file}")
 
     machine_info.write(f"\n---------------------\n")
     machine_info.write(f"cpufreq configuration\n")
