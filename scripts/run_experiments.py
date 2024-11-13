@@ -315,7 +315,7 @@ def get_machine_info(configs, experiment_folder):
         machine_info.write(f"\n------------------------------------------------------------------------------\n")
         machine_info.write(f"NUMA execution command (check if CPU IDs corresponds to physical ones (no HT))\n")
         machine_info.write(f"------------------------------------------------------------------------------\n")
-        machine_info.write(f'Shell command: "{configs['settings']['NUMA']}"\n')
+        machine_info.write(f'Shell command: "{configs["settings"]["NUMA"]}"\n')
 
         machine_info.write(f"\n------------------\n")
         machine_info.write(f"NUMA configuration\n")
