@@ -1,16 +1,19 @@
+import re 
 import os
 import sys
-import subprocess
 import time
 import toml
-import pandas as pd
-import re 
-import numpy as np
-import ir_measures
-from termcolor import colored
+import psutil
+import socket
+import subprocess
 
-# TODO
-# - Add a file machine.output with information about the machine, its load, free mamory
+import ir_measures
+
+import numpy as np
+import pandas as pd
+
+from datetime import datetime
+from termcolor import colored
 
 
 def parse_toml(filename):
@@ -20,11 +23,12 @@ def parse_toml(filename):
     except Exception as e:
         print(f"Error reading the TOML file: {e}")
         return None
-    
+
+
 def get_git_info(experiment_dir):
     """Get Git repository information and save it to git.output."""
-    print("\n\n")
-    print(colored("Git Info:", "green"))
+    print()
+    print(colored("Git info", "green"))
     git_output_file = os.path.join(experiment_dir, "git.output")
 
     try:
@@ -49,12 +53,12 @@ def get_git_info(experiment_dir):
     except Exception as e:
         print("An error occurred while retrieving Git information:", e)
         sys.exit(1)
-    print("\n\n")
 
 
-def compile_rust_code(experiment_dir, configs):
+def compile_rust_code(configs, experiment_dir):
     """Compile the Rust code and save output."""
-    print(colored("Compiling the Rust code:", "red"))
+    print()
+    print(colored("Compiling the Rust code", "green"))
     
     compile_command = configs.get("compile-command", "RUSTFLAGS='-C target-cpu=native' cargo build --release")
 
@@ -79,7 +83,7 @@ def compile_rust_code(experiment_dir, configs):
     except Exception as e:
         print("An error occurred during Rust compilation:", e)
         sys.exit(1)
-    print("\n\n")
+
 
 def get_index_filename(base_filename, configs):
     """Generate the index filename based on the provided parameters."""
@@ -93,6 +97,7 @@ def get_index_filename(base_filename, configs):
     
     return "_".join(str(l) for l in name)
 
+
 def build_index(configs, experiment_dir):
     """Build the index using the provided configuration."""
     input_file =  os.path.join(configs["folder"]["data"], configs["filename"]["dataset"])
@@ -100,8 +105,10 @@ def build_index(configs, experiment_dir):
 
     os.makedirs(index_folder, exist_ok=True)
     output_file = os.path.join(index_folder, get_index_filename(configs["filename"]["index"], configs))
-    print(f"Dataset filename: {input_file }")
-    print(f"Index filename: {output_file}")
+    
+    print()
+    print(colored(f"Dataset filename: {input_file }", "blue"))
+    print(colored(f"Index filename: {output_file}", "blue"))
 
     build_command = configs.get("build-command", "./target/release/build_inverted_index")
 
@@ -121,8 +128,9 @@ def build_index(configs, experiment_dir):
     command = ' '.join(command_and_params)
 
     # Print the command that will be executed
-    print("Building index with command:")
-    print(command)
+    print()
+    print(colored(f"Building index", "green"))
+    print(colored(f"Indexing command: {command}", "yellow"))
 
     building_output_file = os.path.join(experiment_dir, "building.output")
 
@@ -143,8 +151,8 @@ def build_index(configs, experiment_dir):
 
     print("Index built successfully.")
 
-def compute_metric(configs, output_file, gt_file, metric):
-    
+
+def compute_metric(configs, output_file, gt_file, metric):    
     column_names = ["query_id", "doc_id", "rank", "score"]
     gt_pd = pd.read_csv(gt_file, sep='\t', names=column_names)
     res_pd = pd.read_csv(output_file, sep='\t', names=column_names)
@@ -163,11 +171,9 @@ def compute_metric(configs, output_file, gt_file, metric):
     
     qrels_path = configs['folder']['qrels_path']
     
-    
     df_qrels = pd.read_csv(qrels_path, sep="\t", names=["query_id", "useless", "doc_id", "relevance"])
     if "nq" in configs['name']: # the order of the fields in nq is different. 
         df_qrels = pd.read_csv(qrels_path, sep="\t", names=["query_id", "doc_id", "relevance", "useless"])
-    
 
     gt_pd['doc_id'] = gt_pd['doc_id'].astype(df_qrels.doc_id.dtype)
     res_pd['doc_id'] = res_pd['doc_id'].astype(df_qrels.doc_id.dtype)
@@ -205,6 +211,7 @@ def compute_accuracy(query_file, gt_file):
     total_results = len(gt_pd)
     total_intersections = sum(intersections_size.values())
     return total_intersections/total_results
+
 
 def query_execution(configs, query_config, experiment_dir, subsection_name):
     """Execute a query based on the provided configuration."""
@@ -266,27 +273,112 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
     metric = configs['settings']['metric']
     return query_time, compute_accuracy(output_file, gt_file), compute_metric(configs, output_file, gt_file, metric), memory_usage
 
+
+def get_machine_info(configs, experiment_folder):
+    machine_info_file = os.path.join(experiment_folder, "machine.output")
+    machine_info = open(machine_info_file, "w")
+
+    date = datetime.now()
+    machine = socket.gethostname()
+    cpu = psutil.cpu_percent(interval=1)
+    
+    memory_total = psutil.virtual_memory().total // (1024 ** 3)
+    memory_free = psutil.virtual_memory().free // (1024 ** 3)
+    memory_percentage = psutil.virtual_memory().percent
+    load = psutil.getloadavg()
+
+    machine_info.write(f"----------------------\n")
+    machine_info.write(f"Hardware configuration\n")
+    machine_info.write(f"----------------------\n")
+    machine_info.write(f"Date: {date}\n")
+    machine_info.write(f"Machine: {machine}\n")
+    machine_info.write(f"CPU: {cpu}\n")
+    machine_info.write(f"Memory (total, GiB): {memory_total}\n")
+    machine_info.write(f"Memory (free, GiB): {memory_free}\n")
+    machine_info.write(f"Memory (percentage): {memory_percentage}\n")
+    machine_info.write(f"Load: {load}\n")
+
+    print()
+    print(colored("Hardware configuration", "green"))
+    print(f"Date: {date}")
+    print(f"Machine: {machine}")
+    print(f"CPU: {cpu}")
+    print(f"Memory (total, GiB): {memory_total}")
+    print(f"Memory (free, GiB): {memory_free}")
+    print(f"Memory (percentage): {memory_percentage}")
+    print(f"Load: {load}")
+    print(f"for detailed information, check the hardware log file: {machine_info_file}")
+
+    machine_info.write(f"\n---------------------\n")
+    machine_info.write(f"cpufreq configuration\n")
+    machine_info.write(f"---------------------\n")
+
+    command_governor = 'cpufreq-info | grep "performance" | grep -v "available" | wc -l'
+    governor = subprocess.Popen(command_governor, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    governor.wait()
+
+    for line in iter(governor.stdout.readline, b''):
+        decoded_line = line.decode()
+        machine_info.write(f'Number of CPUs with governor set to "performance" (should be equal to the number of CPUs below): {decoded_line}')
+
+    machine_info.write(f"\n-----------------\n")
+    machine_info.write(f"CPU configuration\n")
+    machine_info.write(f"-----------------\n")
+
+    command_cpu = 'lscpu'
+    cpu = subprocess.Popen(command_cpu, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    cpu.wait()
+
+    for line in iter(cpu.stdout.readline, b''):
+        decoded_line = line.decode()
+        machine_info.write(decoded_line)
+
+    if ("NUMA" in configs['settings']):
+        machine_info.write(f"\n------------------------------------------------------------------------------\n")
+        machine_info.write(f"NUMA execution command (check if CPU IDs corresponds to physical ones (no HT))\n")
+        machine_info.write(f"------------------------------------------------------------------------------\n")
+        machine_info.write(f'Shell command: "{configs["settings"]["NUMA"]}"\n')
+
+        machine_info.write(f"\n------------------\n")
+        machine_info.write(f"NUMA configuration\n")
+        machine_info.write(f"------------------\n")
+
+        command_numa = 'numactl --hardware'
+        numa = subprocess.Popen(command_numa, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        numa.wait()
+
+        for line in iter(numa.stdout.readline, b''):
+            decoded_line = line.decode()
+            machine_info.write(decoded_line)
+
+    machine_info.close()
+    return
+
+
 def main(experiment_config_filename):
-    """Main function to orchestrate the experiment."""
     config_data = parse_toml(experiment_config_filename)
 
     if not config_data:
-        print("Error: Configuration data is empty.")
+        print(colored("Error: Configuration data is empty.", "red"))
         sys.exit(1)
 
     # Get the experiment name from the configuration
     experiment_name = config_data.get("name")
-    print(f"Running experiment: {experiment_name}")
+    print(f"Running experiment:", colored(experiment_name, "green"))
 
     # Create an experiment folder with date and hour
-    from datetime import datetime
     timestamp  = str(datetime.now()).replace(" ", "_")
     experiment_folder = os.path.join(config_data["folder"]["experiment"], f"{experiment_name}_{timestamp}")
     os.makedirs(experiment_folder, exist_ok=True)
 
+    # Retrieving hardware information
+    get_machine_info(config_data, experiment_folder)
+
     # Store the output of the Rust compilation and index building processes
     get_git_info(experiment_folder)
-    compile_rust_code(experiment_folder, config_data)
+    
+    compile_rust_code(config_data, experiment_folder)
+
     if config_data['settings']['build']:
         build_index(config_data, experiment_folder)
     else:
@@ -302,6 +394,7 @@ def main(experiment_config_filename):
             for subsection, query_config in config_data['query'].items():
                 query_time, recall, metric, memory_usage = query_execution(config_data, query_config, experiment_folder, subsection)
                 report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\n")
+    
 
 if __name__ == "__main__":
     import argparse
@@ -311,3 +404,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(args.exp)
+    sys.exit(0)
