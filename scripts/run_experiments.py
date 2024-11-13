@@ -362,7 +362,7 @@ def main(experiment_config_filename):
 
     # Get the experiment name from the configuration
     experiment_name = config_data.get("name")
-    print(f"Running experiment: {experiment_name}")
+    print(colored(f"Running experiment: {experiment_name}", "green"))
 
     # Create an experiment folder with date and hour
     timestamp  = str(datetime.now()).replace(" ", "_")
