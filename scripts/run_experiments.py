@@ -281,8 +281,10 @@ def get_machine_info(configs, experiment_folder):
     machine = socket.gethostname()
     cpu = psutil.cpu_percent(interval=1)
     
+    memory_free = psutil.virtual_memory().free // (1024 ** 3)
+    memory_avail = psutil.virtual_memory().available // (1024 ** 3)
     memory_total = psutil.virtual_memory().total // (1024 ** 3)
-    memory_free = psutil.virtual_memory().available // (1024 ** 3)
+    
     load = str(psutil.getloadavg())[1:-1]
     num_cpus = psutil.cpu_count()
 
@@ -294,6 +296,7 @@ def get_machine_info(configs, experiment_folder):
     machine_info.write(f"CPU usage (%): {cpu}\n")
     machine_info.write(f"Machine load: {load}\n")
     machine_info.write(f"Memory (free, GiB): {memory_free}\n")
+    machine_info.write(f"Memory (avail, GiB): {memory_avail}\n")
     machine_info.write(f"Memory (total, GiB): {memory_total}\n")
     
     print()
@@ -303,6 +306,7 @@ def get_machine_info(configs, experiment_folder):
     print(f"CPU usage (%): {cpu}")
     print(f"Machine load: {load}")
     print(f"Memory (free, GiB): {memory_free}")
+    print(f"Memory (free, GiB): {memory_avail}")
     print(f"Memory (total, GiB): {memory_total}")
     print(f"for detailed information, check the hardware log file: {machine_info_file}")
 
@@ -316,7 +320,7 @@ def get_machine_info(configs, experiment_folder):
 
     for line in iter(governor.stdout.readline, b''):
         cpus_with_performance_governor = int(line.decode())
-        machine_info.write(f'Number of CPUs with governor set to "performance" (should be equal to the number of CPUs below): {cpus_with_performance_governor}')
+        machine_info.write(f'Number of CPUs with governor set to "performance" (should be equal to the number of CPUs below): {cpus_with_performance_governor}\n')
 
     if (num_cpus != cpus_with_performance_governor):
         print(colored("Problems with hardware configuration found!", "red"))
