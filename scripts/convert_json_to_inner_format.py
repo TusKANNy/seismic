@@ -49,7 +49,7 @@ def write_sparse_vectors_to_binary_file_2(filename, term_id):
 
 
 ## This is meant to be used for the NQ dataset in our format.
-def convert_documents_with_no_con(document_folder):
+def convert_documents_with_no_token_conversion(document_folder):
     sorted_files = sorted(
         filter(lambda x: x.endswith(".json"), os.listdir(document_folder)),
         key=lambda x: x.split(".", maxsplit=1),
@@ -67,7 +67,7 @@ def convert_documents_with_no_con(document_folder):
     return documents, doc_ids
 
 
-def convert_queries_from_nq(queries_path):
+def convert_queries_with_no_token_conversion(queries_path):
     queries = []
     query_ids = []
     with open(queries_path) as f:
@@ -198,10 +198,8 @@ def convert_queries_from_compressed_file(queries_path, token_to_id_mapping=None)
             queries_ids.append(result["id"])
 
     print(f"Number of queries: {len(queries)}")
-    
+
     return queries, queries_ids
-
-
 
 
 def convert_queries_from_file(queries_path, token_to_id_mapping=None):
@@ -247,15 +245,13 @@ def main():
         default=False,
         help="Whether you want to skip the token to id converison (if you already have done it)",
     )
-    
+
     parser.add_argument(
         "--large-dataset",
         action="store_true",
         default=False,
         help="Set to true if you are dealing with very large datasets and you don't want to load the entire collection in memory.",
     )
-    
-    
 
     args = parser.parse_args()
     document_path = args.document_path_or_folder
@@ -272,8 +268,7 @@ def main():
     if args.large_dataset:
         # Borrow the implementation from here https://github.com/leeeov4/seismic_big_data/blob/main/scripts/convert_gzip_to_inner_format2.py
         raise NotImplementedError("Logic for large datasets not implement yet!")
-    
-    
+
     if not args.skip_token_conversion:
         print(f"Reading and converting documents from {document_path}")
         if document_path.endswith("tar.gz"):
@@ -287,9 +282,13 @@ def main():
 
         print(f"Reading and converting queries from {query_path}")
         if query_path.endswith("tar.gz"):
-            queries, queries_ids = convert_queries_from_compressed_file(query_path, token_id_mapping)
+            queries, queries_ids = convert_queries_from_compressed_file(
+                query_path, token_id_mapping
+            )
         else:
-            queries, queries_ids = convert_queries_from_file(query_path, token_id_mapping)
+            queries, queries_ids = convert_queries_from_file(
+                query_path, token_id_mapping
+            )
 
         print("Saving to Seismic format")
         # Saving documents
@@ -312,20 +311,17 @@ def main():
             json.dump(token_id_mapping, fp)
 
     else:
-        raise NotImplementedError("Not implemented yet")
-        # print("Reading and converting documents (NQ format)...")
-        # documents, doc_ids = convert_documents_from_nq(document_path)
-
-        # print("Reading and converting queries (NQ format)...")
-        # queries, query_ids = convert_queries_from_nq(query_path)
-
-        # print("Saving to Seismic format")
-        # seismic_format_doc_path = os.path.join(data_dir, "documents.bin")
-        # write_sparse_vectors_to_binary_file(seismic_format_doc_path, documents)
-        # seismic_format_query_path = os.path.join(data_dir, "queries.bin")
-        # write_sparse_vectors_to_binary_file(seismic_format_query_path, queries)
-        # np.save(os.path.join(data_dir, "doc_ids.npy"), doc_ids)
-        # np.save(os.path.join(data_dir, "queries_ids.npy"), query_ids)
+        print("Reading and converting documents...")
+        documents, doc_ids = convert_documents_with_no_token_conversion(document_path)
+        print("Reading and converting queries...")
+        queries, query_ids = convert_queries_with_no_token_conversion(query_path)
+        print("Saving to Seismic format")
+        seismic_format_doc_path = os.path.join(data_dir, "documents.bin")
+        write_sparse_vectors_to_binary_file(seismic_format_doc_path, documents)
+        seismic_format_query_path = os.path.join(data_dir, "queries.bin")
+        write_sparse_vectors_to_binary_file(seismic_format_query_path, queries)
+        np.save(os.path.join(data_dir, "doc_ids.npy"), doc_ids)
+        np.save(os.path.join(data_dir, "queries_ids.npy"), query_ids)
 
 
 if __name__ == "__main__":

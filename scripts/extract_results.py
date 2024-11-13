@@ -13,7 +13,7 @@ def main():
     df = pd.read_csv(args.file_path, sep="\t")
     
     chosen_configurations = []
-    for recall_cut in np.arange(90, 98, 1):
+    for recall_cut in np.arange(90, 101, 1):
         chosen_configurations.append(df[df.recall > recall_cut].sort_values("time").head(1))
     df = pd.concat(chosen_configurations)
     print(df)

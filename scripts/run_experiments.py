@@ -97,8 +97,8 @@ def build_index(configs, experiment_dir):
     """Build the index using the provided configuration."""
     input_file =  os.path.join(configs["folder"]["data"], configs["filename"]["dataset"])
     index_folder = configs["folder"]["index"]
-    if not os.path.exists(index_folder):
-        os.makedirs(index_folder)
+
+    os.makedirs(index_folder, exist_ok=True)
     output_file = os.path.join(index_folder, get_index_filename(configs["filename"]["index"], configs))
     print(f"Dataset filename: {input_file }")
     print(f"Index filename: {output_file}")
@@ -162,8 +162,19 @@ def compute_metric(configs, output_file, gt_file, metric):
     res_pd['doc_id'] = res_pd['doc_id'].apply(lambda x: doc_ids[x])
     
     qrels_path = configs['folder']['qrels_path']
+    
+    
     df_qrels = pd.read_csv(qrels_path, sep="\t", names=["query_id", "useless", "doc_id", "relevance"])
+    if "nq" in configs['name']: # the order of the fields in nq is different. 
+        df_qrels = pd.read_csv(qrels_path, sep="\t", names=["query_id", "doc_id", "relevance", "useless"])
+    
 
+    gt_pd['doc_id'] = gt_pd['doc_id'].astype(df_qrels.doc_id.dtype)
+    res_pd['doc_id'] = res_pd['doc_id'].astype(df_qrels.doc_id.dtype)
+    
+    gt_pd['query_id'] = gt_pd['query_id'].astype(df_qrels.query_id.dtype)
+    res_pd['query_id'] = res_pd['query_id'].astype(df_qrels.query_id.dtype)
+    
     ir_metric = ir_measures.parse_measure(metric)
     
     metric_val = ir_measures.calc_aggregate([ir_metric], df_qrels, res_pd)[ir_metric]
