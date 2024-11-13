@@ -80,7 +80,8 @@ def compile_rust_code(configs, experiment_dir):
         print("Rust code compiled successfully.")
 
     except Exception as e:
-        print("An error occurred during Rust compilation:", e)
+        print()
+        print(colored("ERROR: Problems during Rust compilation:", "red"), e)
         sys.exit(1)
 
 
@@ -145,7 +146,7 @@ def build_index(configs, experiment_dir):
         build_process.wait()
 
     if build_process.returncode != 0:
-        print(colored("Indexing failed!", "red"))
+        print(colored("ERROR: Indexing failed!", "red"))
         sys.exit(1)
 
     print(colored("Index built successfully!", "yellow"))
@@ -322,11 +323,10 @@ def get_machine_info(configs, experiment_folder):
         cpus_with_performance_governor = int(line.decode())
         machine_info.write(f'Number of CPUs with governor set to "performance" (should be equal to the number of CPUs below): {cpus_with_performance_governor}\n')
 
-    cpus_with_performance_governor = 3
-
+    # checking if the hardware looks well configured...
     if (num_cpus != cpus_with_performance_governor):
-        print(colored("Problems with hardware configuration found!", "red"))
-        print(f"for detailed information, check the hardware log file: {machine_info_file}")
+        print()
+        print(colored("ERROR: Problems with hardware configuration found!", "red"))
         sys.exit(1)
 
     machine_info.write(f"\n-----------------\n")
@@ -367,7 +367,8 @@ def main(experiment_config_filename):
     config_data = parse_toml(experiment_config_filename)
 
     if not config_data:
-        print(colored("Error: Configuration data is empty.", "red"))
+        print()
+        print(colored("ERROR: Configuration data is empty.", "red"))
         sys.exit(1)
 
     # Get the experiment name from the configuration
