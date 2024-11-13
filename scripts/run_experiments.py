@@ -1,16 +1,19 @@
+import re 
 import os
 import sys
-import subprocess
 import time
 import toml
-import pandas as pd
-import re 
-import numpy as np
-import ir_measures
-from termcolor import colored
+import psutil
+import socket
+import subprocess
 
-# TODO
-# - Add a file machine.output with information about the machine, its load, free mamory
+import ir_measures
+
+import numpy as np
+import pandas as pd
+
+from datetime import datetime
+from termcolor import colored
 
 
 def parse_toml(filename):
@@ -20,7 +23,8 @@ def parse_toml(filename):
     except Exception as e:
         print(f"Error reading the TOML file: {e}")
         return None
-    
+
+
 def get_git_info(experiment_dir):
     """Get Git repository information and save it to git.output."""
     print("\n\n")
@@ -52,7 +56,7 @@ def get_git_info(experiment_dir):
     print("\n\n")
 
 
-def compile_rust_code(experiment_dir, configs):
+def compile_rust_code(configs, experiment_dir):
     """Compile the Rust code and save output."""
     print(colored("Compiling the Rust code:", "red"))
     
@@ -81,6 +85,7 @@ def compile_rust_code(experiment_dir, configs):
         sys.exit(1)
     print("\n\n")
 
+
 def get_index_filename(base_filename, configs):
     """Generate the index filename based on the provided parameters."""
     name = [
@@ -92,6 +97,7 @@ def get_index_filename(base_filename, configs):
     ]
     
     return "_".join(str(l) for l in name)
+
 
 def build_index(configs, experiment_dir):
     """Build the index using the provided configuration."""
@@ -143,8 +149,8 @@ def build_index(configs, experiment_dir):
 
     print("Index built successfully.")
 
-def compute_metric(configs, output_file, gt_file, metric):
-    
+
+def compute_metric(configs, output_file, gt_file, metric):    
     column_names = ["query_id", "doc_id", "rank", "score"]
     gt_pd = pd.read_csv(gt_file, sep='\t', names=column_names)
     res_pd = pd.read_csv(output_file, sep='\t', names=column_names)
@@ -206,6 +212,7 @@ def compute_accuracy(query_file, gt_file):
     total_intersections = sum(intersections_size.values())
     return total_intersections/total_results
 
+
 def query_execution(configs, query_config, experiment_dir, subsection_name):
     """Execute a query based on the provided configuration."""
     index_file = os.path.join(configs["folder"]["index"], get_index_filename(configs["filename"]["index"], configs))
@@ -266,8 +273,58 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
     metric = configs['settings']['metric']
     return query_time, compute_accuracy(output_file, gt_file), compute_metric(configs, output_file, gt_file, metric), memory_usage
 
+
+def get_machine_info(configs, experiment_folder):
+    machine_info_file = os.path.join(experiment_folder, "machine.output")
+    machine_info = open(machine_info_file, "w")
+    machine_info.write(f"Hardware configuration\n")
+    machine_info.write(f"----------------------\n ")
+    machine_info.write(f"Date: {datetime.now()}\n")
+    machine_info.write(f"Machine: {socket.gethostname()}\n")
+    machine_info.write(f"CPU: {psutil.cpu_percent(interval=1)}\n")
+    machine_info.write(f"Memory (total): {psutil.virtual_memory().percent}%\n")
+    machine_info.write(f"Memory (free): {psutil.virtual_memory().free}\n")
+    machine_info.write(f"Load: {psutil.getloadavg()}\n")
+
+    machine_info.write(f"\nCPU configuration\n")
+    machine_info.write(f"-------------------\n")
+
+    command_cpu = 'lscpu | grep "CPU"'
+    cpu = subprocess.Popen(command_cpu, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    cpu.wait()
+
+    for line in iter(cpu.stdout.readline, b''):
+        decoded_line = line.decode()
+        machine_info.write(decoded_line)
+
+    machine_info.write(f"\ncpufreq configuration\n")
+    machine_info.write(f"-----------------------\n")
+
+    command_governor = 'cpufreq-info | grep "performance" | grep -v "available" | wc -l'
+    governor = subprocess.Popen(command_governor, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    governor.wait()
+
+    for line in iter(governor.stdout.readline, b''):
+        decoded_line = line.decode()
+        machine_info.write(decoded_line)
+
+    if ("NUMA" in configs['settings']):
+        machine_info.write(f"\nNUMA configuration\n")
+        machine_info.write(f"-----------------------\n")
+
+        command_numa = 'numactl --hardware'
+        numa = subprocess.Popen(command_numa, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        numa.wait()
+
+        for line in iter(numa.stdout.readline, b''):
+            decoded_line = line.decode()
+            machine_info.write(decoded_line)
+
+    machine_info.close()
+    return
+
+
 def main(experiment_config_filename):
-    """Main function to orchestrate the experiment."""
     config_data = parse_toml(experiment_config_filename)
 
     if not config_data:
@@ -279,14 +336,18 @@ def main(experiment_config_filename):
     print(f"Running experiment: {experiment_name}")
 
     # Create an experiment folder with date and hour
-    from datetime import datetime
     timestamp  = str(datetime.now()).replace(" ", "_")
     experiment_folder = os.path.join(config_data["folder"]["experiment"], f"{experiment_name}_{timestamp}")
     os.makedirs(experiment_folder, exist_ok=True)
 
+    # Retrieving hardware information
+    get_machine_info(config_data, experiment_folder)
+
     # Store the output of the Rust compilation and index building processes
     get_git_info(experiment_folder)
-    compile_rust_code(experiment_folder, config_data)
+    
+    compile_rust_code(config_data, experiment_folder)
+
     if config_data['settings']['build']:
         build_index(config_data, experiment_folder)
     else:
@@ -302,6 +363,7 @@ def main(experiment_config_filename):
             for subsection, query_config in config_data['query'].items():
                 query_time, recall, metric, memory_usage = query_execution(config_data, query_config, experiment_folder, subsection)
                 report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\n")
+    
 
 if __name__ == "__main__":
     import argparse
@@ -311,3 +373,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(args.exp)
+    sys.exit(0)
