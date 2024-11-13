@@ -127,8 +127,8 @@ def build_index(configs, experiment_dir):
     command = ' '.join(command_and_params)
 
     # Print the command that will be executed
-    print("Building index with command:")
-    print(command)
+    print(colored(f"Building index", "green"))
+    print(f"Indexing command: {command})
 
     building_output_file = os.path.join(experiment_dir, "building.output")
 
