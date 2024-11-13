@@ -32,7 +32,6 @@ def get_git_info(experiment_dir):
     git_output_file = os.path.join(experiment_dir, "git.output")
 
     try:
-        print("Retrieving Git information...")
         with open(git_output_file, "w") as git_output:
             # Get current branch
             branch_process = subprocess.Popen("git rev-parse --abbrev-ref HEAD", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -107,8 +106,8 @@ def build_index(configs, experiment_dir):
     output_file = os.path.join(index_folder, get_index_filename(configs["filename"]["index"], configs))
     
     print()
-    print(colored(f"Dataset filename: {input_file }", "blue"))
-    print(colored(f"Index filename: {output_file}", "blue"))
+    print(colored(f"Dataset filename:", "blue"), input_file)
+    print(colored(f"Index filename:", "blue"), output_file)
 
     build_command = configs.get("build-command", "./target/release/build_inverted_index")
 
@@ -130,7 +129,7 @@ def build_index(configs, experiment_dir):
     # Print the command that will be executed
     print()
     print(colored(f"Building index", "green"))
-    print(colored(f"Indexing command:", "yellow"), {command})
+    print(colored(f"Indexing command:", "yellow"), command)
 
     building_output_file = os.path.join(experiment_dir, "building.output")
 
@@ -284,7 +283,6 @@ def get_machine_info(configs, experiment_folder):
     
     memory_total = psutil.virtual_memory().total // (1024 ** 3)
     memory_free = psutil.virtual_memory().free // (1024 ** 3)
-    memory_percentage = psutil.virtual_memory().percent
     load = psutil.getloadavg()
 
     machine_info.write(f"----------------------\n")
@@ -295,8 +293,7 @@ def get_machine_info(configs, experiment_folder):
     machine_info.write(f"CPU: {cpu}\n")
     machine_info.write(f"Memory (total, GiB): {memory_total}\n")
     machine_info.write(f"Memory (free, GiB): {memory_free}\n")
-    machine_info.write(f"Memory (percentage): {memory_percentage}\n")
-    machine_info.write(f"Load: {load}\n")
+    machine_info.write(f"Machine load: {load}\n")
 
     print()
     print(colored("Hardware configuration", "green"))
@@ -305,8 +302,7 @@ def get_machine_info(configs, experiment_folder):
     print(f"CPU: {cpu}")
     print(f"Memory (total, GiB): {memory_total}")
     print(f"Memory (free, GiB): {memory_free}")
-    print(f"Memory (percentage): {memory_percentage}")
-    print(f"Load: {load}")
+    print(f"Machine load: {load}")
     print(f"for detailed information, check the hardware log file: {machine_info_file}")
 
     machine_info.write(f"\n---------------------\n")
