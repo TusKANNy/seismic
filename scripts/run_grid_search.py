@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from termcolor import colored
 
-# from run_experiments import *
+# from run_experiments import 
 from run_experiments import (
     compute_accuracy,
     compile_rust_code,
@@ -254,21 +254,30 @@ def main(experiment_config_filename):
         ]:
             for summary_energy in config_data["indexing_parameters"]["summary-energy"]:
                 for knn in config_data["indexing_parameters"]["knn"]:
-                    for clust_alg in config_data["indexing_parameters"][
+                    for clustering_algorithm in config_data["indexing_parameters"][
                         "clustering-algorithm"
                     ]:
-                        for kmeans_doc_cut in config_data["indexing_parameters"][
+                        if clustering_algorithm == "random-kmeans": # no other options needed
+                            kmeans_doc_cuts = [0] # fake value to run just one iteration in the loop below
+                        else: 
+                            kmeans_doc_cuts = config_data["indexing_parameters"][
                             "kmeans-doc-cut"
-                        ]:
-                            for kmeans_pruning_factor in config_data[
+                        ]
+                        if clustering_algorithm == "random-kmeans" or clustering_algorithm == "random-kmeans-inverted-index-approx":
+                            kmeans_pruning_factors = [1.0] # fake value to run just one iteration in the loop below
+                        else:
+                            kmeans_pruning_factors = config_data[
                                 "indexing_parameters"
-                            ]["kmeans-pruning-factor"]:
+                            ]["kmeans-pruning-factor"]
+
+                        for kmeans_doc_cut in kmeans_doc_cuts:
+                            for kmeans_pruning_factor in kmeans_pruning_factors:
                                 current_config = {}
                                 current_config["n-postings"] = n_postings
                                 current_config["centroid-fraction"] = centroid_fraction
                                 current_config["summary-energy"] = summary_energy
                                 current_config["knn"] = knn
-                                current_config["clustering-algorithm"] = clust_alg
+                                current_config["clustering-algorithm"] = clustering_algorithm
                                 current_config["kmeans-doc-cut"] = kmeans_doc_cut
                                 current_config["kmeans-pruning-factor"] = (
                                     kmeans_pruning_factor
@@ -281,7 +290,6 @@ def main(experiment_config_filename):
                                     config_data,
                                     experiment_folder,
                                 )
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

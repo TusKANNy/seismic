@@ -14,9 +14,7 @@ import psutil
 import numpy as np
 import pandas as pd
 
-
 from termcolor import colored
-
 
 def parse_toml(filename):
     """Parse the TOML configuration file."""
