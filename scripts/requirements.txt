@@ -1,0 +1,6 @@
+numpy 
+pandas
+tabular
+ir_measures
+termcolor
+psutil
