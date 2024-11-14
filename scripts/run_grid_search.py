@@ -3,9 +3,9 @@ import sys
 import os
 import subprocess
 import re
+import json
 from datetime import datetime
 from termcolor import colored
-import json
 
 # from run_experiments import *
 from run_experiments import (
@@ -15,7 +15,6 @@ from run_experiments import (
     get_git_info,
     parse_toml,
 )
-
 
 def query_execution(
     configs,

@@ -2,18 +2,19 @@ import re
 import os
 import sys
 import time
-import toml
-import psutil
 import socket
 import argparse
 import subprocess
+from datetime import datetime
 
 import ir_measures
+import toml
+import psutil
 
 import numpy as np
 import pandas as pd
 
-from datetime import datetime
+
 from termcolor import colored
 
 
