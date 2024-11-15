@@ -234,9 +234,12 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
         f"--heap-factor {query_config['heap-factor']}",
         f"--n-runs {configs['settings']['n-runs']}",
         f"--output-path {output_file}",
-        f"--n-knn {query_config['knn']}"   
+          
     ]
 
+    if "knn" in query_config:
+        command_and_params.append(f"--n-knn {query_config['knn']}" )
+    
     if "first-sorted" in query_config:
         command_and_params.append("--first-sorted")
 
@@ -374,10 +377,10 @@ def run_experiment(config_data):
 
     for k, v in config_data["folder"].items():
         if v.startswith("~"):
-            v = expanded_path = os.path.expanduser(v)
+            v = os.path.expanduser(v)
             config_data["folder"][k] = v
 
-    print(config_data)
+   #print(config_data)
 
     # Create an experiment folder with date and hour
     timestamp  = str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S"))

@@ -80,10 +80,10 @@ def main(experiment_config_filename):
 
     query_combinations = generate_query_combinations(config_data["querying_parameters"])
 
-    print(f"Run an experiment for each building configuration")
+    print("Run an experiment for each building configuration")
 
     for i, building_config in enumerate(generate_indexing_parameters_combinations(config_data["indexing_parameters"])):
-        print(f"Running buiding combination {i} with {config_data['indexing_parameters']}")
+        print(f"Running buiding combination {i} with {json.dumps(config_data['indexing_parameters'], indent=4)}")
 
         experiment_config = {}
         experiment_config["folder"] = config_data["folder"]
