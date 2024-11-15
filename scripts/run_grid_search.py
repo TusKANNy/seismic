@@ -65,7 +65,6 @@ def main(experiment_config_filename):
         print("Error: Configuration data is empty.")
         sys.exit(1)
 
-
     # Get the experiment name from the configuration
     grid_name = config_data.get("name")
     print(f"Running Grid: {grid_name}")
@@ -111,7 +110,7 @@ if __name__ == "__main__":
         description="Run a grid search of seismic experiments on a dataset and find the best configurations to query it."
     )
     parser.add_argument(
-        "--exp", required=True, help="Path to the experiment configuration TOML file."
+        "--exp", required=True, help="Path to the grid configuration TOML file."
     )
     args = parser.parse_args()
 

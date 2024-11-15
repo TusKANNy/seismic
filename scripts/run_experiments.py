@@ -396,7 +396,6 @@ def run_experiment(config_data):
                 query_time, recall, metric, memory_usage = query_execution(config_data, query_config, experiment_folder, subsection)
                 report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\n")
 
-
 def main(experiment_config_filename):
     config_data = parse_toml(experiment_config_filename)
 
