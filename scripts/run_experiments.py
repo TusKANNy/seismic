@@ -187,7 +187,7 @@ def compute_metric(configs, output_file, gt_file, metric):
     metric_val = ir_measures.calc_aggregate([ir_metric], df_qrels, res_pd)[ir_metric]
     metric_gt = ir_measures.calc_aggregate([ir_metric], df_qrels, gt_pd)[ir_metric]
     
-    print(f"Metri of the run: {ir_metric}: {metric_val}")
+    print(f"Metric of the run: {ir_metric}: {metric_val}")
     print(f"Metric of the gt : {ir_metric}: {metric_gt}")
     
     return metric_val
@@ -234,8 +234,7 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
         f"--heap-factor {query_config['heap-factor']}",
         f"--n-runs {configs['settings']['n-runs']}",
         f"--output-path {output_file}",
-        f"--n-knn {query_config['knn']}"
-        
+        f"--n-knn {query_config['knn']}"   
     ]
 
     if "first-sorted" in query_config:
@@ -379,6 +378,10 @@ def run_experiment(config_data):
 
     os.makedirs(experiment_folder, exist_ok=True)
 
+    # Dump the configuration settings to a TOML file
+    with open(os.path.join(experiment_folder, "experiment_config.toml"), 'w') as report_file:
+        report_file.write(toml.dumps(config_data))
+
     # Retrieving hardware information
     get_machine_info(config_data, experiment_folder)
 
@@ -386,6 +389,7 @@ def run_experiment(config_data):
     get_git_info(experiment_folder)
     
     compile_rust_code(config_data, experiment_folder)
+    
 
     if config_data['settings']['build']:
         build_index(config_data, experiment_folder)
