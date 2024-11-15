@@ -372,6 +372,13 @@ def run_experiment(config_data):
     experiment_name = config_data.get("name")
     print(f"Running experiment:", colored(experiment_name, "green"))
 
+    for k, v in config_data["folder"].items():
+        if v.startswith("~"):
+            v = expanded_path = os.path.expanduser(v)
+            config_data["folder"][k] = v
+
+    print(config_data)
+
     # Create an experiment folder with date and hour
     timestamp  = str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S"))
     experiment_folder = os.path.join(config_data["folder"]["experiment"], f"{experiment_name}_{timestamp}")

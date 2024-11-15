@@ -10,7 +10,7 @@ dataset =       "Splade cocondenser on MS-MARCO V2"
 k =             10
 n-runs =        1       # Number of runs. PLEASE think carefully how increasing 
                         # this may influence your query time
-# NUMA =        ""      # "numactl --physcpubind='0-15' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
+NUMA =        "numactl --physcpubind='0-15' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
 metric =        "RR@10"
 build =        true    # Do we need to build the index?
 
@@ -38,7 +38,7 @@ kmeans-doc-cut =        [10, 25, 50]  # needed by "random-kmeans-inverted-index"
 kmeans-pruning-factor = [0.005, 0.0025] # Only used by random-kmeans-inverted-index
 
 [querying_parameters]
-query-cuts = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-heap-factors = [0.7, 0.8, 0.9, 1.0]
-knns = [0]
-first_sorted = [true]
+query-cut =             [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+heap-factor =           [0.7, 0.8, 0.9, 1.0]
+knn =                   [0]
+first_sorted =          [true]

@@ -38,7 +38,7 @@ kmeans-doc-cut =        [15]    # needed by "random-kmeans-inverted-index" and "
 kmeans-pruning-factor = [0.005] # Only used by random-kmeans-inverted-index
 
 [querying_parameters]
-query-cuts = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-heap-factors = [0.7, 0.8, 0.9, 1.0]
-knns = [0]
-first_sorted = [true, false]
+query-cut =             [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+heap-factor =           [0.7, 0.8, 0.9, 1.0]
+knn =                   [0]
+first_sorted =          [true, false]

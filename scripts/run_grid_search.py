@@ -94,7 +94,9 @@ def main(experiment_config_filename):
 
         experiment_config["name"] = f"building_combination_{i}"
 
-        experiment_config["query_parameters"] = query_combinations
+        experiment_config["query"] = query_combinations
+
+        print(experiment_config["query"])
 
         experiment_config["indexing_parameters"] = building_config
         with open(os.path.join(grid_folder, f"building_combination_{i}.json"), "w") as f:
