@@ -145,7 +145,7 @@ def build_index(configs, experiment_dir):
             print(decoded_line, end='')  # Print each line as it is produced
             build_output.write(decoded_line)  # Write each line to the output file
             if decoded_line.startswith("Time to build ") and decoded_line.strip().endswith(" secs"):
-                building_time = int(decoded_line.split()[4])
+                building_time = int(decoded_line.split()[3])
         build_process.stdout.close()
         build_process.wait()
 
@@ -379,8 +379,6 @@ def run_experiment(config_data):
         if v.startswith("~"):
             v = expanded_path = os.path.expanduser(v)
             config_data["folder"][k] = v
-
-    print(config_data)
 
     # Create an experiment folder with date and hour
     timestamp  = str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S"))
