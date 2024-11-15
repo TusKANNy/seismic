@@ -121,6 +121,11 @@ def build_index(configs, experiment_dir):
         f"--kmeans-doc-cut {configs['indexing_parameters']['kmeans-doc-cut']}"
     ] 
 
+    if configs["filename"].get("knn_path", None):
+        knn_path = os.path.join(configs['folder']['data'], configs['filename']['knn_path'])
+        knn_path_arg = f"--knn-path {knn_path}"
+        command_and_params.append(knn_path_arg)
+
     command = ' '.join(command_and_params)
 
     # Print the command that will be executed
@@ -228,7 +233,9 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
         f"--query-cut {query_config['query-cut']}",
         f"--heap-factor {query_config['heap-factor']}",
         f"--n-runs {configs['settings']['n-runs']}",
-        f"--output-path {output_file}"
+        f"--output-path {output_file}",
+        f"--n-knn {query_config['knn']}"
+        
     ]
 
     if "first-sorted" in query_config:
