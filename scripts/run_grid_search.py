@@ -83,6 +83,7 @@ def main(experiment_config_filename):
     print(f"Run an experiment for each building configuration")
 
     for i, building_config in enumerate(generate_indexing_parameters_combinations(config_data["indexing_parameters"])):
+        print()
         print(f"Running buiding combination {i} with {config_data['indexing_parameters']}")
 
         experiment_config = {}
@@ -99,7 +100,6 @@ def main(experiment_config_filename):
         experiment_config["indexing_parameters"] = building_config
         with open(os.path.join(grid_folder, f"building_combination_{i}.json"), "w") as f:
             json.dump(building_config, f, indent=4)
-
         run_experiment(experiment_config)
 
 if __name__ == "__main__":
