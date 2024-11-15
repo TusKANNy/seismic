@@ -137,12 +137,15 @@ def build_index(configs, experiment_dir):
 
     # Build the index and display output in real-time
     print(colored("Building index...", "yellow"))
+    building_time = 0
     with open(building_output_file, "w") as build_output:
         build_process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         for line in iter(build_process.stdout.readline, b''):
             decoded_line = line.decode()
             print(decoded_line, end='')  # Print each line as it is produced
             build_output.write(decoded_line)  # Write each line to the output file
+            if decoded_line.startswith("Time to build ") and decoded_line.strip().endswith(" secs"):
+                building_time = int(decoded_line.split()[4])
         build_process.stdout.close()
         build_process.wait()
 
@@ -150,8 +153,8 @@ def build_index(configs, experiment_dir):
         print(colored("ERROR: Indexing failed!", "red"))
         sys.exit(1)
 
-    print(colored("Index built successfully!", "yellow"))
-
+    print(colored("Index built successfully in {building_time} secs!", "yellow"))
+    return building_time
 
 def compute_metric(configs, output_file, gt_file, metric):    
     column_names = ["query_id", "doc_id", "rank", "score"]
@@ -396,10 +399,10 @@ def run_experiment(config_data):
     get_git_info(experiment_folder)
     
     compile_rust_code(config_data, experiment_folder)
-    
 
+    building_time = 0
     if config_data['settings']['build']:
-        build_index(config_data, experiment_folder)
+        building_time = build_index(config_data, experiment_folder)
     else:
         print("Index is already built!")
 
@@ -408,11 +411,11 @@ def run_experiment(config_data):
     
     # Execute queries for each subsection under [query]
     with open(os.path.join(experiment_folder, "report.tsv"), 'w') as report_file:
-        report_file.write(f"Subsection\tQuery Time (microsecs)\tRecall\t{metric}\tMemory Usage (Bytes)\n")
+        report_file.write(f"Subsection\tQuery Time (microsecs)\tRecall\t{metric}\tMemory Usage (Bytes)\tBuilding Time (secs)\n")
         if 'query' in config_data:
             for subsection, query_config in config_data['query'].items():
                 query_time, recall, metric, memory_usage = query_execution(config_data, query_config, experiment_folder, subsection)
-                report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\n")
+                report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\t{building_time}\n")
 
 def main(experiment_config_filename):
     config_data = parse_toml(experiment_config_filename)
