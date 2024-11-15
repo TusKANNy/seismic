@@ -3,4 +3,5 @@ pandas
 ir_measures
 termcolor
 psutil
+toml
 itertools
