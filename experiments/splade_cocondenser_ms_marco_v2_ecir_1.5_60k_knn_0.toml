@@ -7,7 +7,7 @@ dataset =       "Splade cocondenser on MS-MARCO-v2"
 k =             10
 n-runs =        1       # Number of runs. PLEASE think carefully how increasing this may influence your query time
 NUMA =          "numactl --physcpubind='0-15' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
-build =         false   # Need to build the index or the index is already built?
+build =         true   # Need to build the index or the index is already built?
 
 [folder] 
 data =          "~/sparse_datasets/splade_cocondenser_MS-MARCO-v2/data/"

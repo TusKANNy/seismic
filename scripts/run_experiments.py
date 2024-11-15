@@ -14,9 +14,7 @@ import psutil
 import numpy as np
 import pandas as pd
 
-
 from termcolor import colored
-
 
 def parse_toml(filename):
     """Parse the TOML configuration file."""
@@ -91,11 +89,7 @@ def get_index_filename(base_filename, configs):
     """Generate the index filename based on the provided parameters."""
     name = [
         base_filename, 
-        'n-postings', configs['indexing_parameters']['n-postings'], 
-        'centroid-fraction', configs['indexing_parameters']['centroid-fraction'], 
-        'summary-energy', configs['indexing_parameters']['summary-energy'], 
-        'knn', configs['indexing_parameters']['knn']
-    ]
+    ] + sorted(f"{k}_{v}" for k, v in configs["indexing_parameters"].items())
     
     return "_".join(str(l) for l in name)
 
@@ -126,6 +120,11 @@ def build_index(configs, experiment_dir):
         f"--kmeans-pruning-factor {configs['indexing_parameters']['kmeans-pruning-factor']}",
         f"--kmeans-doc-cut {configs['indexing_parameters']['kmeans-doc-cut']}"
     ] 
+
+    if configs["filename"].get("knn_path", None):
+        knn_path = os.path.join(configs['folder']['data'], configs['filename']['knn_path'])
+        knn_path_arg = f"--knn-path {knn_path}"
+        command_and_params.append(knn_path_arg)
 
     command = ' '.join(command_and_params)
 
@@ -188,7 +187,7 @@ def compute_metric(configs, output_file, gt_file, metric):
     metric_val = ir_measures.calc_aggregate([ir_metric], df_qrels, res_pd)[ir_metric]
     metric_gt = ir_measures.calc_aggregate([ir_metric], df_qrels, gt_pd)[ir_metric]
     
-    print(f"Metri of the run: {ir_metric}: {metric_val}")
+    print(f"Metric of the run: {ir_metric}: {metric_val}")
     print(f"Metric of the gt : {ir_metric}: {metric_gt}")
     
     return metric_val
@@ -234,7 +233,8 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
         f"--query-cut {query_config['query-cut']}",
         f"--heap-factor {query_config['heap-factor']}",
         f"--n-runs {configs['settings']['n-runs']}",
-        f"--output-path {output_file}"
+        f"--output-path {output_file}",
+        f"--n-knn {query_config['knn']}"   
     ]
 
     if "first-sorted" in query_config:
@@ -329,7 +329,7 @@ def get_machine_info(configs, experiment_folder):
     if (num_cpus != cpus_with_performance_governor):
         print()
         print(colored("ERROR: Problems with hardware configuration found!", "red"))
-        sys.exit(1)
+        #sys.exit(1)
 
     machine_info.write(f"\n-----------------\n")
     machine_info.write(f"CPU configuration\n")
@@ -365,22 +365,22 @@ def get_machine_info(configs, experiment_folder):
     return
 
 
-def main(experiment_config_filename):
-    config_data = parse_toml(experiment_config_filename)
+def run_experiment(config_data):
+    """Run the seismic experiment based on the provided configuration."""
 
-    if not config_data:
-        print()
-        print(colored("ERROR: Configuration data is empty.", "red"))
-        sys.exit(1)
-
-    # Get the experiment name from the configuration
+     # Get the experiment name from the configuration
     experiment_name = config_data.get("name")
     print(f"Running experiment:", colored(experiment_name, "green"))
 
     # Create an experiment folder with date and hour
     timestamp  = str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S"))
     experiment_folder = os.path.join(config_data["folder"]["experiment"], f"{experiment_name}_{timestamp}")
+
     os.makedirs(experiment_folder, exist_ok=True)
+
+    # Dump the configuration settings to a TOML file
+    with open(os.path.join(experiment_folder, "experiment_config.toml"), 'w') as report_file:
+        report_file.write(toml.dumps(config_data))
 
     # Retrieving hardware information
     get_machine_info(config_data, experiment_folder)
@@ -389,6 +389,7 @@ def main(experiment_config_filename):
     get_git_info(experiment_folder)
     
     compile_rust_code(config_data, experiment_folder)
+    
 
     if config_data['settings']['build']:
         build_index(config_data, experiment_folder)
@@ -405,6 +406,15 @@ def main(experiment_config_filename):
             for subsection, query_config in config_data['query'].items():
                 query_time, recall, metric, memory_usage = query_execution(config_data, query_config, experiment_folder, subsection)
                 report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\n")
+
+def main(experiment_config_filename):
+    config_data = parse_toml(experiment_config_filename)
+
+    if not config_data:
+        print()
+        print(colored("ERROR: Configuration data is empty.", "red"))
+        sys.exit(1)
+    run_experiment(config_data)
     
 
 if __name__ == "__main__":
