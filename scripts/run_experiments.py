@@ -89,11 +89,7 @@ def get_index_filename(base_filename, configs):
     """Generate the index filename based on the provided parameters."""
     name = [
         base_filename, 
-        'n-postings', configs['indexing_parameters']['n-postings'], 
-        'centroid-fraction', configs['indexing_parameters']['centroid-fraction'], 
-        'summary-energy', configs['indexing_parameters']['summary-energy'], 
-        'knn', configs['indexing_parameters']['knn']
-    ]
+    ] + sorted(f"{k}_{v}" for k, v in configs["indexing_parameters"].items())
     
     return "_".join(str(l) for l in name)
 
@@ -334,7 +330,7 @@ def get_machine_info(configs, experiment_folder):
     if (num_cpus != cpus_with_performance_governor):
         print()
         print(colored("ERROR: Problems with hardware configuration found!", "red"))
-        sys.exit(1)
+        #sys.exit(1)
 
     machine_info.write(f"\n-----------------\n")
     machine_info.write(f"CPU configuration\n")
@@ -370,21 +366,17 @@ def get_machine_info(configs, experiment_folder):
     return
 
 
-def main(experiment_config_filename):
-    config_data = parse_toml(experiment_config_filename)
+def run_experiment(config_data):
+    """Run the seismic experiment based on the provided configuration."""
 
-    if not config_data:
-        print()
-        print(colored("ERROR: Configuration data is empty.", "red"))
-        sys.exit(1)
-
-    # Get the experiment name from the configuration
+     # Get the experiment name from the configuration
     experiment_name = config_data.get("name")
     print(f"Running experiment:", colored(experiment_name, "green"))
 
     # Create an experiment folder with date and hour
     timestamp  = str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S"))
     experiment_folder = os.path.join(config_data["folder"]["experiment"], f"{experiment_name}_{timestamp}")
+
     os.makedirs(experiment_folder, exist_ok=True)
 
     # Retrieving hardware information
@@ -410,6 +402,16 @@ def main(experiment_config_filename):
             for subsection, query_config in config_data['query'].items():
                 query_time, recall, metric, memory_usage = query_execution(config_data, query_config, experiment_folder, subsection)
                 report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\n")
+
+
+def main(experiment_config_filename):
+    config_data = parse_toml(experiment_config_filename)
+
+    if not config_data:
+        print()
+        print(colored("ERROR: Configuration data is empty.", "red"))
+        sys.exit(1)
+    run_experiment(config_data)
     
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-name =          "evaluation_building_algorithms"
+name =          "grid_evaluation_building_algorithms"
 title =         "Evaluation building algorithms on MS MARCOV2"
 description =   "We have three differrent algorithms to compute Kmeans on posting lists. We want to identify the best one and its paramenters."
 dataset =       "Splade cocondenser on MS-MARCO V2"
@@ -12,6 +12,7 @@ n-runs =        1       # Number of runs. PLEASE think carefully how increasing
                         # this may influence your query time
 # NUMA =        ""      # "numactl --physcpubind='0-15' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
 metric =        "RR@10"
+build =        true    # Do we need to build the index?
 
 [folder] 
 data =          "~/sparse_datasets/msmarco_v2/cocondenser/data"
@@ -32,7 +33,7 @@ n-postings =            [60000, 100000]
 centroid-fraction =     [0.1, 0.15]
 summary-energy =        [0.4]
 knn =                   [0]
-clustering-algorithm =  ["random-kmeans", "random-kmeans-inverted-index", "random-kmeans-inverted-index-approx"]
+clustering-algorithm =  ["random-kmeans-inverted-index", "random-kmeans-inverted-index-approx", "random-kmeans"]
 kmeans-doc-cut =        [10, 25, 50]  # needed by "random-kmeans-inverted-index" and "random-kmeans-inverted-index-approx"
 kmeans-pruning-factor = [0.005, 0.0025] # Only used by random-kmeans-inverted-index
 
