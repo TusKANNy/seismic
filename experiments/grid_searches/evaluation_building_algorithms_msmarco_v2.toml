@@ -26,7 +26,7 @@ queries =       "queries.bin"
 groundtruth =   "groundtruth.tsv"
 doc_ids =       "doc_ids.npy"
 query_ids =     "queries_ids.npy"
-index =         "test_grid_search"
+index =         "grid_evaluation_building_algorithms"
 
 [indexing_parameters]
 n-postings =            [60000, 100000]

@@ -1,7 +1,7 @@
-name =          "grid_evaluation_building_algorithms"
-title =         "Evaluation building algorithms on MS MARCOV2"
+name =          "grid_evaluation_building_algorithms_msmarco_v1"
+title =         "Evaluation building algorithms on MS MARCOV1"
 description =   "We have three differrent algorithms to compute Kmeans on posting lists. We want to identify the best one and its paramenters."
-dataset =       "Splade cocondenser on MS-MARCO V2"
+dataset =       "Splade cocondenser on MS-MARCO V1"
 # compile-command = "cargo build" # Compile in debug mode? default is release mode
 # build-command = "./target/release/build_inverted_index"
 # query-command = "./target/debug/perf_inverted_index"
@@ -15,9 +15,9 @@ metric =        "RR@10"
 build =        true    # Do we need to build the index?
 
 [folder] 
-data =          "~/sparse_datasets/msmarco_v2/cocondenser/data"
-index =         "~/sparse_datasets/msmarco_v2/cocondenser/indexes"
-qrels_path =    "~/sparse_datasets/msmarco_v2/qrels.dev1.tsv"
+data =          "~/sparse_datasets/msmarco_v1/cocondenser/data"
+index =         "~/sparse_datasets/msmarco_v1/cocondenser/indexes"
+qrels_path =    "~/sparse_datasets/msmarco_v1/qrels.dev.small.tsv"
 experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
 
 [filename]
@@ -26,7 +26,7 @@ queries =       "queries.bin"
 groundtruth =   "groundtruth.tsv"
 doc_ids =       "doc_ids.npy"
 query_ids =     "queries_ids.npy"
-index =         "test_grid_search"
+index =         "grid_evaluation_building_algorithms"
 
 [indexing_parameters]
 n-postings =            [60000, 100000]

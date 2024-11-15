@@ -1,19 +1,18 @@
 import argparse
 import sys
 import os
-import subprocess
-import re
+
 import json
 from datetime import datetime
 from termcolor import colored
+
+import itertools
 
 # from run_experiments import 
 from run_experiments import (
     run_experiment,
     parse_toml,
 )
-
-import itertools
 
 def generate_indexing_parameters_combinations(params):
     # Extract keys and values from the dictionary
@@ -42,8 +41,6 @@ def generate_indexing_parameters_combinations(params):
     
     # Convert back to list of dictionaries
     return [dict(combo) for combo in unique_combinations]
-
-import itertools
 
 def generate_query_combinations(params):
     keys, values = zip(*params.items())
