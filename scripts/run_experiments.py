@@ -423,7 +423,7 @@ def main(experiment_config_filename):
         print(colored("ERROR: Configuration data is empty.", "red"))
         sys.exit(1)
     run_experiment(config_data)
-    
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a seismic experiment on a dataset and query it.")
