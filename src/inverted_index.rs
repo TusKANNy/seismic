@@ -164,7 +164,7 @@ where
                 &mut heap,
                 &mut visited,
                 &self.forward_index,
-                i == 0 && first_sorted,  
+                i == 0 && first_sorted,
             );
         }
         if let Some(knn) = self.knn.as_ref() {
@@ -564,10 +564,7 @@ impl PostingList {
         Self {
             packed_postings: packed_postings.into_boxed_slice(),
             block_offsets: block_offsets.into_boxed_slice(),
-            summaries: QuantizedSummary::new(
-                SparseDataset::<T>::from(summaries).quantize_f16(),
-                dataset.dim(),
-            ),
+            summaries: QuantizedSummary::from(SparseDataset::<T>::from(summaries)), // Avoid to do from SparseDatasetMut. Problably fixed when moving to kANNolo SparseDataset
         }
     }
 
@@ -868,7 +865,7 @@ impl Knn {
                         KNN_HEAP_FACTOR,
                         0,
                         false,
-                    ) 
+                    )
                     .iter()
                     .map(|(distance, doc_id)| (*distance, *doc_id))
                     .filter(|(_distance, doc_id)| *doc_id != my_doc_id) // remove the document itself
