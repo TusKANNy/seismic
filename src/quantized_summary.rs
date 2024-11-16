@@ -30,38 +30,13 @@ impl SpaceUsage for QuantizedSummary {
 impl QuantizedSummary {
     const N_CLASSES: usize = 256; // we store quantized values in a u8. Number of classes cannot be more than 256
 
-    pub fn matmul_with_query(&self, query_components: &[u16], query_values: &[f32]) -> Vec<f32> {
-        let mut accumulator = vec![0_f32; self.n_summaries];
-
-        for (&qc, &qv) in query_components.iter().zip(query_values) {
-            if qc as usize >= self.d {
-                break;
-            }
-            let current_offset = self.offsets.select(qc as usize).unwrap();
-            let next_offset = self.offsets.select((qc + 1) as usize).unwrap();
-
-            if next_offset - current_offset == 0 {
-                continue;
-            }
-            let current_summaries_ids = &self.summaries_ids[current_offset..next_offset];
-            let current_values = &self.values[current_offset..next_offset];
-
-            for (&s_id, &v) in current_summaries_ids.iter().zip(current_values) {
-                let val = v as f32 * self.quants[s_id as usize] + self.minimums[s_id as usize];
-                //accumulator[c as usize] += v as f32 * qv;
-                //q_vs[c as usize] += qv;
-                accumulator[s_id as usize] += val * qv;
-            }
-
-            // for i in 0..accumulator.len() {
-            //     accumulator[i] = accumulator[i] * self.quants[i] + self.minimums[i] * q_vs[i];
-            // }
-        }
-
-        accumulator
+    #[must_use]
+    pub fn distances_iter(&self, query_components: &[u16], query_values: &[f32]) -> DistancesIter {
+        DistancesIter::new(self, query_components, query_values)
     }
 
     #[inline]
+    #[must_use]
     fn quantize<T: DataType>(values: &[T]) -> (f32, f32, Vec<u8>) {
         assert!(!values.is_empty());
 
@@ -145,8 +120,58 @@ where
     }
 }
 
-struct ComputeDistances<'a> {
-    query_components: &'a [u16],
-    query_values: &'a [f32],
+pub struct DistancesIter {
+    current: usize,
     distances: Vec<f32>,
+}
+
+impl DistancesIter {
+    fn new(summaries: &QuantizedSummary, query_components: &[u16], query_values: &[f32]) -> Self {
+        let mut accumulator = vec![0_f32; summaries.n_summaries];
+
+        for (&qc, &qv) in query_components.iter().zip(query_values) {
+            if qc as usize >= summaries.d {
+                break;
+            }
+            let current_offset = summaries.offsets.select(qc as usize).unwrap();
+            let next_offset = summaries.offsets.select((qc + 1) as usize).unwrap();
+
+            if next_offset - current_offset == 0 {
+                continue;
+            }
+            let current_summaries_ids = &summaries.summaries_ids[current_offset..next_offset];
+            let current_values = &summaries.values[current_offset..next_offset];
+
+            for (&s_id, &v) in current_summaries_ids.iter().zip(current_values) {
+                let val =
+                    v as f32 * summaries.quants[s_id as usize] + summaries.minimums[s_id as usize];
+                //accumulator[c as usize] += v as f32 * qv;
+                //q_vs[c as usize] += qv;
+                accumulator[s_id as usize] += val * qv;
+            }
+
+            // for i in 0..accumulator.len() {
+            //     accumulator[i] = accumulator[i] * self.quants[i] + self.minimums[i] * q_vs[i];
+            // }
+        }
+
+        Self {
+            current: 0,
+            distances: accumulator,
+        }
+    }
+}
+
+impl Iterator for DistancesIter {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current < self.distances.len() {
+            let current = self.current;
+            self.current += 1;
+            Some(self.distances[current])
+        } else {
+            None
+        }
+    }
 }

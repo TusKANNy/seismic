@@ -395,22 +395,22 @@ impl PostingList {
 
         let dots = self
             .summaries
-            .matmul_with_query(query_components, query_values);
+            .distances_iter(query_components, query_values);
 
-        let mut indexed_dots: Vec<(usize, &f32)> = dots.iter().enumerate().collect();
+        let mut indexed_dots: Vec<(usize, f32)> = dots.enumerate().collect();
 
         // Sort summaries by dot product w.r.t. to the query. Useful only in the first list.
         if sort_summaries {
             indexed_dots.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
         }
 
-        for (block_id, &dot) in indexed_dots.iter() {
+        for &(block_id, dot) in indexed_dots.iter() {
             if heap.len() == k && dot < -heap_factor * heap.top() {
                 continue;
             }
 
             let packed_posting_block = &self.packed_postings
-                [self.block_offsets[*block_id]..self.block_offsets[block_id + 1]];
+                [self.block_offsets[block_id]..self.block_offsets[block_id + 1]];
 
             if blocks_to_evaluate.len() == 1 {
                 for cur_packed_posting in blocks_to_evaluate.iter() {
