@@ -136,7 +136,8 @@ def build_index(configs, experiment_dir):
     building_output_file = os.path.join(experiment_dir, "building.output")
 
     # Build the index and display output in real-time
-    print(colored("Building index...", "yellow"))
+    print()
+    print("Dataset summary")
     with open(building_output_file, "w") as build_output:
         build_process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         for line in iter(build_process.stdout.readline, b''):
@@ -289,7 +290,7 @@ def get_machine_info(configs, experiment_folder):
     
     load = str(psutil.getloadavg())[1:-1]
     num_cpus = psutil.cpu_count()
-
+    
     machine_info.write(f"----------------------\n")
     machine_info.write(f"Hardware configuration\n")
     machine_info.write(f"----------------------\n")
