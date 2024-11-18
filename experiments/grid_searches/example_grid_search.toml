@@ -12,11 +12,12 @@ n-runs =        1       # Number of runs. PLEASE think carefully how increasing
                         # this may influence your query time
 # NUMA =        ""      # "numactl --physcpubind='0-15' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
 metric =        "RR@10"
+build =         true    # Do we need to build the index?
 
 [folder] 
-data =          "~/sparse_datasets/msmarco_v1/cocondenser/data"
-index =         "~/sparse_datasets/msmarco_v1/cocondenser/indexes"
-qrels_path =    "~/sparse_datasets/msmarco_v1/qrels.dev.small.tsv"
+data =          "~/sparse_datasets/msmarco_v1_passage/cocondenser/data"
+index =         "~/sparse_datasets/msmarco_v1_passage/cocondenser/indexes"
+qrels_path =    "~/sparse_datasets/msmarco_v1_passage/qrels.dev.small.tsv"
 experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
 
 [filename]
@@ -37,7 +38,7 @@ kmeans-doc-cut =        [15]    # needed by "random-kmeans-inverted-index" and "
 kmeans-pruning-factor = [0.005] # Only used by random-kmeans-inverted-index
 
 [querying_parameters]
-query-cuts = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-heap-factors = [0.7, 0.8, 0.9, 1.0]
-knns = [0]
-first_sorted = [true, false]
+query-cut =             [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+heap-factor =           [0.7, 0.8, 0.9, 1.0]
+knn =                   [0]
+first_sorted =          [true, false]

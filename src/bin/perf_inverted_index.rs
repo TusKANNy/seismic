@@ -98,8 +98,15 @@ pub fn main() {
         results.clear();
 
         for (query_id, (q_components, q_values)) in queries.iter().take(n_queries).enumerate() {
-            let cur_results =
-                inverted_index.search(q_components, q_values, args.k, query_cut, heap_factor, nknn, args.first_sorted);
+            let cur_results = inverted_index.search(
+                q_components,
+                q_values,
+                args.k,
+                query_cut,
+                heap_factor,
+                nknn,
+                args.first_sorted,
+            );
 
             if cur_results.len() < args.k {
                 println!(

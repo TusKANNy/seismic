@@ -13,9 +13,9 @@ use qwt::{BitVector, BitVectorMut};
 use std::fs::File;
 
 use itertools::Itertools;
-
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::cmp;
 
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -47,7 +47,6 @@ where
             Some(knn) => knn.space_usage_byte(),
             None => 0,
         };
-        //let knn_size = self.knn.as_ref().unwrap().space_usage_byte();
 
         forward + postings + knn_size
     }
@@ -164,7 +163,7 @@ where
                 &mut heap,
                 &mut visited,
                 &self.forward_index,
-                i == 0 && first_sorted,  
+                i == 0 && first_sorted,
             );
         }
         if let Some(knn) = self.knn.as_ref() {
@@ -395,22 +394,22 @@ impl PostingList {
 
         let dots = self
             .summaries
-            .matmul_with_query(query_components, query_values);
+            .distances_iter(query_components, query_values);
 
-        let mut indexed_dots: Vec<(usize, &f32)> = dots.iter().enumerate().collect();
+        let mut indexed_dots: Vec<(usize, f32)> = dots.enumerate().collect();
 
         // Sort summaries by dot product w.r.t. to the query. Useful only in the first list.
         if sort_summaries {
             indexed_dots.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
         }
 
-        for (block_id, &dot) in indexed_dots.iter() {
+        for &(block_id, dot) in indexed_dots.iter() {
             if heap.len() == k && dot < -heap_factor * heap.top() {
                 continue;
             }
 
             let packed_posting_block = &self.packed_postings
-                [self.block_offsets[*block_id]..self.block_offsets[block_id + 1]];
+                [self.block_offsets[block_id]..self.block_offsets[block_id + 1]];
 
             if blocks_to_evaluate.len() == 1 {
                 for cur_packed_posting in blocks_to_evaluate.iter() {
@@ -564,10 +563,7 @@ impl PostingList {
         Self {
             packed_postings: packed_postings.into_boxed_slice(),
             block_offsets: block_offsets.into_boxed_slice(),
-            summaries: QuantizedSummary::new(
-                SparseDataset::<T>::from(summaries).quantize_f16(),
-                dataset.dim(),
-            ),
+            summaries: QuantizedSummary::from(SparseDataset::<T>::from(summaries)), // Avoid to do from SparseDatasetMut. Problably fixed when moving to kANNolo SparseDataset
         }
     }
 
@@ -868,7 +864,7 @@ impl Knn {
                         KNN_HEAP_FACTOR,
                         0,
                         false,
-                    ) 
+                    )
                     .iter()
                     .map(|(distance, doc_id)| (*distance, *doc_id))
                     .filter(|(_distance, doc_id)| *doc_id != my_doc_id) // remove the document itself
@@ -951,10 +947,12 @@ impl Knn {
         heap: &mut HeapFaiss,
         visited: &mut HashSet<usize>,
         forward_index: &SparseDataset<T>,
-        n_knn: usize,
+        in_n_knn: usize,
     ) where
         T: DataType,
     {
+        let n_knn = cmp::max(self.d, in_n_knn);
+
         let neighbours: Vec<_> = heap.topk();
         for &(_distance, offset) in neighbours.iter() {
             let id = forward_index.offset_to_id(offset);

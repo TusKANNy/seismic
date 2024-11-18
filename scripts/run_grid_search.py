@@ -1,220 +1,58 @@
 import argparse
 import sys
 import os
-import subprocess
-import re
+
+import json
 from datetime import datetime
 from termcolor import colored
-import json
 
-# from run_experiments import *
+import itertools
+
+# from run_experiments import 
 from run_experiments import (
-    compute_accuracy,
-    compile_rust_code,
-    compute_metric,
-    get_git_info,
+    run_experiment,
     parse_toml,
 )
 
+def generate_indexing_parameters_combinations(params):
+    # Extract keys and values from the dictionary
+    keys, values = zip(*params.items())
+    # Generate all possible combinations
+    all_combinations = itertools.product(*values)
+    
+    unique_combinations = set()
+    for combination in all_combinations:
+        combo_dict = dict(zip(keys, combination))
+        
+        # If 'clustering-algorithm' is 'random-kmeans', set 'kmeans-doc-cut' and 'kmeans-pruning-factor' to a fake value. 
+        # These parameters are not needed.
+        if combo_dict["clustering-algorithm"] == "random-kmeans":
+            combo_dict["kmeans-doc-cut"] = 0
+            combo_dict["kmeans-pruning-factor"] = 0.0
 
-def query_execution(
-    configs,
-    experiment_dir,
-    index_file,
-    query_cut,
-    heap_factor,
-    first_sorted=False,
-    knn=0,
-):
-    """Execute a query based on the provided configuration."""
+        # If 'clustering-algorithm' is 'random-kmeans-inverted-index-approx', set 'kmeans-pruning-factor' to a fake value. 
+        # This parameter is not needed.
+        if combo_dict["clustering-algorithm"] == "random-kmeans-inverted-index-approx":
+            combo_dict["kmeans-pruning-factor"] = 0.0
+        
+        # Convert dict to tuple of sorted items for deduplication and add to set
+        combo_tuple = tuple(sorted(combo_dict.items()))
+        unique_combinations.add(combo_tuple)
+    
+    # Convert back to list of dictionaries
+    return [dict(combo) for combo in unique_combinations]
 
-    query_file = os.path.join(configs["folder"]["data"], configs["filename"]["queries"])
-    subsection_name = (
-        f"qc_{query_cut}_hp_{heap_factor}_knn_{knn}_first_sorted_{first_sorted}"
-    )
-    output_file = os.path.join(experiment_dir, f"results_{subsection_name}")
-    log_output_file = os.path.join(experiment_dir, f"log_{subsection_name}")
-
-    query_command = configs.get("query-command", "./target/release/perf_inverted_index")
-
-    command_and_params = [
-        configs["settings"]["NUMA"] if "NUMA" in configs["settings"] else "",
-        query_command,
-        f"--index-file {index_file}.index.seismic",
-        f"-k {configs['settings']['k']}",
-        f"--query-file {query_file}",
-        f"--query-cut {query_cut}",
-        f"--heap-factor {heap_factor}",
-        f"--n-runs {configs['settings']['n-runs']}",
-        f"--output-path {output_file}",
-        f"--n-knn {knn}",
-    ]
-
-    if first_sorted:
-        command_and_params.append("--first-sorted")
-
-    command = " ".join(command_and_params)
-
-    print(f"Executing query for subsection '{subsection_name}' with command:")
-    print(command)
-
-    pattern = r"\tTotal: (\d+) Bytes"  # Pattern to match the total memory usage
-
-    query_time = 0
-    # Run the query and display output in real-time
-    print(f"Running query for subsection: {subsection_name}...")
-    with open(log_output_file, "w") as log:
-        query_process = subprocess.Popen(
-            command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-        )
-        for line in iter(query_process.stdout.readline, b""):
-            decoded_line = line.decode()
-            if decoded_line.startswith("Time ") and decoded_line.strip().endswith(
-                "microsecs per query"
-            ):
-                query_time = int(decoded_line.split()[1])
-
-            match = re.search(pattern, decoded_line)
-            if match:
-                memory_usage = int(match.group(1))
-            print(decoded_line, end="")  # Print each line as it is produced
-            log.write(decoded_line)  # Write each line to the output file
-        query_process.stdout.close()
-        query_process.wait()
-
-    if query_process.returncode != 0:
-        print(f"Query execution for subsection '{subsection_name}' failed.")
-        sys.exit(1)
-
-    print(f"Query for subsection '{subsection_name}' executed successfully.")
-
-    gt_file = os.path.join(
-        configs["folder"]["data"], configs["filename"]["groundtruth"]
-    )
-    metric = configs["settings"]["metric"]
-    return (
-        query_time,
-        compute_accuracy(output_file, gt_file),
-        compute_metric(configs, output_file, gt_file, metric),
-        memory_usage,
-    )
-
-
-def get_index_filename_simple(base_filename, config):
-    """Generate the index filename based on the provided parameters."""
-    name = [
-        base_filename,
-        "n-postings",
-        config["n-postings"],
-        "centroid-fraction",
-        config["centroid-fraction"],
-        "summary-energy",
-        config["summary-energy"],
-        "knn",
-        config["knn"],
-    ]
-
-    return "_".join(str(l) for l in name)
-
-
-def build_and_run(
-    input_file,
-    index_folder,
-    base_filename,
-    current_config,
-    overall_config,
-    base_experiment_dir,
-):
-    if not os.path.exists(index_folder):
-        os.makedirs(index_folder)
-    index_name = get_index_filename_simple(base_filename, current_config)
-    index_file_path = os.path.join(index_folder, index_name)
-    experiment_dir = os.path.join(base_experiment_dir, index_name)
-    os.makedirs(experiment_dir, exist_ok=False) # Fails if already exists
-
-    print(colored("Build Index", "blue"))
-    print(f"Dataset filename: {input_file }")
-    print(f"Index filename: {index_file_path}")
-    print(f"Saving log in: {experiment_dir}")
-
-    build_command = overall_config.get(
-        "build-command", "./target/release/build_inverted_index"
-    )
-
-    command_and_params = [
-        build_command,
-        f"--input-file {input_file}",
-        f"--output-file {index_file_path}",
-        f"--n-postings {current_config['n-postings']}",
-        f"--summary-energy {current_config['summary-energy']}",
-        f"--centroid-fraction {current_config['centroid-fraction']}",
-        f"--knn {current_config['knn']}",
-        f"--clustering-algorithm {current_config['clustering-algorithm']}",
-        f"--kmeans-pruning-factor {current_config['kmeans-pruning-factor']}",
-        f"--kmeans-doc-cut {current_config['kmeans-doc-cut']}",
-    ]
-
-    command = " ".join(command_and_params)
-
-    # Print the command that will be executed
-    print("Building index with command:")
-    print(command)
-
-    building_output_file = os.path.join(experiment_dir, "building.output")
-
-    # Build the index and display output in real-time
-    print("Building index...")
-    with open(building_output_file, "w") as build_output:
-        build_process = subprocess.Popen(
-            command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-        )
-        for line in iter(build_process.stdout.readline, b""):
-            decoded_line = line.decode()
-            print(decoded_line, end="")  # Print each line as it is produced
-            build_output.write(decoded_line)  # Write each line to the output file
-        build_process.stdout.close()
-        build_process.wait()
-
-    if build_process.returncode != 0:
-        print("Index building failed.")
-        sys.exit(1)
-
-    print("Index built successfully.\n\n\n")
-
-    print(colored("Searching on index:", "blue"))
-    metric = overall_config["settings"]["metric"]
-    print(f"Evaluation with metric {metric}")
-
-    # Execute queries for each subsection under [query]
-    with open(os.path.join(experiment_dir, "report.tsv"), "w") as report_file:
-        report_file.write(
-            f"Query Cut\tHeap Factor\tknn\tFirt sorted\tQuery Time (microsecs)\tRecall\t{metric}\tMemory Usage (Bytes)\n"
-        )
-        for query_cut in overall_config["querying_parameters"]["query-cuts"]:
-            for heap_factor in overall_config["querying_parameters"]["heap-factors"]:
-                for knn in overall_config["querying_parameters"]["knns"]:
-                    for first_sorted in overall_config["querying_parameters"][
-                        "first_sorted"
-                    ]:
-                        print(
-                            "Running config: ",
-                            query_cut,
-                            heap_factor,
-                            knn,
-                            first_sorted,
-                        )
-                        query_time, recall, metric, memory_usage = query_execution(
-                            configs=overall_config,
-                            experiment_dir=experiment_dir,
-                            index_file=index_file_path,
-                            query_cut=query_cut,
-                            heap_factor=heap_factor,
-                            knn=knn,
-                            first_sorted=first_sorted,
-                        )
-                        report_file.write(
-                            f"{query_cut}\t{heap_factor}\t{knn}\t{first_sorted}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\n"
-                        )
+def generate_query_combinations(params):
+    keys, values = zip(*params.items())
+    all_combinations = itertools.product(*values)
+    
+    combination_dict = {}
+    for i, combination in enumerate(all_combinations, start=1):
+        combo_key = f"combination_{i}"
+        combo_dict = dict(zip(keys, combination))
+        combination_dict[combo_key] = combo_dict
+    
+    return combination_dict
 
 
 def main(experiment_config_filename):
@@ -225,71 +63,52 @@ def main(experiment_config_filename):
         sys.exit(1)
 
     # Get the experiment name from the configuration
-    experiment_name = config_data.get("name")
-    print(f"Running experiment: {experiment_name}")
+    grid_name = config_data.get("name")
+    print(f"Running Grid: {grid_name}")
 
     # Create an experiment folder with date and hour
     timestamp = str(datetime.now()).replace(" ", "_")
-    experiment_folder = os.path.join(
-        config_data["folder"]["experiment"], f"{experiment_name}_{timestamp}"
+    grid_folder = os.path.join(
+        config_data["folder"]["experiment"], f"{grid_name}_{timestamp}"
     )
-    os.makedirs(experiment_folder, exist_ok=True)
-    # Store the output of the Rust compilation and index building processes
-    get_git_info(experiment_folder)
-    compile_rust_code(experiment_folder, config_data)
-
+    os.makedirs(grid_folder, exist_ok=True)
+    
+    print()
     print(colored("Grid search information:", "yellow"))
     
     print(json.dumps(config_data["indexing_parameters"], indent=4))
-    input_file = os.path.join(
-        config_data["folder"]["data"], config_data["filename"]["dataset"]
-    )
-    index_folder = config_data["folder"]["index"]
-    if not os.path.exists(index_folder):
-        os.makedirs(index_folder)
-    print(f"Saving indexes in.. {index_folder}")
-    print("\n\n")
-    for n_postings in config_data["indexing_parameters"]["n-postings"]:
-        for centroid_fraction in config_data["indexing_parameters"][
-            "centroid-fraction"
-        ]:
-            for summary_energy in config_data["indexing_parameters"]["summary-energy"]:
-                for knn in config_data["indexing_parameters"]["knn"]:
-                    for clust_alg in config_data["indexing_parameters"][
-                        "clustering-algorithm"
-                    ]:
-                        for kmeans_doc_cut in config_data["indexing_parameters"][
-                            "kmeans-doc-cut"
-                        ]:
-                            for kmeans_pruning_factor in config_data[
-                                "indexing_parameters"
-                            ]["kmeans-pruning-factor"]:
-                                current_config = {}
-                                current_config["n-postings"] = n_postings
-                                current_config["centroid-fraction"] = centroid_fraction
-                                current_config["summary-energy"] = summary_energy
-                                current_config["knn"] = knn
-                                current_config["clustering-algorithm"] = clust_alg
-                                current_config["kmeans-doc-cut"] = kmeans_doc_cut
-                                current_config["kmeans-pruning-factor"] = (
-                                    kmeans_pruning_factor
-                                )
-                                build_and_run(
-                                    input_file,
-                                    index_folder,
-                                    config_data["filename"]["index"],
-                                    current_config,
-                                    config_data,
-                                    experiment_folder,
-                                )
 
+    query_combinations = generate_query_combinations(config_data["querying_parameters"])
+
+    print("Run an experiment for each building configuration")
+
+    for i, building_config in enumerate(generate_indexing_parameters_combinations(config_data["indexing_parameters"])):
+        print()
+        print(f"Running buiding combination {i} with {config_data['indexing_parameters']}")
+        print(f"Running buiding combination {i} with {json.dumps(config_data['indexing_parameters'], indent=4)}")
+
+        experiment_config = {}
+        experiment_config["folder"] = config_data["folder"]
+        experiment_config["folder"]["experiment"] = grid_folder
+
+        experiment_config["filename"] = config_data["filename"]
+        experiment_config["settings"] = config_data["settings"]
+
+        experiment_config["name"] = f"building_combination_{i}"
+
+        experiment_config["query"] = query_combinations
+
+        experiment_config["indexing_parameters"] = building_config
+        with open(os.path.join(grid_folder, f"building_combination_{i}.json"), "w") as f:
+            json.dump(building_config, f, indent=4)
+        run_experiment(experiment_config)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run a grid search of seismic experiments on a dataset and find the best configurations to query it."
     )
     parser.add_argument(
-        "--exp", required=True, help="Path to the experiment configuration TOML file."
+        "--exp", required=True, help="Path to the grid configuration TOML file."
     )
     args = parser.parse_args()
 

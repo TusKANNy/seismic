@@ -129,6 +129,42 @@ def convert_documents_from_compressed_file(document_path):
             doc_ids.append(line_data["id"])
     return documents, doc_ids, token_to_id_mapping
 
+def convert_documents_from_folder(document_path):
+    """
+    Documents and queries must be a jsonl (note the final "l") file.
+    Each line is a json file with the following fields:
+        - "id": must represent the id of the document as an integer
+        - "content": the original content of the document, as a string
+        - "vector": a dictionary where each key represents a token,
+                and its corresponding value is the score.
+    """
+
+    tokens_set = set()
+
+    print("Scanning the documents to build the token to ids mapping")
+    for file_name in tqdm(os.listdir(document_path)):
+        with open(os.path.join(document_path, file_name), "r") as file:
+            for line in file:
+                line_data = json.loads(line.strip())
+                tokens_set.update(line_data["vector"].keys())
+
+    # Tokens are sorted to ensure portability
+    sorted_tokens_set = sorted(tokens_set)
+    token_to_id_mapping = {v: i for i, v in enumerate(list(sorted_tokens_set))}
+
+    documents = []
+    doc_ids = []
+
+    for file_name in tqdm(os.listdir(document_path)):
+        with open(os.path.join(document_path, file_name), "r") as file:
+            for line in file:
+                line_data = json.loads(line.strip())
+                vs = np.array([v for v in line_data["vector"].values()], dtype=np.float32)
+                ks = np.array([token_to_id_mapping[k] for k in line_data["vector"].keys()])
+                # new_ks = np.array([token_to_id_mapping[k] for k in ks])
+                documents.append((ks, vs))
+                doc_ids.append(line_data["id"])
+    return documents, doc_ids, token_to_id_mapping
 
 def convert_documents_from_file(document_path):
     """
@@ -158,11 +194,7 @@ def convert_documents_from_file(document_path):
 
     with open(document_path, "r") as file:
         for line in tqdm(file):
-            try:
-                line_data = json.loads(line.strip())
-            except:
-                print("Footer skipped\n")
-                break
+            line_data = json.loads(line.strip())
             vs = np.array([v for v in line_data["vector"].values()], dtype=np.float32)
             ks = np.array([token_to_id_mapping[k] for k in line_data["vector"].keys()])
             # new_ks = np.array([token_to_id_mapping[k] for k in ks])
@@ -276,11 +308,17 @@ def main():
                 convert_documents_from_compressed_file(document_path)
             )
         else:
-            documents, doc_ids, token_id_mapping = convert_documents_from_file(
+            if os.path.isdir(document_path):
+                 documents, doc_ids, token_id_mapping = convert_documents_from_folder(
+                document_path
+            )
+            else: 
+                documents, doc_ids, token_id_mapping = convert_documents_from_file(
                 document_path
             )
 
         print(f"Reading and converting queries from {query_path}")
+        
         if query_path.endswith("tar.gz"):
             queries, queries_ids = convert_queries_from_compressed_file(
                 query_path, token_id_mapping
@@ -311,6 +349,7 @@ def main():
             json.dump(token_id_mapping, fp)
 
     else:
+        
         print("Reading and converting documents...")
         documents, doc_ids = convert_documents_with_no_token_conversion(document_path)
         print("Reading and converting queries...")
