@@ -1,7 +1,7 @@
-name =          "spladev3_no_knn_mem_budget_1.5"
-title =         "Seismic with no knn on Spladev3 with memory budget 1.5 on MS MARCO"
-description =   "Seismic with no knn on Spladev3 with memory budget 1.5 on MS MARCO for the Table 1 (row 5) on CIKM 2024 paper"
-dataset =       "Spladev3 on MS-MARCO"
+name =          "cocondenser_with_knn_mem_budget_1.5"
+title =         "Seismic with no knn on Cocondenser with memory budget 1.5 on MS MARCO"
+description =   "Seismic with no knn on Cocondenser with memory budget 1.5 on MS MARCO for the Table 1 (row 2) on CIKM 2024 paper"
+dataset =       "Splade cocondenser on MS-MARCO"
 # compile-command = "cargo build" # Compile in debug mode? default is release mode
 # build-command = "./target/release/build_inverted_index"
 # query-command = "./target/debug/perf_inverted_index"
@@ -15,8 +15,8 @@ build =         true   # Need to build the index or the index is already built?
 metric =        "RR@10"
 
 [folder] 
-data =          "~/sparse_datasets/msmarco_v1_passage/spladev3/data"
-index =         "~/sparse_datasets/msmarco_v1_passage/spladev3/indexes"
+data =          "~/sparse_datasets/msmarco_v1_passage/cocondenser/data"
+index =         "~/sparse_datasets/msmarco_v1_passage/cocondenser/indexes"
 qrels_path =    "~/sparse_datasets/msmarco_v1_passage/qrels.dev.small.tsv"
 experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
 
@@ -26,46 +26,62 @@ queries =       "queries.bin"
 groundtruth =   "groundtruth.tsv"
 doc_ids =       "doc_ids.npy"
 query_ids =     "queries_ids.npy"
-index =         "cikm_2024_spladev3_no_knn_mem_budget_1.5"
+index =         "cikm_2024_cocondenser_with_knn_mem_budget_1.5"
+knn_path =      "knn_graph_cikm.npy"
 
 [indexing_parameters]
-n-postings =            3000
-centroid-fraction =     0.2
+n-postings =            2000
+centroid-fraction =     0.1
 summary-energy =        0.4
-knn =                   0
+knn =                   30
 clustering-algorithm =  "random-kmeans" # Possible options are "random-kmeans", "random-kmeans-inverted-index", "random-kmeans-inverted-index-approx"
 kmeans-doc-cut =        15    # needed by "random-kmeans-inverted-index" and "random-kmeans-inverted-index-approx"
 kmeans-pruning-factor = 0.005 # Only used by random-kmeans-inverted-index
 
 [query]
     [query.recall_90]
-    query-cut =         5
-    heap-factor =       1.0
+    query-cut =         3
+    heap-factor =       1
+    knn =               30
+    first-sorted =      true
 
     [query.recall_91]
     query-cut =         3
-    heap-factor =       0.9
+    heap-factor =       1
+    knn =               30
+    first-sorted =      true
+
     
     [query.recall_92]
-    query-cut =         3
-    heap-factor =       0.9
+    query-cut =         4
+    heap-factor =       1
+    knn =               30
+    first-sorted =      true
+
 
     [query.recall_93]
-    query-cut =         4
+    query-cut =         3
     heap-factor =       0.9
+    knn =               30
+    first-sorted =      true
+
 
     [query.recall_94]
-    query-cut =         5 
+    query-cut =         4
     heap-factor =       0.9
+    knn =               30
+    first-sorted =      true
+    
 
     [query.recall_95]
-    query-cut =         6
-    heap-factor =       0.9
+    query-cut =         4
+    heap-factor =       0.8
+    knn =               30
+    first-sorted =      true
+
 
     [query.recall_96]
-    query-cut =         12
-    heap-factor =       0.9
-
-    [query.recall_97]
-    query-cut =         12
+    query-cut =         8
+    knn =               30
     heap-factor =       0.8
+    first-sorted =      true
