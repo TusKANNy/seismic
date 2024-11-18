@@ -47,7 +47,6 @@ where
             Some(knn) => knn.space_usage_byte(),
             None => 0,
         };
-        //let knn_size = self.knn.as_ref().unwrap().space_usage_byte();
 
         forward + postings + knn_size
     }

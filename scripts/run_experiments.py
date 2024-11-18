@@ -144,7 +144,7 @@ def build_index(configs, experiment_dir):
             decoded_line = line.decode()
             print(decoded_line, end='')  # Print each line as it is produced
             build_output.write(decoded_line)  # Write each line to the output file
-            if decoded_line.startswith("Time to build ") and decoded_line.strip().endswith(" secs"):
+            if decoded_line.startswith("Time to build ") and decoded_line.strip().endswith("(before serializing)"):
                 building_time = int(decoded_line.split()[3])
         build_process.stdout.close()
         build_process.wait()
