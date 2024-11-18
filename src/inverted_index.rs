@@ -13,9 +13,9 @@ use qwt::{BitVector, BitVectorMut};
 use std::fs::File;
 
 use itertools::Itertools;
-
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::cmp;
 
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -948,10 +948,12 @@ impl Knn {
         heap: &mut HeapFaiss,
         visited: &mut HashSet<usize>,
         forward_index: &SparseDataset<T>,
-        n_knn: usize,
+        in_n_knn: usize,
     ) where
         T: DataType,
     {
+        let n_knn = cmp::max(self.d, in_n_knn);
+
         let neighbours: Vec<_> = heap.topk();
         for &(_distance, offset) in neighbours.iter() {
             let id = forward_index.offset_to_id(offset);
