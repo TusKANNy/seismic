@@ -335,7 +335,8 @@ def get_machine_info(configs, experiment_folder):
     if (num_cpus != cpus_with_performance_governor):
         print()
         print(colored("ERROR: Problems with hardware configuration found!", "red"))
-        #sys.exit(1)
+        print(colored("Your CPU is not set to performance mode. Please, run `cpufreq-info` for more details.", "red"))
+        print()
 
     machine_info.write(f"\n-----------------\n")
     machine_info.write(f"CPU configuration\n")
