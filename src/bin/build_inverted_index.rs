@@ -67,6 +67,10 @@ struct Args {
     /// Path to the file of precomputed neareast neighbors.
     #[clap(long, value_parser)]
     knn_path: Option<String>,
+
+    /// Number of documents per chunk in the batched indexing mode.
+    #[clap(short, long, value_parser)]
+    batched_indexing: Option<usize>,
 }
 
 pub fn main() {
@@ -114,7 +118,9 @@ pub fn main() {
         .summarization_strategy(SummarizationStrategy::EnergyPreserving {
             summary_energy: args.summary_energy,
         })
-        .knn(knn_config);
+        .knn(knn_config)
+        .batched_indexing(args.batched_indexing);
+    
     println!("\nBuilding the index...");
     println!("{:?}", config);
 
