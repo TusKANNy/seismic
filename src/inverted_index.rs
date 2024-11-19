@@ -74,6 +74,7 @@ pub struct Configuration {
     blocking: BlockingStrategy,
     summarization: SummarizationStrategy,
     knn: KnnConfiguration,
+    batched_indexing: Option<usize>,
 }
 
 impl Configuration {
@@ -100,6 +101,12 @@ impl Configuration {
 
         self
     }
+
+    pub fn batched_indexing(mut self, batched_indexing: Option<usize>) -> Self {
+        self.batched_indexing = batched_indexing;
+
+        self
+    }
 }
 
 const THRESHOLD_BINARY_SEARCH: usize = 10;
@@ -119,7 +126,13 @@ where
             .map(|list| list.space_usage_byte())
             .sum();
 
+        let knn_size = match &self.knn {
+            Some(knn) => knn.space_usage_byte(),
+            None => 0,
+        };
+
         println!("\tPosting Lists: {:} Bytes", postings);
+        println!("\tKnn: {:} Bytes", knn_size);
         println!("\tTotal: {:} Bytes", forward + postings);
 
         forward + postings
@@ -180,46 +193,69 @@ where
 
     /// `n_postings`: minimum number of postings to select for each component
     pub fn build(dataset: SparseDataset<T>, config: Configuration) -> Self {
-        // Distribute pairs (score, doc_id) to corresponding components.
+        // Distribute pairs (score, doc_id) to corresponding components for each chunk.
         // We use pairs because later each posting list will be sorted by score
         // by the pruning strategy.
+        // The pruning strategy is applied to partial results, for Global Threshold strategy
+        // the final fixed pruning is done only when all chunks have been parsed
 
-        print!("\tDistributing postings ");
+        print!("\tDistributing and Pruning postings ");
         let time = Instant::now();
+
         let mut inverted_pairs = Vec::with_capacity(dataset.dim());
+        let mut chunk_inv_pairs  = Vec::with_capacity(dataset.dim());
+
         for _ in 0..dataset.dim() {
             inverted_pairs.push(Vec::new());
+            chunk_inv_pairs.push(Vec::new());
         }
 
-        for (doc_id, (components, values)) in dataset.iter().enumerate() {
-            for (&c, &score) in components.iter().zip(values) {
-                inverted_pairs[c as usize].push((score, doc_id));
+        let chunk_size = config.batched_indexing.unwrap_or(dataset.len());
+
+        for chunk in &dataset.iter().enumerate().chunks(chunk_size) {
+            for (_, (doc_id, (components, values))) in chunk.enumerate() {
+                for (&c, &score) in components.iter().zip(values) {
+                    chunk_inv_pairs[c as usize].push((score, doc_id));
+                }
+            }
+
+            // If not batched indexing, chunk_inv_pairs already contain all the pairs
+            if chunk_size == dataset.len() {
+                inverted_pairs = chunk_inv_pairs;
+            }
+            else {
+                // Copy the pairs of the current chunk in the partial results
+                for (c, chunk_pairs) in chunk_inv_pairs.iter().enumerate() {
+                    for (score, doc_id) in chunk_pairs.iter() {
+                        inverted_pairs[c].push((*score, *doc_id));
+                    }
+                }
+            }
+
+            // Pruning on partial result
+            match config.pruning {
+                PruningStrategy::FixedSize { n_postings } => {
+                    Self::fixed_pruning(&mut inverted_pairs, n_postings);
+                }
+                PruningStrategy::GlobalThreshold { n_postings, ..} => {
+                    Self::global_threshold_pruning(&mut inverted_pairs, n_postings);
+                }
+            }
+
+            chunk_inv_pairs = Vec::with_capacity(dataset.dim());
+            for _ in 0..dataset.dim() {
+                chunk_inv_pairs.push(Vec::new());
             }
         }
-
-        let elapsed = time.elapsed();
-        println!("{} secs", elapsed.as_secs());
-
-        // Apply the selected pruning strategy
-
-        print!("\tPruning postings ");
-        let time = Instant::now();
-
+        
+        // Final pruning
         match config.pruning {
-            PruningStrategy::FixedSize { n_postings } => {
-                Self::fixed_pruning(&mut inverted_pairs, n_postings)
-            }
-
-            PruningStrategy::GlobalThreshold {
-                n_postings,
-                max_fraction,
-            } => {
-                Self::global_threshold_pruning(&mut inverted_pairs, n_postings);
-                Self::fixed_pruning(
-                    &mut inverted_pairs,
+            PruningStrategy::GlobalThreshold { n_postings, max_fraction } => {
+                Self::fixed_pruning(&mut inverted_pairs,
                     (n_postings as f32 * max_fraction) as usize,
-                ) // cuts too long lists
+                );
             }
+            _ => {}
         }
 
         let elapsed = time.elapsed();
@@ -269,6 +305,11 @@ where
         }
     }
 
+    // Add a precomputed knn graph to the index
+    pub fn add_knn(&mut self, knn: Knn) {
+        self.knn = Some(knn);
+    }
+
     // Implementation of the pruning strategy that selects the top-`n_postings` from each posting list
     fn fixed_pruning(inverted_pairs: &mut Vec<Vec<(T, usize)>>, n_postings: usize) {
         inverted_pairs.par_iter_mut().for_each(|posting_list| {
@@ -280,9 +321,13 @@ where
         })
     }
 
-    // Implementation of the pruning strategy that selects a threshold such that survives on average `n_postings` for each posting list
+    // Implementation of the NEW pruning strategy that selects a threshold such that survives on average `n_postings` for each posting list
+    // In the new version, documents with scores equal to the threshold are included, without exceeding the threshold of 10% of expected postings
     fn global_threshold_pruning(inverted_pairs: &mut [Vec<(T, usize)>], n_postings: usize) {
         let tot_postings = inverted_pairs.len() * n_postings; // overall number of postings to select
+
+        const EQUALITY_THRESHOLD: usize = 10;
+        let max_eq_postings = EQUALITY_THRESHOLD*tot_postings/100;//maximium number of posting with score equal to the threshold
 
         // for every posting we create the tuple <score, docid, id_posting_list>
         let mut postings = Vec::<(T, usize, u16)>::new();
@@ -295,11 +340,22 @@ where
 
         let tot_postings = tot_postings.min(postings.len() - 1);
 
-        postings.select_nth_unstable_by(tot_postings, |a, b| b.0.partial_cmp(&a.0).unwrap());
+        // To ensure that executions with different batch sizes provide the same result, the comparison criterion considers both the score and the doc_id
+        let (_, (t_score, _, _), leq) = postings.select_nth_unstable_by(tot_postings, |a, b| b.partial_cmp(&a).unwrap());
+        // All postings with scores equal to the threshold are added, up to max_eq_postings
+        let (eq_pairs, _): (Vec<(T, usize, u16)>, _) = leq.iter().partition(|p| p.0 == *t_score );
+        for (score, docid, id_postings) in eq_pairs.iter().take(max_eq_postings) {
+            inverted_pairs[*id_postings as usize].push((*score, *docid));
+        }
+
+        if eq_pairs.len() > max_eq_postings {
+            println!("A lot of entries have the same value. {} have been pruned, for more info look at DOC_REFERENCE", eq_pairs.len()-max_eq_postings);
+        }
 
         for (score, docid, id_posting) in postings.into_iter().take(tot_postings) {
             inverted_pairs[id_posting as usize].push((score, docid));
         }
+
     }
 
     /// Returns an iterator over the underlying SparseDataset
@@ -908,6 +964,9 @@ impl Knn {
         println!("Number of neighbors in the file: {:}", d);
         println!("We only take {:} neighbors per element", knn);
 
+        /*  Rimosso la porzione di codice sottostante perché faceva
+            schiantare il codice. Non era necessaria (?)
+
         let mut selected_neighbors: Vec<u64> = Vec::with_capacity(10);
         for row in arr_data.outer_iter() {
             for &value in row.iter().take(knn) {
@@ -916,6 +975,11 @@ impl Knn {
         }
         let (bv, nbits) =
             Self::compress_into_bitvector(selected_neighbors.into_iter(), n_vecs, knn);
+        */
+
+        let (bv, nbits) =
+            Self::compress_into_bitvector( arr_data.into_iter(), n_vecs, knn);
+
 
         Self {
             n_vecs,
