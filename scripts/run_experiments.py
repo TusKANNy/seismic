@@ -136,6 +136,8 @@ def build_index(configs, experiment_dir):
     building_output_file = os.path.join(experiment_dir, "building.output")
 
     # Build the index and display output in real-time
+    #print()
+    #print("Dataset summary")
     print(colored("Building index...", "yellow"))
     building_time = 0
     with open(building_output_file, "w") as build_output:
@@ -144,7 +146,7 @@ def build_index(configs, experiment_dir):
             decoded_line = line.decode()
             print(decoded_line, end='')  # Print each line as it is produced
             build_output.write(decoded_line)  # Write each line to the output file
-            if decoded_line.startswith("Time to build ") and decoded_line.strip().endswith(" secs"):
+            if decoded_line.startswith("Time to build ") and decoded_line.strip().endswith("(before serializing)"):
                 building_time = int(decoded_line.split()[3])
         build_process.stdout.close()
         build_process.wait()
@@ -296,7 +298,7 @@ def get_machine_info(configs, experiment_folder):
     
     load = str(psutil.getloadavg())[1:-1]
     num_cpus = psutil.cpu_count()
-
+    
     machine_info.write(f"----------------------\n")
     machine_info.write(f"Hardware configuration\n")
     machine_info.write(f"----------------------\n")
