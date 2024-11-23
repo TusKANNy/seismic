@@ -377,7 +377,7 @@ By downloading and using this software, you agree to cite the under-noted paper 
 @inproceedings{Seismic,
   author    = {Sebastian Bruch and Franco Maria Nardini and Cosimo Rulli and Rossano Venturini},
   title     = {Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations},
-  booktitle = {The 47th International {ACM} {SIGIR} {onference on Research and Development in Information Retrieval ({SIGIR})},
+  booktitle = {The 47th International {ACM} {SIGIR} {C}onference on Research and Development in Information Retrieval ({SIGIR})},
   pages     = {152--162},
   publisher = {{ACM}},
   year      = {2024},
