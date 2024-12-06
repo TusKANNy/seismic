@@ -8,14 +8,14 @@ The main features of our model are described below:
   - `master`: Always contains the stable version of the software ready for release.
   - `develop`: The main branch for ongoing development, containing the latest code with new features and updates.
 <p align="center">
-    <img src="imgs/main_branches.png"/>
+    <img width="400px" src="imgs/main_branches.png"/>
 </p>
 
 - **Feature Branches**:
   - Created from `develop` to work on new features.
   - Once a feature is completed, the branch is merged back into `develop` via a pull request.
 <p align="center">
-    <img src="imgs/feature_branches.png"/>
+    <img width="200px" src="imgs/feature_branches.png"/>
 </p>
 
 
