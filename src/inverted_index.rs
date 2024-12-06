@@ -10,7 +10,8 @@ use ndarray::Array2;
 use ndarray_npy::ReadNpyExt;
 use qwt::SpaceUsage as SpaceUsageQwt;
 use qwt::{BitVector, BitVectorMut};
-use std::fs::File;
+use std::fs;
+use fs::File;
 
 use itertools::Itertools;
 use rayon::prelude::*;
@@ -19,6 +20,9 @@ use std::cmp;
 
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
+
+use std::io::Result as IoResult;
+
 
 #[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct InvertedIndex<T>
@@ -133,9 +137,9 @@ where
 
         println!("\tPosting Lists: {:} Bytes", postings);
         println!("\tKnn: {:} Bytes", knn_size);
-        println!("\tTotal: {:} Bytes", forward + postings);
+        println!("\tTotal: {:} Bytes", forward + postings + knn_size);
 
-        forward + postings
+        forward + postings + knn_size
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -307,6 +311,14 @@ where
 
     // Add a precomputed knn graph to the index
     pub fn add_knn(&mut self, knn: Knn) {
+        //limit to nknn neighbors (vedi refine)
+        //iterates over all id vecs, for each id
+        //for i in 0..nknn
+        //get bit_offset in bitvetor, get neighbor id
+        //add to BitVectorMut con apnd_bits (vedi compress into bitvector)
+
+        //cotruisci knn cammbia solo bitvector
+
         self.knn = Some(knn);
     }
 
@@ -356,6 +368,17 @@ where
             inverted_pairs[id_posting as usize].push((score, docid));
         }
 
+    }
+
+    pub fn dataset(&self) -> &SparseDataset<T> {
+        &self.forward_index
+    }
+
+    pub fn knn(&self) -> Option<&Knn> {
+        match &self.knn {
+            Some(knn) => Some(knn),
+            None => None
+        }
     }
 
     /// Returns an iterator over the underlying SparseDataset
@@ -987,6 +1010,31 @@ impl Knn {
             neighbours: bv,
             nbits,
         }
+    }
+
+    
+    pub fn new_from_serialized(path: &str, nknn: usize) -> Self {
+        println!("Reading KNN from file: {:}", path);
+
+        let serialized: Vec<u8> = fs::read(path).unwrap();
+
+        let knn = bincode::deserialize::<Knn>(&serialized).unwrap();
+
+
+        println!("Number of vectors: {:}", knn.n_vecs);
+
+        println!("Number of neighbors in the file: {:}", knn.d);
+        println!("We only take {:} neighbors per element", nknn);
+        //TODO: take only nknn neighbors
+        
+        knn
+    }
+
+    pub fn  serialize(&self, output_file: &str) -> IoResult<()> {
+        let serialized = bincode::serialize(self).unwrap();
+        let path = output_file.to_string() + ".knn.seismic";
+        println!("Saving ... {}", path);
+        fs::write(path, serialized)
     }
 
     #[must_use]
