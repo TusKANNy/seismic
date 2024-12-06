@@ -711,6 +711,23 @@ where
         (v_components, v_values)
     }
 
+    //TODO: we need to change this into push_iterator.
+    pub fn push_pairs(&mut self, pairs: &[(u16, T)]) {
+        assert!(
+            pairs.windows(2).all(|w| w[0].0 < w[1].0),
+            "Components must be given in sorted order"
+        );
+        if pairs.last().unwrap().0 as usize >= self.d {
+            self.d = pairs.last().unwrap().0 as usize + 1;
+        }
+
+        self.components.extend(pairs.iter().map(|(c, _)| c));
+        self.values.extend(pairs.iter().map(|(_, v)| v));
+        self.offsets
+            .push(*self.offsets.last().unwrap() + pairs.len());
+    }
+
+
     /// Adds a new sparse vector to the dataset.
     ///
     /// The `components` parameter is assumed to be a strictly increasing sequence
