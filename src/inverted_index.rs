@@ -6,12 +6,9 @@ use crate::{DataType, QuantizedSummary, SpaceUsage, SparseDataset};
 
 use indicatif::ParallelProgressIterator;
 
-use ndarray::Array2;
-use ndarray_npy::ReadNpyExt;
 use qwt::SpaceUsage as SpaceUsageQwt;
 use qwt::{BitVector, BitVectorMut};
 use std::fs;
-use fs::File;
 
 use itertools::Itertools;
 use rayon::prelude::*;
@@ -286,15 +283,18 @@ where
             knn: None,
         };
 
-        if config.knn.nknn == 0 {
-            let elapsed = time.elapsed();
-            println!("{} secs", elapsed.as_secs());
+        let elapsed = time.elapsed();
+        println!("{} secs", elapsed.as_secs());
+
+        if config.knn.nknn == 0 && config.knn.knn_path.is_none() {
+        //if config.knn.nknn == 0 {
             return me;
         }
 
+        let time = Instant::now();
         let knn_config = config.knn.clone();
         let knn = if let Some(knn_path) = knn_config.knn_path {
-            Knn::new_from_path(knn_path, knn_config.nknn)
+            Knn::new_from_serialized(&knn_path, Some(knn_config.nknn))
         } else {
             Knn::new(&me, knn_config.nknn)
         };
@@ -309,16 +309,9 @@ where
         }
     }
 
-    // Add a precomputed knn graph to the index
+    // Add a precomputed knn graph to the index, limiting the number of neighbours to limit if it is not None
+    //pub fn add_knn(&mut self, knn: Knn, limit: Option<usize>) {
     pub fn add_knn(&mut self, knn: Knn) {
-        //limit to nknn neighbors (vedi refine)
-        //iterates over all id vecs, for each id
-        //for i in 0..nknn
-        //get bit_offset in bitvetor, get neighbor id
-        //add to BitVectorMut con apnd_bits (vedi compress into bitvector)
-
-        //cotruisci knn cammbia solo bitvector
-
         self.knn = Some(knn);
     }
 
@@ -370,15 +363,14 @@ where
 
     }
 
+    /// Returns the sparse dataset 
     pub fn dataset(&self) -> &SparseDataset<T> {
         &self.forward_index
     }
 
+    /// Returns knn graph if present
     pub fn knn(&self) -> Option<&Knn> {
-        match &self.knn {
-            Some(knn) => Some(knn),
-            None => None
-        }
+        self.knn.as_ref()
     }
 
     /// Returns an iterator over the underlying SparseDataset
@@ -416,6 +408,15 @@ where
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.forward_index.len() == 0
+    }
+
+    /// Returns the number of neighbors in the knn graph, 0 if knn graph is not present.
+    #[must_use]
+    pub fn knn_len(&self) -> usize {
+        match &self.knn {
+            Some(knn) => knn.d,
+            None => 0
+        }
     }
 }
 
@@ -925,7 +926,7 @@ impl Knn {
         const KNN_HEAP_FACTOR: f32 = 0.7;
 
         let n_vecs = index.len();
-        println!("\tComputing KNN");
+        print!("\tComputing KNN");
         let docs_search_results: Vec<_> = index
             .forward_index
             .par_iter()
@@ -969,65 +970,43 @@ impl Knn {
             nbits,
         }
     }
-
-    #[must_use]
-    pub fn new_from_path(path: String, knn: usize) -> Self {
-        println!("Reading KNN from file: {:}", path);
-
-        let reader = File::open(path).unwrap();
-        let arr = Array2::<u64>::read_npy(reader).map_err(|e| e.to_string());
-
-        let arr_data = arr.unwrap();
-        let shapes = arr_data.shape();
-
-        let n_vecs = shapes[0];
-        println!("Number of vectors: {:}", n_vecs);
-
-        let d = shapes[1];
-        println!("Number of neighbors in the file: {:}", d);
-        println!("We only take {:} neighbors per element", knn);
-
-        /*  Rimosso la porzione di codice sottostante perché faceva
-            schiantare il codice. Non era necessaria (?)
-
-        let mut selected_neighbors: Vec<u64> = Vec::with_capacity(10);
-        for row in arr_data.outer_iter() {
-            for &value in row.iter().take(knn) {
-                selected_neighbors.push(value);
-            }
-        }
-        let (bv, nbits) =
-            Self::compress_into_bitvector(selected_neighbors.into_iter(), n_vecs, knn);
-        */
-
-        let (bv, nbits) =
-            Self::compress_into_bitvector( arr_data.into_iter(), n_vecs, knn);
-
-
-        Self {
-            n_vecs,
-            d: knn,
-            neighbours: bv,
-            nbits,
-        }
-    }
-
     
-    pub fn new_from_serialized(path: &str, nknn: usize) -> Self {
+    pub fn new_from_serialized(path: &str, limit: Option<usize>) -> Self {
         println!("Reading KNN from file: {:}", path);
-
         let serialized: Vec<u8> = fs::read(path).unwrap();
-
         let knn = bincode::deserialize::<Knn>(&serialized).unwrap();
 
-
         println!("Number of vectors: {:}", knn.n_vecs);
-
         println!("Number of neighbors in the file: {:}", knn.d);
-        println!("We only take {:} neighbors per element", nknn);
-        //TODO: take only nknn neighbors
         
-        knn
+        let nknn = limit.unwrap_or(knn.d);
+
+        assert!(nknn <= knn.d,
+            "The number of neighbors to include for each vector of the dataset can't be greater than the number of neighbours in the precomputed knn file.");
+        
+        if nknn == knn.d {
+            return knn;
+        } else {
+            println!("We only take {:} neighbors per element", nknn);
+        }
+
+        let mut neighbours = BitVectorMut::with_capacity(knn.n_vecs * knn.nbits * nknn);
+
+        for id in 0..knn.n_vecs {
+            for i in 0..nknn {
+                let bit_offset = id * knn.d * knn.nbits + i * knn.nbits;
+                let neighbor = knn.neighbours.get_bits(bit_offset, knn.nbits).unwrap();
+                neighbours.append_bits(neighbor, knn.nbits);
+            }
+        }
+
+        Knn {
+            n_vecs: knn.n_vecs,
+            d: nknn,
+            neighbours: BitVector::from(neighbours),
+            nbits: knn.nbits,
+        }
+
     }
 
     pub fn  serialize(&self, output_file: &str) -> IoResult<()> {
