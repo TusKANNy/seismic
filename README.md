@@ -43,7 +43,7 @@ We report here a comparison with other state-of-the-art indexes for sparse vecto
 To run the experiments with Seismic, we need to compile the binary executables using:
 
 ```bash
-RUSTFLAGS="-C target-cpu=native" cargo build --release
+RUSTFLAGS="-C target-=native" cargo build --release
 ```
 
 This command produces three executables: `build_inverted_index`, `perf_inverted_index`, and `generate_groundtruth` in the `/target/release/` directory.
@@ -324,7 +324,7 @@ It is fairly straightforward to build the Python interface with `maturin` as fol
 
 ```bash
 pip install maturin
-RUSTFLAGS="-C target-cpu=native" maturin build -r
+RUSTFLAGS="-C target-=native" maturin build -r
 for whl in target/wheels/*.whl; do pip3 install $whl; done
 ```
 
