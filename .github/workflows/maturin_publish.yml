@@ -1,0 +1,55 @@
+name: Package publishing via Maturin Actions
+
+on:
+  #push:
+    #branches:
+      #- latest_clean_leo  # Specifica il branch su cui eseguire
+
+  workflow_dispatch:  # Permette di eseguire l'azione manualmente
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3  # Clona repo
+      
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v2
+      with:
+        platforms: all
+
+    - name: Build Wheels with manylinux2014_x86_64
+      uses: PyO3/maturin-action@v1
+      with:
+        command: "publish"
+        args: "--username __token__ --password ${{ secrets.PYPI_PASSWORD }} -f --repository-url https://test.pypi.org/legacy/"
+        container: "quay.io/pypa/manylinux2014_x86_64"
+        manylinux: 2014
+
+    # Don't create source distribution after first publish
+    - name: Build Wheels with manylinux2014_i686
+      uses: PyO3/maturin-action@v1
+      with:
+        command: "publish"
+        args: "--username __token__ --password ${{ secrets.PYPI_PASSWORD }} -f --repository-url https://test.pypi.org/legacy/ --no-sdist"
+        container: "quay.io/pypa/manylinux2014_i686"
+        manylinux: 2014
+
+    # Don't create source distribution after first publish
+    - name: Build Wheels with manylinux2014_aarch64
+      uses: PyO3/maturin-action@v1
+      with:
+        command: "publish"
+        args: "--username __token__ --password ${{ secrets.PYPI_PASSWORD }} -f --repository-url https://test.pypi.org/legacy/ --no-sdist"
+        container: "quay.io/pypa/manylinux2014_aarch64"
+        manylinux: 2014
+        docker-options: --platform linux/arm64
+
+    - name: Build Wheels with musllinux_1_2_x86_64
+      uses: PyO3/maturin-action@v1
+      with:
+        command: "publish"
+        args: "--username __token__ --password ${{ secrets.PYPI_PASSWORD }} -f --repository-url https://test.pypi.org/legacy/ --no-sdist"
+        container: "quay.io/pypa/musllinux_1_2_x86_64"
