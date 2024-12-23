@@ -57,5 +57,5 @@ To build and publish the soruce distribution and binaries, we used the github ac
 All subsequent executions of the publish command will avoid the building of soruce distribution by using the `--no-sdist` argument and are used to build Wheels for aarch64 and i686 platform.
 As specified in the maturin Action documentation, to use a manylinux image for aarch64 we need to configure QEMU with a setup QEMU action defined in (https://github.com/docker/setup-qemu-action).
 
-Wheels built with a **manylinux2014** docker image are expected to be compatible with linux distros using glibc 2.17 or later. 
+Wheels built with a **manylinux2014** docker image are expected to be compatible with linux distros using glibc 2.17 or later (we made this choiche because the Rust compiler since version 1.64 requires at least glibc 2.17, so we need to use at least manylinux2014).
 We also provide support for Python installation that depends on **musl** on a Linux distribution, by using the **musllinux_1_2** docker image. Wheels are expected to be compatible with linux distros using musl 1.2 or later.
