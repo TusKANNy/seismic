@@ -36,37 +36,15 @@ impl JsonFormat {
     }
 }
 
-// pub fn read_as_json_vector(input_file: &String) -> Vec<JsonVector> {
-//     let f = File::open(input_file).expect(&format!("Unable to open {}", input_file));
-//     let reader = BufReader::new(f);
-//     let stream: serde_json::StreamDeserializer<
-//         serde_json::de::IoRead<BufReader<File>>,
-//         MyJsonCollection,
-//     > = Deserializer::from_reader(reader).into_iter();
-
-//     stream
-//         .into_iter()
-//         .map(|x| x.unwrap().convert_to_vec())
-//         .collect()
-// }
-
 pub fn extract_jsonl<T>(current_jsonl: JsonFormat) -> (String, Vec<String>, Vec<T>)
 where
     T: DataType,
 {
-    //Reading the vectors separetely because it is more readable in the calling function
-
-    let coords: Vec<_> = current_jsonl
+    let (coords, values): (Vec<_>, Vec<_>) = current_jsonl
         .vector()
         .iter()
-        .map(|(s, _)| s.to_string())
-        .collect();
-
-    let values = current_jsonl
-        .vector()
-        .iter()
-        .map(|(_, y)| T::from_f32(*y).unwrap())
-        .collect();
+        .map(|(s, y)| (s.to_string(), T::from_f32(*y).unwrap()))
+        .unzip();
 
     (current_jsonl.get_id_as_string(), coords, values)
 }
