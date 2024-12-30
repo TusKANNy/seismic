@@ -164,10 +164,10 @@ def compute_metric(configs, output_file, gt_file, metric):
     res_pd = pd.read_csv(output_file, sep='\t', names=column_names)
     
     query_ids_path = os.path.join(configs['folder']['data'], configs['filename']['query_ids'])
-    queries_ids = np.load(query_ids_path)
+    queries_ids = np.load(query_ids_path, allow_pickle=True)
 
     document_ids_path = os.path.join(configs['folder']['data'], configs['filename']['doc_ids'])
-    doc_ids = np.load(os.path.realpath(document_ids_path))
+    doc_ids = np.load(os.path.realpath(document_ids_path), allow_pickle=True)
     
     gt_pd['query_id'] = gt_pd['query_id'].apply(lambda x: queries_ids[x])
     res_pd['query_id'] = res_pd['query_id'].apply(lambda x: queries_ids[x])
@@ -178,7 +178,8 @@ def compute_metric(configs, output_file, gt_file, metric):
     qrels_path = configs['folder']['qrels_path']
     
     df_qrels = pd.read_csv(qrels_path, sep="\t", names=["query_id", "useless", "doc_id", "relevance"])
-    if "nq" in configs['name']: # the order of the fields in nq is different. 
+    #if "nq" in configs['name']: # the order of the fields in nq is different. 
+    if len(pd.unique(df_qrels['useless'])) != 1:
         df_qrels = pd.read_csv(qrels_path, sep="\t", names=["query_id", "doc_id", "relevance", "useless"])
 
     gt_pd['doc_id'] = gt_pd['doc_id'].astype(df_qrels.doc_id.dtype)
