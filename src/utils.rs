@@ -1,10 +1,138 @@
 use core::hash::Hash;
-use std::collections::HashSet;
+use std::{
+    cmp::{Ordering, Reverse},
+    collections::{BinaryHeap, HashSet},
+    fs::File,
+    hint::assert_unchecked,
+    io::{BufReader, BufWriter},
+};
+//use std::time::Instant;
 
-#[allow(unused_imports)]
-use rand::{rngs::StdRng, seq::IteratorRandom, thread_rng, SeedableRng};
+use itertools::Itertools;
+use rand::prelude::*;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{ComponentType, SparseDataset, ValueType};
+
+pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std::error::Error>> {
+    let mut file = BufReader::new(File::open(path)?);
+    let config = bincode::config::standard();
+    let result = bincode::serde::decode_from_std_read::<D, _, _>(&mut file, config)?;
+    Ok(result)
+}
+
+pub fn write_to_path<E: Serialize>(val: E, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut file = BufWriter::new(File::create(path)?);
+    let config = bincode::config::standard();
+    bincode::serde::encode_into_std_write(val, &mut file, config)?;
+    Ok(())
+}
+
+/// A min-heap that stores the top k elements
+#[derive(Clone)]
+pub struct KHeap<T> {
+    bh: BinaryHeap<Reverse<T>>,
+    k: usize,
+}
+
+impl<T: Ord> KHeap<T> {
+    #[inline]
+    pub fn new(k: usize) -> Self {
+        assert!(k > 0);
+        Self {
+            bh: BinaryHeap::with_capacity(k),
+            k,
+        }
+    }
+
+    #[inline]
+    pub fn push(&mut self, item: T) {
+        unsafe { assert_unchecked(self.k > 0 && self.bh.capacity() == self.k) };
+        if self.bh.len() < self.k {
+            self.bh.push(Reverse(item));
+        } else {
+            let mut min = self.bh.peek_mut().unwrap();
+            if item > min.0 {
+                *min = Reverse(item);
+            }
+        }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.bh.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    #[inline]
+    pub fn peek(&self) -> &T {
+        &self.bh.peek().unwrap().0
+    }
+
+    #[inline]
+    pub fn into_sorted_vec(self) -> Vec<T> {
+        // Zero-cost abstraction
+        self.bh.into_sorted_vec().into_iter().map(|i| i.0).collect()
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct ScoredItem {
+    pub id: usize,
+    pub score: f32,
+}
+
+impl ScoredItem {
+    pub fn new(id: usize, score: f32) -> Self {
+        Self { id, score }
+    }
+}
+
+impl Eq for ScoredItem {}
+
+impl PartialOrd for ScoredItem {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ScoredItem {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        unsafe { self.score.partial_cmp(&other.score).unwrap_unchecked() }
+    }
+}
+
+/// Instead of string doc_ids we store their offsets in the forward_index and the lengths of the vectors
+/// This allows us to save the random accesses that would be needed to access exactly these values from the
+/// forward index. The values of each doc are packed into a single u64 in `packed_postings`.
+/// We use 48 bits for the offset and 16 bits for the length. This choice limits the size of the dataset to be 1<<48.
+/// We use the forward index to convert the offsets of the top-k back to the id of the corresponding documents.
+/// Preferably use #[repr(packed)], if u48 becomes a thing: https://github.com/rust-lang/rfcs/issues/2903
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PackedPostingBlock {
+    n: u64,
+}
+
+impl PackedPostingBlock {
+    #[inline]
+    pub fn new_pack(offset: u64, len: u16) -> Self {
+        Self {
+            n: ((offset) << 16) | (len as u64),
+        }
+    }
+
+    #[inline]
+    pub fn unpack(&self) -> (usize, usize) {
+        (
+            (self.n >> 16) as usize,
+            (self.n & (u16::MAX as u64)) as usize,
+        )
+    }
+}
 
 /// Computes the size of the intersection of two unsorted lists of integers.
 pub fn intersection<T: Eq + Hash + Clone>(s: &[T], groundtruth: &[T]) -> usize {
@@ -30,8 +158,7 @@ pub fn conditionally_densify<C>(
 where
     C: ComponentType,
 {
-    let dense_query: Option<Vec<f32>> = if query_components.len() > THRESHOLD_BINARY_SEARCH
-        && query_components.len() < 2_usize.pow(18)
+    if query_components.len() > THRESHOLD_BINARY_SEARCH && query_components.len() < 2_usize.pow(18)
     {
         let mut vec = vec![0.0; query_dim];
         for (&i, &v) in query_components.iter().zip(query_values) {
@@ -40,59 +167,18 @@ where
         Some(vec)
     } else {
         None
-    };
-    dense_query
-}
-
-#[allow(non_snake_case)]
-#[inline]
-pub fn prefetch_read_NTA<T>(data: &[T], offset: usize) {
-    let _p = data.as_ptr().wrapping_add(offset) as *const i8;
-
-    #[cfg(all(feature = "prefetch", any(target_arch = "x86", target_arch = "x86_64")))]
-    {
-        #[cfg(target_arch = "x86")]
-        use std::arch::x86::{_mm_prefetch, _MM_HINT_NTA};
-
-        #[cfg(target_arch = "x86_64")]
-        use std::arch::x86_64::{_mm_prefetch, _MM_HINT_NTA};
-
-        unsafe {
-            _mm_prefetch(_p, _MM_HINT_NTA);
-        }
     }
-
-    #[cfg(all(feature = "prefetch", target_arch = "aarch64"))]
-    {
-        use core::arch::aarch64::{_prefetch, _PREFETCH_LOCALITY0, _PREFETCH_READ};
-
-        unsafe {
-            _prefetch(_p, _PREFETCH_READ, _PREFETCH_LOCALITY0);
-        }
-    }
-}
-
-/// Returns the type name of its argument.
-pub fn type_of<T>(_: &T) -> &'static str {
-    std::any::type_name::<T>()
 }
 
 #[inline]
-#[must_use]
-pub fn binary_search_branchless(data: &[u16], target: u16) -> usize {
-    let mut base = 0;
-    let mut size = data.len();
-    while size > 1 {
-        let mid = size / 2;
-        let cmp = *unsafe { data.get_unchecked(base + mid - 1) } < target;
-        base += if cmp { mid } else { 0 };
-        size -= mid;
+pub fn prefetch_read_slice<T>(data: &[T]) {
+    let ptr = data.as_ptr() as *const i8;
+    // Cache line size on x86 is 64 bytes.
+    // The function is written with a pointer because iterating the array seems to prevent loop unrolling, for some reason.
+    for i in (0..size_of_val(data)).step_by(64) {
+        core::intrinsics::prefetch_read_data::<_, 0>(ptr.wrapping_add(i));
     }
-
-    base
 }
-
-use itertools::Itertools;
 
 fn compute_centroid_assignments_approx_dot_product<C: ComponentType, T: ValueType>(
     doc_ids: &[usize],
@@ -102,35 +188,31 @@ fn compute_centroid_assignments_approx_dot_product<C: ComponentType, T: ValueTyp
     to_avoid: &HashSet<usize>,
     doc_cut: usize,
 ) -> Vec<(usize, usize)> {
-    let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
     let mut scores = vec![0_f32; centroids.len()];
 
-    for &doc_id in doc_ids.iter() {
-        scores.iter_mut().for_each(|v| *v = 0_f32);
-        for (&component_id, &value) in dataset
-            .iter_vector(doc_id)
-            .sorted_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap())
-            .take(doc_cut)
-        {
-            for &(centroid_id, score) in inverted_index[component_id.as_()].iter() {
-                scores[centroid_id] += score.to_f32() * value.to_f32();
+    doc_ids
+        .iter()
+        .map(|&doc_id| {
+            scores.iter_mut().for_each(|v| *v = 0_f32);
+            for (&component_id, &value) in dataset
+                .iter_vector(doc_id)
+                .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(b.1).unwrap())
+            {
+                for &(centroid_id, score) in inverted_index[component_id.as_()].iter() {
+                    scores[centroid_id] += score.to_f32().unwrap() * value.to_f32().unwrap();
+                }
             }
-        }
 
-        let mut max = 0_f32;
-        let mut max_centroid_id = centroids[0];
+            let (&max_centroid_id, _) = centroids
+                .iter()
+                .zip(scores.iter())
+                .filter(|(centroid_id, _)| !to_avoid.contains(centroid_id))
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                .unwrap_or((&centroids[0], &0.0));
 
-        for (centroid_id, &score) in scores.iter().enumerate() {
-            if score > max && !to_avoid.contains(&centroid_id) {
-                max = score;
-                max_centroid_id = centroid_id;
-            }
-        }
-
-        centroid_assignments.push((max_centroid_id, doc_id));
-    }
-
-    centroid_assignments
+            (max_centroid_id, doc_id)
+        })
+        .collect()
 }
 
 /// Perform a random k-means clustering on a set of document ids.
@@ -153,16 +235,13 @@ where
 {
     let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
-    let centroid_ids = doc_ids
-        .iter()
+    let centroid_ids: Vec<_> = doc_ids
+        .choose_multiple(&mut rng, n_clusters)
         .copied()
-        .choose_multiple(&mut rng, n_clusters);
+        .collect();
 
     // Build an inverted index for the centroids
-    let mut inverted_index = Vec::with_capacity(dataset.dim());
-    for _ in 0..dataset.dim() {
-        inverted_index.push(Vec::new());
-    }
+    let mut inverted_index = vec![Vec::new(); dataset.dim()];
 
     for (i, &centroid_id) in centroid_ids.iter().enumerate() {
         for (&c, &score) in dataset.iter_vector(centroid_id) {
@@ -170,7 +249,7 @@ where
         }
     }
 
-    let mut centroid_assigments = compute_centroid_assignments_approx_dot_product(
+    let mut centroid_assignments = compute_centroid_assignments_approx_dot_product(
         doc_ids,
         &inverted_index,
         dataset,
@@ -181,12 +260,12 @@ where
 
     // Prune too small clusters and reassign the documents to the closest cluster
     let mut to_be_reassigned = Vec::new(); // docids that belong to too small clusters
-    let mut final_assigments = Vec::with_capacity(doc_ids.len());
+    let mut final_assignments = Vec::with_capacity(doc_ids.len());
     let mut removed_centroids = HashSet::new();
 
-    centroid_assigments.sort_unstable();
+    centroid_assignments.sort_unstable();
 
-    for group in centroid_assigments.chunk_by(
+    for group in centroid_assignments.chunk_by(
         // group by centroid_id
         |&(centroid_id_a, _doc_id_a), &(centroid_id_b, _doc_id_b)| centroid_id_a == centroid_id_b,
     ) {
@@ -195,17 +274,17 @@ where
             to_be_reassigned.extend(group.iter().map(|(_centroid_id, doc_id)| doc_id));
             removed_centroids.insert(centroid_id);
         } else {
-            final_assigments.extend(group.iter());
+            final_assignments.extend(group.iter());
         }
     }
 
     assert_eq!(
-        to_be_reassigned.len() + final_assigments.len(),
+        to_be_reassigned.len() + final_assignments.len(),
         doc_ids.len(),
         "Final assignment size mismatch"
     );
 
-    let centroid_assigments = compute_centroid_assignments_approx_dot_product(
+    let centroid_assignments = compute_centroid_assignments_approx_dot_product(
         to_be_reassigned.as_slice(),
         &inverted_index,
         dataset,
@@ -214,17 +293,17 @@ where
         doc_cut,
     );
 
-    final_assigments.extend(centroid_assigments);
+    final_assignments.extend(centroid_assignments);
 
     assert_eq!(
-        final_assigments.len(),
+        final_assignments.len(),
         doc_ids.len(),
         "Final assignment size mismatch"
     );
 
-    final_assigments.sort();
+    final_assignments.sort();
 
-    final_assigments
+    final_assignments
 }
 
 fn compute_centroid_assignments_dot_product<C, T>(
@@ -262,28 +341,20 @@ where
             .get(doc_id)
             .1
             .iter()
-            .map(|v| v.to_f32())
+            .map(|v| v.to_f32().unwrap())
             .collect::<Vec<_>>();
 
         let dense_vector = conditionally_densify(doc_components, &doc_values, dataset.dim());
 
-        let mut max = 0_f32;
-        let mut max_centroid_id = centroids[0];
-
         let mut visited = to_avoid.clone();
 
         // Sort query terms by score and evaluate the posting list only for the top ones
-        for (&component_id, &_value) in dataset
+        let (max_centroid_id, _dot) = dataset
             .iter_vector(doc_id)
-            .sorted_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap())
-            .take(doc_cut)
-        {
-            for &(_score, centroid_id) in inverted_index[component_id.as_()].iter() {
-                if visited.contains(&centroid_id) {
-                    continue;
-                }
-                visited.insert(centroid_id);
-
+            .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(b.1).unwrap())
+            .flat_map(|(&component_id, &_value)| inverted_index[component_id.as_()].iter())
+            .filter(|&(_score, centroid_id)| visited.insert(*centroid_id))
+            .map(|&(_score, centroid_id)| {
                 let (v_components, v_values) = dataset.get(centroid_id);
                 let dot = C::compute_dot_product(
                     dense_vector.as_deref(),
@@ -292,13 +363,10 @@ where
                     v_components,
                     v_values,
                 );
-                //                let dot = C::dot_product_dense_sparse(&dense_vector, v_components, v_values);
-                if dot > max {
-                    max = dot;
-                    max_centroid_id = centroid_id;
-                }
-            }
-        }
+                (centroid_id, dot)
+            })
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .unwrap_or((centroids[0], 0.0));
 
         centroid_assignments.push((max_centroid_id, doc_id));
     }
@@ -312,7 +380,7 @@ where
 ///
 /// The function uses a simple pruned inverted index to speed up the computation and computes the
 /// true dot product between the document and the centroids.
-/// The paramenter `pruning_factor` controls the size of the pruned inverted index.
+/// The parameter `pruning_factor` controls the size of the pruned inverted index.
 /// The parameter `doc_cut` specifies how many components of the document vector to consider while computing the dot product.
 pub fn do_random_kmeans_on_docids_ii_dot_product<C, T>(
     doc_ids: &[usize],
@@ -336,10 +404,7 @@ where
     let pruned_list_size = 5.max((doc_ids.len() as f32 * pruning_factor) as usize);
 
     // Build an inverted index for the centroids
-    let mut inverted_index = Vec::with_capacity(dataset.dim());
-    for _ in 0..dataset.dim() {
-        inverted_index.push(Vec::new());
-    }
+    let mut inverted_index = vec![Vec::new(); dataset.dim()];
 
     for &centroid_id in centroid_ids.iter() {
         for (&c, &score) in dataset.iter_vector(centroid_id) {
@@ -347,12 +412,16 @@ where
         }
     }
 
-    for list in inverted_index.iter_mut() {
-        list.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-        list.truncate(pruned_list_size);
-    }
+    let inverted_index = inverted_index
+        .into_iter()
+        .map(|list| {
+            list.into_iter()
+                .k_largest_by(pruned_list_size, |a, b| a.0.partial_cmp(&b.0).unwrap())
+                .collect_vec()
+        })
+        .collect_vec();
 
-    let mut centroid_assigments = compute_centroid_assignments_dot_product(
+    let mut centroid_assignments = compute_centroid_assignments_dot_product(
         doc_ids,
         &inverted_index,
         dataset,
@@ -363,12 +432,12 @@ where
 
     // Prune too small clusters and reassign the documents to the closest cluster
     let mut to_be_reassigned = Vec::new(); // docids that belong to too small clusters
-    let mut final_assigments = Vec::with_capacity(doc_ids.len());
+    let mut final_assignments = Vec::with_capacity(doc_ids.len());
     let mut removed_centroids = HashSet::new();
 
-    centroid_assigments.sort_unstable();
+    centroid_assignments.sort_unstable();
 
-    for group in centroid_assigments.chunk_by(
+    for group in centroid_assignments.chunk_by(
         // group by centroid_id
         |&(centroid_id_a, _doc_id_a), &(centroid_id_b, _doc_id_b)| centroid_id_a == centroid_id_b,
     ) {
@@ -377,17 +446,17 @@ where
             to_be_reassigned.extend(group.iter().map(|(_centroid_id, doc_id)| doc_id));
             removed_centroids.insert(centroid_id);
         } else {
-            final_assigments.extend(group.iter());
+            final_assignments.extend(group.iter());
         }
     }
 
     assert_eq!(
-        to_be_reassigned.len() + final_assigments.len(),
+        to_be_reassigned.len() + final_assignments.len(),
         doc_ids.len(),
         "Final assignment size mismatch"
     );
 
-    let centroid_assigments = compute_centroid_assignments_dot_product(
+    let centroid_assignments = compute_centroid_assignments_dot_product(
         to_be_reassigned.as_slice(),
         &inverted_index,
         dataset,
@@ -396,17 +465,17 @@ where
         doc_cut,
     );
 
-    final_assigments.extend(centroid_assigments);
+    final_assignments.extend(centroid_assignments);
 
     assert_eq!(
-        final_assigments.len(),
+        final_assignments.len(),
         doc_ids.len(),
         "Final assignment size mismatch"
     );
 
-    final_assigments.sort();
+    final_assignments.sort_unstable();
 
-    final_assigments
+    final_assignments
 }
 
 fn compute_centroid_assignments<C: ComponentType, T: ValueType>(
@@ -426,33 +495,34 @@ fn compute_centroid_assignments<C: ComponentType, T: ValueType>(
         }
 
         let doc_components = dataset.get(doc_id).0;
-        //FIXME: avoiding this copy requires to parameterize the dot_product computation w.r.t. to the
+        // FIXME: avoiding this copy requires to parameterize the dot_product computation w.r.t. to the
         // values type. Not sure if this is worth it.
         let doc_values = dataset
             .get(doc_id)
             .1
             .iter()
-            .map(|v| v.to_f32())
+            .map(|v| v.to_f32().unwrap())
             .collect::<Vec<_>>();
 
         let dense_vector = conditionally_densify(doc_components, &doc_values, dataset.dim());
 
-        let mut centroid_max = centroids[0];
-        let mut max = 0_f32;
-        for &centroid_id in centroids.iter() {
-            let (v_components, v_values) = dataset.get(centroid_id);
-            let dot = C::compute_dot_product(
-                dense_vector.as_deref(),
-                doc_components,
-                &doc_values,
-                v_components,
-                v_values,
-            );
-            if dot > max {
-                max = dot;
-                centroid_max = centroid_id;
-            }
-        }
+        let (centroid_max, _dot) = centroids
+            .iter()
+            .map(|&centroid_id| {
+                let (v_components, v_values) = dataset.get(centroid_id);
+                let dot = C::compute_dot_product(
+                    dense_vector.as_deref(),
+                    doc_components,
+                    &doc_values,
+                    v_components,
+                    v_values,
+                );
+                (centroid_id, dot)
+            })
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            // The cluster(s) may be small... and also the only one(s).
+            .unwrap_or((centroids[0], 0.0));
+
         centroid_assignments.push((centroid_max, doc_id));
     }
 
@@ -472,17 +542,17 @@ pub fn do_random_kmeans_on_docids<C: ComponentType, T: ValueType>(
         .copied()
         .choose_multiple(&mut rng, n_clusters);
 
-    let mut centroid_assigments =
+    let mut centroid_assignments =
         compute_centroid_assignments(doc_ids, dataset, &centroid_ids, &HashSet::new());
 
     // Prune too small clusters and reassign the documents to the closest cluster
     let mut to_be_reassigned = Vec::new(); // docids that belong to too small clusters
-    let mut final_assigments = Vec::with_capacity(doc_ids.len());
+    let mut final_assignments = Vec::with_capacity(doc_ids.len());
     let mut removed_centroids = HashSet::new();
 
-    centroid_assigments.sort_unstable();
+    centroid_assignments.sort_unstable();
 
-    for group in centroid_assigments.chunk_by(
+    for group in centroid_assignments.chunk_by(
         // group by centroid_id
         |&(centroid_id_a, _doc_id_a), &(centroid_id_b, _doc_id_b)| centroid_id_a == centroid_id_b,
     ) {
@@ -491,47 +561,32 @@ pub fn do_random_kmeans_on_docids<C: ComponentType, T: ValueType>(
             to_be_reassigned.extend(group.iter().map(|(_centroid_id, doc_id)| doc_id));
             removed_centroids.insert(centroid_id);
         } else {
-            final_assigments.extend(group.iter());
+            final_assignments.extend(group.iter());
         }
     }
 
     assert_eq!(
-        to_be_reassigned.len() + final_assigments.len(),
+        to_be_reassigned.len() + final_assignments.len(),
         doc_ids.len(),
         "Final assignment size mismatch"
     );
 
-    let centroid_assigments = compute_centroid_assignments(
+    let centroid_assignments = compute_centroid_assignments(
         to_be_reassigned.as_slice(),
         dataset,
         &centroid_ids,
         &removed_centroids,
     );
 
-    final_assigments.extend(&centroid_assigments);
+    final_assignments.extend(&centroid_assignments);
 
     assert_eq!(
-        final_assigments.len(),
+        final_assignments.len(),
         doc_ids.len(),
         "Final assignment size mismatch"
     );
 
-    final_assigments.sort();
+    final_assignments.sort();
 
-    final_assigments
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_binary_search() {
-        let data = vec![1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
-        for (i, &v) in data.iter().enumerate() {
-            assert_eq!(binary_search_branchless(&data, v), i);
-        }
-
-        assert_eq!(binary_search_branchless(&data, 198), data.len() - 1);
-    }
+    final_assignments
 }

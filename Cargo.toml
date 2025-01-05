@@ -1,7 +1,7 @@
 [package]
 name = "seismic"
-version = "0.3.4"
-edition = "2021"
+version = "0.3.5"
+edition = "2024"
 license = "MIT"
 description = "Seismic is designed for effective and efficient KNN retrieval over learned sparse embeddings."
 repository = "https://github.com/TusKANNy/seismic"
@@ -12,6 +12,7 @@ readme = "README.md"
 [features]
 default = ["prefetch"]
 prefetch = []
+pyo3 = ["dep:pyo3", "dep:numpy"]
 
 [lib]
 name = "seismic"
@@ -21,24 +22,29 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-bincode = "1.3.3"
-clap = { version = "4.3.19", features = ["derive"]}
-rayon = "1.8.0"
-half = { version = "2.3.1", features = ["serde", "std", "num-traits"]}
-num-traits = "0.2.17"
-itertools = "0.13.0"
-rand = "0.8.5"
-rand_chacha = "0.3.1"
-pyo3 = { version = "0.23.0", features = ["extension-module"] } #NOTE: pyo3 and numpy require the same version at the moment
-numpy = "0.23.0"
-indicatif = {version = "0.17.8", features = ["rayon"]}
-ndarray = "0.15.6"
-ndarray-npy = "0.8.1"
-serde_json = "1.0.120"
-flate2 = "1.0"
+bincode = { version = "2.0", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
+rayon = "1.11"
+# TODO: f16 available in nightly, but not supported by crates: https://github.com/rust-num/num-traits/pull/333
+half = { version = "2.6", features = ["serde", "std", "num-traits"] }
+fixed = { version = "1.29.0", features = ["num-traits", "serde"] }
+num-traits = "0.2"
+itertools = "0.14"
+rand = "0.9"
+rand_chacha = "0.9"
+qwt = { version = "0.3" }
+pyo3 = { version = "0.26", features = ["extension-module"], optional = true }
+numpy = { version = "0.26", optional = true }
+indicatif = { version = "0.18", features = ["rayon"] }
+
+ndarray = "0.16"
+ndarray-npy = "0.9"
+
+serde_json = "1.0"
+
+flate2 = "1.1"
 tar = "0.4"
 rustc-hash = "2.1.1"
-fixed = { version = "1.29.0", features = ["serde", "num-traits"] }
 toolkit = { git = "https://github.com/rossanoventurini/toolkit.git" }
 mem_dbg = "0.3.0"
 
@@ -47,6 +53,4 @@ name = "perf_inverted_index"
 path = "src/bin/perf_inverted_index.rs"
 
 [profile.release]
-opt-level = 3
 lto = true
-debug = true

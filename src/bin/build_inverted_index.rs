@@ -1,15 +1,13 @@
+use half::bf16;
+use half::f16;
+use seismic::FixedU8Q;
+use seismic::FixedU16Q;
 use seismic::inverted_index::{
     BlockingStrategy, ClusteringAlgorithm, ClusteringAlgorithmClap, Configuration,
     KnnConfiguration, PruningStrategy, PruningStrategyClap, SummarizationStrategy,
 };
-use seismic::{ComponentType, InvertedIndex, SparseDataset, ValueType};
-
-use half::bf16;
-use half::f16;
-use seismic::FixedU16Q;
-use seismic::FixedU8Q;
-
-use std::fs;
+use seismic::utils::write_to_path;
+use seismic::*;
 
 use clap::Parser;
 use std::time::Instant;
@@ -24,7 +22,7 @@ struct Args {
     #[clap(short, long, value_parser)]
     input_file: Option<String>,
 
-    /// The path of the output file. The extension will encode the values of thebuilding parameters.
+    /// The path of the output file. The extension will encode the values of the building parameters.
     #[clap(short, long, value_parser)]
     output_file: Option<String>,
 
@@ -33,12 +31,12 @@ struct Args {
     #[arg(default_value_t = 6000)]
     n_postings: usize,
 
-    /// Block size in the fixed size blockin
+    /// Block size in the fixed size blocking.
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 10)]
     block_size: usize,
 
-    /// Regulates the number of centroids built for each posting list. The number of centroids is at most the specified fraction of the posting list lenght.
+    /// Regulates the number of centroids built for each posting list. The number of centroids is at most the specified fraction of the posting list length.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.1)]
     centroid_fraction: f32,
@@ -83,7 +81,7 @@ struct Args {
     #[arg(default_value_t = 0)]
     knn: usize,
 
-    /// Path to the file of precomputed neareast neighbors.
+    /// Path to the file of precomputed nearest neighbors.
     #[clap(long, value_parser)]
     knn_path: Option<String>,
 
@@ -102,15 +100,14 @@ struct Args {
     value_type: String,
 }
 
-fn build_index_generic<C, D>(args: &Args)
+fn build_index_generic<C, D>(args: Args)
 where
     C: ComponentType + serde::Serialize + for<'de> serde::Deserialize<'de>,
     D: ValueType + serde::Serialize + for<'de> serde::Deserialize<'de>,
 {
-    let dataset: SparseDataset<C, D> =
-        SparseDataset::<C, f32>::read_bin_file(&args.input_file.as_ref().unwrap())
-            .unwrap()
-            .quantize();
+    let dataset = SparseDataset::<C, D>::from_dataset_f32(
+        SparseDatasetMut::<C, f32>::read_bin_file(&args.input_file.unwrap()).unwrap(),
+    );
 
     println!("Number of Vectors: {}", dataset.len());
     println!("Number of Dimensions: {}", dataset.dim());
@@ -176,12 +173,12 @@ where
         "Time to build {} secs (before serializing)",
         elapsed.as_secs()
     );
-    let serialized = bincode::serialize(&inverted_index).unwrap();
 
-    let path = args.output_file.as_ref().unwrap().clone() + ".index.seismic";
+    let path = args.output_file.unwrap() + ".index.seismic";
 
     println!("Saving ... {}", path);
-    let r = fs::write(path, serialized);
+    let r = write_to_path(inverted_index, path.as_str());
+
     println!("{:?}", r);
 
     let elapsed = time.elapsed();
@@ -194,46 +191,48 @@ pub fn main() {
     match (args.component_type.as_str(), args.value_type.as_str()) {
         ("u16", "f16") => {
             println!("Using u16 component type with f16 value type");
-            build_index_generic::<u16, f16>(&args);
+            build_index_generic::<u16, f16>(args);
         }
         ("u16", "bf16") => {
             println!("Using u16 component type with bf16 value type");
-            build_index_generic::<u16, bf16>(&args);
+            build_index_generic::<u16, bf16>(args);
         }
         ("u16", "f32") => {
             println!("Using u16 component type with f32 value type");
-            build_index_generic::<u16, f32>(&args);
+            build_index_generic::<u16, f32>(args);
         }
         ("u16", "fixedu16") => {
             println!("Using u16 component type with fixedu16 value type");
-            build_index_generic::<u16, FixedU16Q>(&args);
+            build_index_generic::<u16, FixedU16Q>(args);
         }
         ("u16", "fixedu8") => {
             println!("Using u16 component type with fixedu8 value type");
-            build_index_generic::<u16, FixedU8Q>(&args);
+            build_index_generic::<u16, FixedU8Q>(args);
         }
         ("u32", "f16") => {
             println!("Using u32 component type with f16 value type");
-            build_index_generic::<u32, f16>(&args);
+            build_index_generic::<u32, f16>(args);
         }
         ("u32", "bf16") => {
             println!("Using u32 component type with bf16 value type");
-            build_index_generic::<u32, bf16>(&args);
+            build_index_generic::<u32, bf16>(args);
         }
         ("u32", "f32") => {
             println!("Using u32 component type with f32 value type");
-            build_index_generic::<u32, f32>(&args);
+            build_index_generic::<u32, f32>(args);
         }
         ("u32", "fixedu16") => {
             println!("Using u32 component type with fixedu16 value type");
-            build_index_generic::<u32, FixedU16Q>(&args);
+            build_index_generic::<u32, FixedU16Q>(args);
         }
         ("u32", "fixedu8") => {
             println!("Using u32 component type with fixedu8 value type");
-            build_index_generic::<u32, FixedU8Q>(&args);
+            build_index_generic::<u32, FixedU8Q>(args);
         }
         _ => {
-            eprintln!("Error: component-type must be either 'u16' or 'u32', value-type must be 'f16', 'bf16', 'f32', 'fixedu16', or 'fixedu8'");
+            eprintln!(
+                "Error: component-type must be either 'u16' or 'u32', value-type must be 'f16', 'bf16', 'f32', 'fixedu16', or 'fixedu8'"
+            );
             std::process::exit(1);
         }
     }

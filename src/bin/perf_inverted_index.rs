@@ -1,15 +1,15 @@
 use std::cmp;
-use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
 
 use half::bf16;
 use half::f16;
-use seismic::FixedU16Q;
 use seismic::FixedU8Q;
+use seismic::FixedU16Q;
 
-use seismic::{ComponentType, InvertedIndex, SparseDataset, ValueType};
+use seismic::utils::read_from_path;
+use seismic::*;
 
 use clap::Parser;
 
@@ -43,17 +43,17 @@ struct Args {
     #[arg(default_value_t = 1)]
     n_runs: usize,
 
-    /// This paramenter introduces an efficiency and accuracy trade-off. The search algorithm only considers the top `query_cut` components of the query.
+    /// This parameter introduces an efficiency and accuracy trade-off. The search algorithm only considers the top `query_cut` components of the query.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 10)]
     query_cut: usize,
 
-    /// This paramenter introduces an efficiency and accuracy trade-off. The search algorithm skips any block which estimated dot product is greater than `heap_factor` times the smallest dot product of the top-k results in the current heap.
+    /// This parameter introduces an efficiency and accuracy trade-off. The search algorithm skips any block which estimated dot product is greater than `heap_factor` times the smallest dot product of the top-k results in the current heap.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.7)]
     heap_factor: f32,
 
-    /// The algorithm can score some vectors which are neighbours of the top results discovered in the previous phase. This parameter specifies how many neighbours of the top results the algorithmw will score to score in the search algorithm. The knn must be computed and stored at building time.
+    /// The algorithm can score some vectors which are neighbours of the top results discovered in the previous phase. This parameter specifies how many neighbours of the top results the algorithm will score to score in the search algorithm. The knn must be computed and stored at building time.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0)]
     n_knn: usize,
@@ -89,12 +89,9 @@ where
 
     let nknn = args.n_knn;
 
-    let serialized: Vec<u8> = fs::read(index_path.unwrap()).unwrap();
+    let inverted_index: InvertedIndex<C, D> = read_from_path(index_path.unwrap().as_str()).unwrap();
 
-    let inverted_index = bincode::deserialize::<InvertedIndex<C, D>>(&serialized).unwrap();
-
-    let queries =
-        SparseDataset::<C, f32>::read_bin_file(&args.query_file.as_ref().unwrap()).unwrap();
+    let queries = SparseDatasetMut::<C, f32>::read_bin_file(&args.query_file.unwrap()).unwrap();
 
     let n_queries = cmp::min(args.n_queries, queries.len());
 
@@ -208,7 +205,9 @@ pub fn main() {
             run_performance_test_generic::<u32, FixedU16Q>(args);
         }
         _ => {
-            eprintln!("Error: component-type must be either 'u16' or 'u32', value-type must be 'f16', 'bf16', 'f32', 'fixedu16', or 'fixedu8'");
+            eprintln!(
+                "Error: component-type must be either 'u16' or 'u32', value-type must be 'f16', 'bf16', 'f32', 'fixedu16', or 'fixedu8'"
+            );
             std::process::exit(1);
         }
     }

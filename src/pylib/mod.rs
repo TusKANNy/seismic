@@ -15,10 +15,9 @@ use pyo3::types::PyList;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 
 use std::collections::HashMap;
-use std::fs;
 
-use crate::{InvertedIndex, SparseDataset};
-use rayon::prelude::*;
+use crate::utils::{read_from_path, write_to_path};
+use crate::{InvertedIndex, SparseDataset, SparseDatasetMut};
 
 const MAX_TOKEN_LEN: usize = 30;
 const SEISMIC_STRING: &str = "U30";
@@ -145,25 +144,6 @@ macro_rules! impl_seismic_index {
                 let entry = self.index.dataset().get(id);
                 Ok((entry.0.to_vec(), entry.1.to_f32_vec()))
             }
-            /// Get the number of non-zero components in a specific document vector.
-            ///
-            /// This method returns the number of tokens (and values) present in the
-            /// sparse vector representation of the document with the given ID.
-            ///
-            /// Args:
-            ///     id (int): The document ID.
-            ///
-            /// Returns:
-            ///     int: The number of non-zero components in the document vector.
-            ///
-            /// Example:
-            ///     >>> index.vector_len(42)
-            ///     37
-            #[pyo3(signature = (id))]
-            #[pyo3(text_signature = "(self, id)")]
-            pub fn vector_len(&self, id: usize) -> PyResult<usize> {
-                Ok(self.index.dataset().vector_len(id))
-            }
 
             /// Load a previously saved SeismicIndex from disk.
             ///
@@ -185,14 +165,7 @@ macro_rules! impl_seismic_index {
             #[pyo3(signature = (index_path))]
             #[pyo3(text_signature = "(index_path)")]
             pub fn load(index_path: &str) -> PyResult<$rust_name> {
-                let serialized: Vec<u8> = fs::read(index_path).map_err(|e| {
-                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                        "Failed to read index file '{}': {}",
-                        index_path, e
-                    ))
-                })?;
-
-                let index = bincode::deserialize::<Index<$Key, f16>>(&serialized).map_err(|e| {
+                let index: Index<$Key, f16> = read_from_path(index_path).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to deserialize index from '{}': {}",
                         index_path, e
@@ -222,14 +195,7 @@ macro_rules! impl_seismic_index {
                 let full_path = format!("{}.index.seismic", path);
                 println!("Saving ... {}", full_path);
 
-                let serialized = bincode::serialize(&self.index).map_err(|e| {
-                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                        "Failed to serialize index: {}",
-                        e
-                    ))
-                })?;
-
-                fs::write(&full_path, serialized).map_err(|e| {
+                write_to_path(&self.index, full_path.as_str()).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to write index to '{}': {}",
                         full_path, e
@@ -796,26 +762,6 @@ macro_rules! impl_seismic_index_raw {
                 Ok((entry.0.to_vec(), entry.1.to_f32_vec()))
             }
 
-            /// Get the number of non-zero components in a document vector.
-            ///
-            /// This method returns the number of tokens (and values) present in the sparse
-            /// vector representation of the document with the given ID.
-            ///
-            /// Args:
-            ///     id (int): The document ID.
-            ///
-            /// Returns:
-            ///     int: The number of non-zero components in the vector.
-            ///
-            /// Example:
-            ///     >>> index.vector_len(5)
-            ///     27
-            #[pyo3(signature = (id))]
-            #[pyo3(text_signature = "(self, id)")]
-            pub fn vector_len(&self, id: usize) -> PyResult<usize> {
-                Ok(self.inverted_index.dataset().vector_len(id))
-            }
-
             /// Load a previously saved raw SeismicIndex from disk.
             ///
             /// This method reads a `.index.seismic` file and restores the corresponding
@@ -836,15 +782,7 @@ macro_rules! impl_seismic_index_raw {
             #[pyo3(signature = (index_path))]
             #[pyo3(text_signature = "(index_path)")]
             pub fn load(index_path: &str) -> PyResult<$rust_name> {
-                let serialized: Vec<u8> = fs::read(index_path).map_err(|e| {
-                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                        "Failed to read index file '{}': {}",
-                        index_path, e
-                    ))
-                })?;
-
-                let inverted_index = bincode::deserialize::<InvertedIndex<$Key, f16>>(&serialized)
-                    .map_err(|e| {
+                let inverted_index: InvertedIndex<$Key, f16> = read_from_path(&index_path).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to deserialize index from '{}': {}",
                         index_path, e
@@ -873,15 +811,7 @@ macro_rules! impl_seismic_index_raw {
             pub fn save(&self, path: &str) -> PyResult<()> {
                 let full_path = format!("{}.index.seismic", path);
                 println!("Saving ... {}", full_path);
-
-                let serialized = bincode::serialize(&self.inverted_index).map_err(|e| {
-                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                        "Failed to serialize index: {}",
-                        e
-                    ))
-                })?;
-
-                fs::write(&full_path, serialized).map_err(|e| {
+                write_to_path(&self.inverted_index,path).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to write index to '{}': {}",
                         full_path, e
@@ -1014,9 +944,7 @@ macro_rules! impl_seismic_index_raw {
                 knn_path: Option<String>,
                 batched_indexing: Option<usize>,
             ) -> PyResult<$rust_name> {
-                let dataset: SparseDataset<$Key, f16> = SparseDataset::<$Key, f32>::read_bin_file(input_file)
-                    .unwrap()
-                    .quantize();
+                let dataset = SparseDataset::from_dataset_f32(SparseDatasetMut::<$Key, f32>::read_bin_file(input_file).unwrap());
 
                 let knn_config = KnnConfiguration::new(nknn, knn_path);
 
@@ -1148,7 +1076,7 @@ macro_rules! impl_seismic_index_raw {
                     .build()
                     .unwrap();
 
-                let queries = SparseDataset::<$Key, f32>::read_bin_file(query_path).unwrap();
+                let queries = SparseDatasetMut::<$Key, f32>::read_bin_file(query_path).unwrap();
 
                 queries
                     .par_iter()

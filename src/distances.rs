@@ -1,4 +1,9 @@
-use crate::{utils::binary_search_branchless, ComponentType, ValueType};
+use std::cmp::Ordering;
+use std::hint::assert_unchecked;
+
+use crate::{ComponentType, ValueType};
+
+// TODO: SAFETY: In the caller of these functions, assert safely that query_term_ids.len() == query_values.len()
 
 /// Computes the dot product between a dense query and a sparse vector.
 /// Before using this function, the query must be made dense. In some cases,
@@ -8,7 +13,7 @@ use crate::{utils::binary_search_branchless, ComponentType, ValueType};
 /// # Arguments
 ///
 /// * `query` - The dense query vector.
-/// * `v_components` - The indices of the non-zero components in the vector.
+/// * `v_term_ids` - The indices of the non-zero components in the vector.
 /// * `v_values` - The values of the non-zero components in the vector.
 ///
 /// # Returns
@@ -21,154 +26,30 @@ use crate::{utils::binary_search_branchless, ComponentType, ValueType};
 /// use seismic::distances::dot_product_dense_sparse;
 ///
 /// let query = [1.0, 2.0, 3.0, 0.0];
-/// let v_components = [0_u16, 2, 3];
+/// let v_term_ids = [0_u16, 2, 3];
 /// let v_values = [1.0, 1.0, 1.5];
 ///
-/// let result = dot_product_dense_sparse(&query, &v_components, &v_values);
+/// let result = dot_product_dense_sparse(&query, &v_term_ids, &v_values);
 /// assert_eq!(result, 4.0);
 /// ```
 #[inline]
-#[must_use]
-pub fn dot_product_dense_sparse<Q, V>(query: &[Q], v_components: &[u16], v_values: &[V]) -> f32
+pub fn dot_product_dense_sparse<C, Q, V>(query: &[Q], v_term_ids: &[C], v_values: &[V]) -> f32
 where
+    C: ComponentType,
     Q: ValueType,
     V: ValueType,
 {
-    const N_LANES: usize = 4;
-
-    let mut result = [0.0; N_LANES];
-    let chunk_iter = v_components.iter().zip(v_values).array_chunks::<N_LANES>();
-
-    for chunk in chunk_iter {
-        //for i in 0..N_LANES { // Slightly faster withour this for.
-        result[0] += query[*chunk[0].0 as usize].to_f32() * (chunk[0].1.to_f32());
-        result[1] += query[*chunk[1].0 as usize].to_f32() * chunk[1].1.to_f32();
-        result[2] += query[*chunk[2].0 as usize].to_f32() * chunk[2].1.to_f32();
-        result[3] += query[*chunk[3].0 as usize].to_f32() * chunk[3].1.to_f32();
-        //result[3] += unsafe { *query.get_unchecked(*chunk[3].0 as usize) } * *chunk[3].1;
-        //}
-    }
-
-    let l = v_components.len();
-    let rem = l % N_LANES;
-
-    if rem > 0 {
-        for (&i, &v) in v_components[l - rem..].iter().zip(&v_values[l - rem..]) {
-            result[0] += query[i as usize].to_f32() * v.to_f32();
-        }
-    }
-
-    result.iter().sum()
-
-    // This is what we would like to write :-)
-    // let mut result = 0.0;
-    // for (&i, &v) in self.iter_vector(id) {
-    //     result += query[i as usize] * v;
-    // }
-
-    // result
-}
-
-// We need two copies of this function, one for u16 and one for u32.
-// The reason it that if we use C: ComponentType, we need to used .as_() method to cast components into
-// usize. This is howerver slower that usize primitive castiting to usize.
-#[inline]
-#[must_use]
-pub fn dot_product_dense_sparse_u32<Q, V>(query: &[Q], v_components: &[u32], v_values: &[V]) -> f32
-where
-    Q: ValueType,
-    V: ValueType,
-{
-    const N_LANES: usize = 4;
-
-    let mut result = [0.0; N_LANES];
-    let chunk_iter = v_components.iter().zip(v_values).array_chunks::<N_LANES>();
-
-    for chunk in chunk_iter {
-        //for i in 0..N_LANES { // Slightly faster withour this for.
-        result[0] += query[*chunk[0].0 as usize].to_f32() * (chunk[0].1.to_f32());
-        result[1] += query[*chunk[1].0 as usize].to_f32() * chunk[1].1.to_f32();
-        result[2] += query[*chunk[2].0 as usize].to_f32() * chunk[2].1.to_f32();
-        result[3] += query[*chunk[3].0 as usize].to_f32() * chunk[3].1.to_f32();
-        //result[3] += unsafe { *query.get_unchecked(*chunk[3].0 as usize) } * *chunk[3].1;
-        //}
-    }
-
-    let l = v_components.len();
-    let rem = l % N_LANES;
-
-    if rem > 0 {
-        for (&i, &v) in v_components[l - rem..].iter().zip(&v_values[l - rem..]) {
-            result[0] += query[i as usize].to_f32() * v.to_f32();
-        }
-    }
-
-    result.iter().sum()
-
-    // This is what we would like to write :-)
-    // let mut result = 0.0;
-    // for (&i, &v) in self.iter_vector(id) {
-    //     result += query[i as usize] * v;
-    // }
-
-    // result
-}
-
-/// Computes the dot product between a sparse query and a sparse vector using binary search.
-/// This function should be used when the query has just a few components.
-/// Both the query's and vector's terms must be sorted by id.
-///
-/// # Arguments
-///
-/// * `query_term_ids` - The ids of the query terms.
-/// * `query_values` - The values of the query terms.
-/// * `v_terms_ids` - The ids of the vector terms.
-/// * `v_values` - The values of the vector terms.
-///
-/// # Returns
-///
-/// The dot product between the query and the vector.
-///
-/// # Examples
-///
-/// ```
-/// use seismic::distances::dot_product_with_binary_search;
-///
-/// let query_term_ids = [1, 2, 7];
-/// let query_values = [1.0, 1.0, 1.0];
-/// let v_term_ids = [0, 1, 2, 3, 4];
-/// let v_values = [0.1, 1.0, 1.0, 1.0, 0.5];
-///
-/// let result = dot_product_with_binary_search(&query_term_ids, &query_values, &v_term_ids, &v_values);
-/// assert_eq!(result, 2.0);
-/// ```
-#[inline]
-#[must_use]
-pub fn dot_product_with_binary_search<Q, V>(
-    query_term_ids: &[u16],
-    query_values: &[Q],
-    v_terms_ids: &[u16],
-    v_values: &[V],
-) -> f32
-where
-    Q: ValueType,
-    V: ValueType,
-{
-    let mut result = 0.0;
-
-    for (&term_id, &value) in query_term_ids.iter().zip(query_values) {
-        // Let's use a branchless binary search
-        let i = binary_search_branchless(v_terms_ids, term_id);
-
-        // SAFETY: result of binary search is always smaller than v_term_id.len() and v_values.len()
-        let cmp = *unsafe { v_terms_ids.get_unchecked(i) } == term_id;
-        result += if cmp {
-            value.to_f32() * unsafe { v_values.get_unchecked(i).to_f32() }
-        } else {
-            0.0
-        };
-    }
-    result
+    v_term_ids
+        .iter()
+        .zip(v_values)
+        .map(|(&c, &v)| {
+            // SAFETY: query.len() == dim + 1. This assumes the input is sanitized.
+            unsafe { *query.get_unchecked(c.as_()) }
+                .to_f32()
+                .unwrap()
+                .algebraic_mul(v.to_f32().unwrap())
+        })
+        .fold(0.0, |acc, x| acc.algebraic_add(x))
 }
 
 /// Computes the dot product between a query and a vector using merge style.
@@ -212,22 +93,197 @@ where
     Q: ValueType,
     V: ValueType,
 {
+    unsafe {
+        assert_unchecked(
+            v_term_ids.len() == v_values.len() && query_term_ids.len() == query_values.len(),
+        )
+    }
     let mut result = 0.0;
-    let mut i = 0;
+    let mut v_iter = v_term_ids.iter().zip(v_values);
+    let mut current = v_iter.next();
+    let b = current.is_some();
     for (&q_id, &q_v) in query_term_ids.iter().zip(query_values) {
-        unsafe {
-            while i < v_term_ids.len() && *v_term_ids.get_unchecked(i) < q_id {
-                i += 1;
+        // This assert actually improves performance: https://github.com/rust-lang/rust/issues/134667
+        if b {
+            unsafe { assert_unchecked(current.is_some()) }
+        }
+        while let Some((&v_id, _)) = current
+            && v_id < q_id
+        {
+            current = v_iter.next();
+        }
+        if !b {
+            unsafe { assert_unchecked(current.is_none()) }
+        }
+        match current {
+            Some((&v_id, v_v)) if v_id == q_id => {
+                result += v_v.to_f32().unwrap() * q_v.to_f32().unwrap();
             }
-            if i == v_term_ids.len() {
+            None => {
                 break;
             }
-
-            if *v_term_ids.get_unchecked(i) == q_id {
-                result += (*v_values.get_unchecked(i)).to_f32() * q_v.to_f32();
-                continue;
-            }
+            _ => {}
         }
     }
     result
+}
+
+/// Computes the dot product between a query and a vector using merge style.
+/// (Alternative approach that uses less branches.)
+/// This function should be used when the query has just a few components.
+/// Both the query's and vector's terms must be sorted by id.
+///
+/// # Arguments
+///
+/// * `query_term_ids` - The ids of the query terms.
+/// * `query_values` - The values of the query terms.
+/// * `v_term_ids` - The ids of the vector terms.
+/// * `v_values` - The values of the vector terms.
+///
+/// # Returns
+///
+/// The dot product between the query and the vector.
+///
+/// # Examples
+///
+/// ```
+/// use seismic::distances::dot_product_with_merge_alt;
+///
+/// let query_term_ids = [1, 2, 7];
+/// let query_values = [1.0, 1.0, 1.0];
+/// let v_term_ids = [0, 1, 2, 3, 4];
+/// let v_values = [0.1, 1.0, 1.0, 1.0, 0.5];
+///
+/// let result = dot_product_with_merge_alt(&query_term_ids, &query_values, &v_term_ids, &v_values);
+/// assert_eq!(result, 2.0);
+/// ```
+#[inline]
+pub fn dot_product_with_merge_alt<Q, V>(
+    query_term_ids: &[u16],
+    query_values: &[Q],
+    v_term_ids: &[u16],
+    v_values: &[V],
+) -> f32
+where
+    Q: ValueType,
+    V: ValueType,
+{
+    unsafe {
+        assert_unchecked(
+            v_term_ids.len() == v_values.len() && query_term_ids.len() == query_values.len(),
+        )
+    }
+    let mut result = 0.0;
+
+    let (mut i, mut j) = (0, 0);
+
+    loop {
+        let (qt_i, vt_j) = unsafe {
+            (
+                *query_term_ids.get_unchecked(i),
+                *v_term_ids.get_unchecked(j),
+            )
+        };
+        i += if qt_i <= vt_j { 1 } else { 0 };
+        j += if qt_i >= vt_j { 1 } else { 0 };
+        if !(i < query_term_ids.len() && j < v_term_ids.len()) {
+            break;
+        }
+        if query_term_ids[i] == v_term_ids[j] {
+            result += query_values[i].to_f32().unwrap() * v_values[j].to_f32().unwrap();
+        }
+    }
+
+    result
+}
+
+/// Computes the dot product between a sparse query and a sparse vector using binary search.
+/// This function should be used when the query has just a few components.
+/// Both the query's and vector's terms must be sorted by id.
+///
+/// # Arguments
+///
+/// * `query_term_ids` - The ids of the query terms.
+/// * `query_values` - The values of the query terms.
+/// * `v_term_ids` - The ids of the vector terms.
+/// * `v_values` - The values of the vector terms.
+///
+/// # Returns
+///
+/// The dot product between the query and the vector.
+///
+/// # Examples
+///
+/// ```
+/// use seismic::distances::dot_product_with_binary_search;
+///
+/// let query_term_ids = [1, 2, 7];
+/// let query_values = [1.0, 1.0, 1.0];
+/// let v_term_ids = [0, 1, 2, 3, 4];
+/// let v_values = [0.1, 1.0, 1.0, 1.0, 0.5];
+///
+/// let result = dot_product_with_binary_search(&query_term_ids, &query_values, &v_term_ids, &v_values);
+/// assert_eq!(result, 2.0);
+/// ```
+#[inline]
+pub fn dot_product_with_binary_search<Q, V>(
+    query_term_ids: &[u16],
+    query_values: &[Q],
+    v_term_ids: &[u16],
+    v_values: &[V],
+) -> f32
+where
+    Q: ValueType,
+    V: ValueType,
+{
+    unsafe {
+        assert_unchecked(v_term_ids.len() == v_values.len());
+    }
+    query_term_ids
+        .iter()
+        .zip(query_values)
+        .filter_map(|(t, v)| {
+            binary_search(v_term_ids, t)
+                .map(|i| v.to_f32().unwrap() * v_values[i].to_f32().unwrap())
+        })
+        .sum()
+}
+
+// Modified copy of std's implementation, that stops earlier and does linear searching for the rest.
+// It's better by around 10-20%.
+// Note: it seems that, for reason, using this can drastically hamper the performance of dot_product_with_merge... why?
+#[inline]
+fn binary_search<T>(arr: &[T], x: &T) -> Option<usize>
+where
+    T: Ord,
+{
+    binary_search_by(arr, |p| p.cmp(x))
+}
+
+#[inline]
+fn binary_search_by<T, F>(arr: &[T], mut f: F) -> Option<usize>
+where
+    F: FnMut(&T) -> Ordering,
+{
+    const SIZE_STOP: usize = 7;
+
+    let mut size = arr.len();
+    let mut base = 0usize;
+
+    while size > SIZE_STOP {
+        let half = size / 2;
+        let mid = base + half;
+
+        let cmp = f(unsafe { arr.get_unchecked(mid) });
+
+        // Sucks to be using intrinsics, but benchmarks show that this helps performance.
+        base = std::intrinsics::select_unpredictable(cmp == Ordering::Greater, base, mid);
+
+        size -= half;
+    }
+
+    unsafe { arr.get_unchecked(base..base + size) }
+        .iter()
+        .position(|x| f(x) == Ordering::Equal)
+        .map(|pos| pos + base)
 }

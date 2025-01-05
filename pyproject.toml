@@ -30,3 +30,6 @@ keywords = ["search", "indexing", "sparse retrieval"]
 dependencies = [
     "numpy",
 ]
+
+[tool.maturin]
+features = ["default", "pyo3"]

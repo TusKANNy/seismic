@@ -36,14 +36,14 @@ impl JsonFormat {
     }
 }
 
-pub fn extract_jsonl<T>(current_jsonl: JsonFormat) -> (String, Vec<String>, Vec<T>)
+pub fn extract_jsonl<V>(current_jsonl: JsonFormat) -> (String, Vec<String>, Vec<V>)
 where
-    T: ValueType,
+    V: ValueType,
 {
     let (coords, values): (Vec<_>, Vec<_>) = current_jsonl
         .vector()
         .iter()
-        .map(|(s, y)| (s.to_string(), T::from_f32(*y)))
+        .map(|(s, y)| (s.to_string(), V::from_f32_saturating(*y)))
         .unzip();
 
     (current_jsonl.get_id_as_string(), coords, values)
