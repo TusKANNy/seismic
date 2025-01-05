@@ -1,13 +1,13 @@
 use std::cmp;
-use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
 
 use half::f16;
-use seismic::json_utils::read_queries;
 use seismic::SeismicIndex;
 use seismic::SpaceUsage;
+use seismic::json_utils::read_queries;
+use seismic::utils::read_from_path;
 
 use clap::Parser;
 
@@ -41,7 +41,7 @@ struct Args {
     #[arg(default_value_t = 1)]
     n_runs: usize,
 
-    /// A paramenter that trade-off efficiency and accuracy. The search algorithm will only consider the top `query_cut` components of the query.
+    /// A parameter that trade-off efficiency and accuracy. The search algorithm will only consider the top `query_cut` components of the query.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 10)]
     query_cut: usize,
@@ -73,9 +73,8 @@ pub fn main() {
 
     let nknn = args.n_knn;
 
-    let serialized: Vec<u8> = fs::read(index_path.unwrap()).unwrap();
-
-    let inverted_index = bincode::deserialize::<SeismicIndex<u16, f16>>(&serialized).unwrap();
+    let inverted_index: SeismicIndex<u16, f16> =
+        read_from_path(index_path.unwrap().as_str()).unwrap();
 
     //let queries = SparseDataset::<f32>::read_bin_file(&query_path.unwrap()).unwrap();
     let queries = read_queries(&query_path.unwrap());

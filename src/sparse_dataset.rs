@@ -1,49 +1,77 @@
 //! This module provides structs to represent sparse datasets.
 //!
 //! A **sparse vector** in a `dim`-dimensional space consists of two sequences: components,
-//! which are distinct values in the range [0, `dim`), and their corresponding values of type `T`.
-//! The type `T` is typically expected to be a float type such as `f16`, `f32`, or `f64`.
-//!The components are of a generic type C which must implement the [ComponentType] trait.
+//! which are distinct values in the range [0, `dim`), and their corresponding values of type `V`.
+//! The type `V` is typically expected to be a float type such as `f16`, `f32`, or `f64`.
+//! The components are of a generic type C which must implement the [ComponentType] trait.
 //!
 //! A dataset is a collection of sparse vectors. This module provides two representations
 //! of a sparse dataset: a mutable [`SparseDatasetMut`] and its immutable counterpart [`SparseDataset`].
 //! Conversion between the two representations is straightforward, as both implement the [`From`] trait.
 
+use itertools::Itertools;
 use rayon::iter::plumbing::ProducerCallback;
 use serde::{Deserialize, Serialize};
 
 use std::fmt::Debug;
 // Reading files
 use std::fs::File;
+use std::hint::assert_unchecked;
 use std::io::{BufReader, Read, Result as IoResult};
 use std::iter::Zip;
+use std::marker::PhantomData;
 use std::ops::Range;
 use std::path::Path;
 
-use rayon::iter::plumbing::{bridge, Consumer, Producer, UnindexedConsumer};
-use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+use rayon::iter::plumbing::{Consumer, Producer, UnindexedConsumer, bridge};
+use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
 
-use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
-use crate::utils::{conditionally_densify, prefetch_read_NTA};
+use crate::utils::{conditionally_densify, prefetch_read_slice};
 use crate::{ComponentType, SpaceUsage, ValueType};
 
 // Implementation of a (immutable) sparse dataset.
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SparseDataset<C, T>
-where
-    T: ValueType,
-{
-    n_vecs: usize,
-    d: usize,
-    offsets: Box<[usize]>,
-    components: Box<[C]>,
-    values: Box<[T]>,
-}
+pub type SparseDataset<C, V> = SparseDatasetGeneric<C, V, Box<[usize]>, Box<[C]>, Box<[V]>>;
 
-impl<C, T> SparseDataset<C, T>
+/// A mutable representation of a sparse dataset.
+///
+/// This struct provides functionality for manipulating a sparse dataset with mutable access.
+/// It stores sparse vectors in the dataset, where each vector consists of components
+/// and their corresponding values of type `V`. The type `V` must implement the `SpaceUsage` trait,
+/// allowing for efficient memory usage calculations, and it must also be `Copy`.
+///
+/// # Examples
+///
+/// ```
+/// use seismic::SparseDatasetMut;
+///
+/// // Create a new empty dataset
+/// let mut dataset = SparseDatasetMut::<u16, f32>::default();
+/// ```
+pub type SparseDatasetMut<C, V> = SparseDatasetGeneric<C, V, Vec<usize>, Vec<C>, Vec<V>>;
+
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub struct SparseDatasetGeneric<C, V, O, AC, AV>
 where
     C: ComponentType,
-    T: ValueType,
+    V: ValueType,
+    O: AsRef<[usize]>,
+    AC: AsRef<[C]>,
+    AV: AsRef<[V]>,
+{
+    dim: usize,
+    offsets: O,
+    components: AC,
+    values: AV,
+    _phantom: PhantomData<(C, V)>,
+}
+
+impl<C, V, O, AC, AV> SparseDatasetGeneric<C, V, O, AC, AV>
+where
+    C: ComponentType,
+    V: ValueType,
+    O: AsRef<[usize]>,
+    AC: AsRef<[C]>,
+    AV: AsRef<[V]>,
 {
     /// Retrieves the components and values of the sparse vector at the specified index.
     ///
@@ -57,7 +85,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use seismic::SparseDataset;
+    /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
     ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
@@ -65,21 +93,22 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
     ///
     /// let (components, values) = dataset.get(1);
     /// assert_eq!(components, &[1, 3]);
     /// assert_eq!(values, &[4.0, 5.0]);
     /// ```
-    #[must_use]
     #[inline]
-    pub fn get(&self, id: usize) -> (&[C], &[T]) {
-        //assert!(id < self.n_vecs, "The id is out of range"); this check is performed by range method
+    pub fn get(&self, id: usize) -> (&[C], &[V]) {
+        let range = self.offset_range(id);
+        // SAFETY: Valid ID checked by `offset_range`.
+        unsafe {
+            let v_components = self.components.as_ref().get_unchecked(range.clone());
+            let v_values = &self.values.as_ref().get_unchecked(range);
 
-        let v_components = &self.components[Self::vector_range(&self.offsets, id)];
-        let v_values = &self.values[Self::vector_range(&self.offsets, id)];
-
-        (v_components, v_values)
+            (v_components, v_values)
+        }
     }
 
     /// Returns a vector of the dataset at the specified `offset` and `len`.
@@ -96,7 +125,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use seismic::SparseDataset;
+    /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
     ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
@@ -104,35 +133,30 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
     ///
     /// let (components, values) = dataset.get_with_offset(3, 2);
     /// assert_eq!(components, &[1, 3]);
     /// assert_eq!(values, &[4.0, 5.0]);
     /// ```
-    #[must_use]
     #[inline]
-    pub fn get_with_offset(&self, offset: usize, len: usize) -> (&[C], &[T]) {
-        assert!(
-            offset + len <= self.components.len(),
-            "The id is out of range"
-        );
+    pub fn get_with_offset(&self, offset: usize, len: usize) -> (&[C], &[V]) {
+        unsafe { assert_unchecked(self.components.as_ref().len() == self.values.as_ref().len()) };
 
-        let v_components = &self.components[offset..offset + len];
-        let v_values = &self.values[offset..offset + len];
+        let v_components = &self.components.as_ref()[offset..offset + len];
+        let v_values = &self.values.as_ref()[offset..offset + len];
 
         (v_components, v_values)
     }
 
-    // Returns the range of positions of the slice with the given `id`.
-    // It take `offsets` as a parameter to be shared with SparseDatasetMut.
-    //
-    // ### Panics
-    // Panics if the `id` is out of range.
+    /// Returns the range of positions of the slice with the given `id`.
+    ///
+    /// ### Panics
+    /// Panics if the `id` is out of range.
     #[inline]
-    #[must_use]
-    fn vector_range(offsets: &[usize], id: usize) -> Range<usize> {
-        assert!(id <= offsets.len(), "{id} is out of range");
+    pub fn offset_range(&self, id: usize) -> Range<usize> {
+        let offsets = self.offsets.as_ref();
+        assert!(id < offsets.len() - 1, "{id} is out of range");
 
         // Safety: safe accesses due to the check above
         unsafe {
@@ -143,6 +167,16 @@ where
         }
     }
 
+    /// Converts the `offset` of a vector within the dataset to its id, i.e., the position
+    /// of the vector within the dataset.
+    ///
+    /// # Panics
+    /// Panics if the `offset` is not the first position of a vector in the dataset.
+    #[inline]
+    pub fn offset_to_id(&self, offset: usize) -> usize {
+        self.offsets.as_ref().binary_search(&offset).unwrap()
+    }
+
     /// Prefetches the components and values of specified vectors into the CPU cache.
     ///
     /// This method prefetches the components and values of the vectors specified by their indices
@@ -151,7 +185,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use seismic::SparseDataset;
+    /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
     ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
@@ -159,24 +193,18 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
     ///
     /// // Prefetch components and values of vectors 0 and 1
     /// dataset.prefetch_vecs(&[0, 1]);
     /// ```
     #[inline]
     pub fn prefetch_vecs(&self, vecs: &[usize]) {
-        for &vec_id in vecs.iter() {
-            let start = self.offsets[vec_id];
-            let end = self.offsets[vec_id + 1];
+        for &id in vecs.iter() {
+            let (components, values) = self.get(id);
 
-            for i in (start..end).step_by(512 / (std::mem::size_of::<C>() * 8)) {
-                prefetch_read_NTA(&self.components, i);
-            }
-
-            for i in (start..end).step_by(512 / (std::mem::size_of::<T>() * 8)) {
-                prefetch_read_NTA(&self.values, i);
-            }
+            prefetch_read_slice(components);
+            prefetch_read_slice(values);
         }
     }
 
@@ -194,7 +222,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use seismic::SparseDataset;
+    /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
     ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
@@ -202,125 +230,17 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
     ///
     /// // Prefetch components and values of the vector starting at index 1 with length 3
     /// dataset.prefetch_vec_with_offset(1, 3);
     /// ```
     #[inline]
     pub fn prefetch_vec_with_offset(&self, offset: usize, len: usize) {
-        let end = offset + len;
+        let (components, values) = self.get_with_offset(offset, len);
 
-        for i in (offset..end).step_by(512 / (std::mem::size_of::<u16>() * 8)) {
-            prefetch_read_NTA(&self.components, i);
-        }
-
-        for i in (offset..end).step_by(512 / (std::mem::size_of::<T>() * 8)) {
-            prefetch_read_NTA(&self.values, i);
-        }
-    }
-
-    /// Returns the offset of the vector with the specified index.
-    ///
-    /// This method returns the offset of the vector with the specified index in the dataset.
-    /// The offset represents the starting index of the vector within the internal storage.
-    ///
-    /// # Panics
-    /// Panics if the `id` is out of range.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDataset;
-    ///
-    /// let data = vec![
-    ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
-    ///                 (vec![1, 3],       vec![4.0, 5.0]),
-    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
-    ///                 ];
-    ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
-    ///
-    /// assert_eq!(dataset.vector_offset(1), 3); // Offset of the vector with index 1
-    /// ```
-    #[must_use]
-    #[inline]
-    pub fn vector_offset(&self, id: usize) -> usize {
-        assert!(id < self.n_vecs, "the id is out of range");
-
-        self.offsets[id]
-    }
-
-    /// Converts a `SparseDataset<C, T>` into a `SparseDataset<C, Q>`.
-    ///
-    /// This conversion is useful when you want to change the value type of the dataset.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use seismic::SparseDataset;
-    ///
-    /// let data = vec![
-    ///                 (vec![0, 2, 4], vec![1.0, 2.0, 3.0]),
-    ///                 (vec![1, 3], vec![4.0, 5.0]),
-    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
-    ///                ];
-    ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
-    ///
-    /// use half::f16;
-    /// let new_dataset: SparseDataset<u16, f16> = dataset.quantize();
-    /// ```
-    #[must_use]
-    pub fn quantize<Q: ValueType>(self) -> SparseDataset<C, Q> {
-        let values: Vec<_> = self
-            .values
-            .iter()
-            .map(|&v| {
-                let v: f32 = v.to_f32();
-                Q::from_f32(v)
-            })
-            .collect();
-
-        SparseDataset::<C, Q> {
-            d: self.d,
-            offsets: self.offsets,
-            n_vecs: self.n_vecs,
-            components: self.components,
-            values: values.into_boxed_slice(),
-        }
-    }
-
-    /// Returns the length of the vector with the specified index.
-    ///
-    /// This method returns the length of the vector with the specified index in the dataset.
-    /// The length represents the number of non-zero components in the vector.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the specified index is out of range.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDataset;
-    ///
-    /// let data = vec![
-    ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
-    ///                 (vec![1, 3],       vec![4.0, 5.0]),
-    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
-    ///                 ];
-    ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
-    ///
-    /// assert_eq!(dataset.vector_len(1), 2); // Length of the vector with index 1
-    /// ```
-    #[must_use]
-    #[inline]
-    pub fn vector_len(&self, id: usize) -> usize {
-        assert!(id < self.n_vecs, "The id is out of range");
-
-        self.offsets[id + 1] - self.offsets[id]
+        prefetch_read_slice(components);
+        prefetch_read_slice(values);
     }
 
     /// Performs a brute-force search to find the K-nearest neighbors (KNN) of the queried vector.
@@ -342,7 +262,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use seismic::SparseDataset;
+    /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
     ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
@@ -350,7 +270,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
     ///
     /// let query_components = &[0, 2];
     /// let query_values = &[1.0, 1.0];
@@ -360,15 +280,12 @@ where
     ///
     /// assert_eq!(knn, vec![(4.0, 2), (3.0, 0)]);
     /// ```
-    #[must_use]
-    #[inline]
     pub fn search(&self, q_components: &[C], q_values: &[f32], k: usize) -> Vec<(f32, usize)> {
         let dense_query = conditionally_densify(q_components, q_values, self.dim());
-        let distances: Vec<_> = (0..self.n_vecs)
-            .map(|id| {
-                let v_components = &self.components[Self::vector_range(&self.offsets, id)];
-                let v_values = &self.values[Self::vector_range(&self.offsets, id)];
-                -1.0 * C::compute_dot_product(
+
+        self.iter()
+            .map(|(v_components, v_values)| {
+                C::compute_dot_product(
                     dense_query.as_deref(),
                     q_components,
                     q_values,
@@ -376,12 +293,10 @@ where
                     v_values,
                 )
             })
-            .collect();
-
-        let mut heap = HeapFaiss::new(k);
-        heap.extend(&distances);
-
-        heap.topk().into_iter().map(|(d, i)| (d.abs(), i)).collect()
+            .enumerate()
+            .map(|(i, s)| (s, i))
+            .k_largest_by(k, |a, b| a.0.partial_cmp(&b.0).unwrap())
+            .collect()
     }
 
     /// Returns an iterator over the vectors of the dataset.
@@ -391,7 +306,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use seismic::SparseDataset;
+    /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
     ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
@@ -399,32 +314,30 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<u16, f32> = data.clone().into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.clone().into_iter().collect();
     ///
     /// for ((c0, v0), (c1,v1)) in dataset.iter().zip(data.iter()) {
     ///     assert_eq!(c0, c1);
     ///     assert_eq!(v0, v1);
     /// }
     /// ```
-    pub fn iter(&self) -> SparseDatasetIter<C, T> {
+    pub fn iter<'a>(&'a self) -> SparseDatasetIter<'a, C, V> {
         SparseDatasetIter::new(self)
+    }
+
+    pub fn par_iter<'a>(&'a self) -> ParSparseDatasetIter<'a, C, V> {
+        ParSparseDatasetIter::new(self)
     }
 
     /// Returns an iterator over the sparse vector with id `vec_id`.
     ///
     /// # Panics
     /// Panics if the `vec_id` is out of bounds.
-    pub fn iter_vector(
-        &self,
+    pub fn iter_vector<'a>(
+        &'a self,
         vec_id: usize,
-    ) -> Zip<std::slice::Iter<'_, C>, std::slice::Iter<'_, T>> {
-        assert!(vec_id < self.n_vecs, "The id {vec_id} is out of range");
-
-        let start = self.offsets[vec_id];
-        let end = self.offsets[vec_id + 1];
-
-        let v_components = &self.components[start..end];
-        let v_values = &self.values[start..end];
+    ) -> Zip<std::slice::Iter<'a, C>, std::slice::Iter<'a, V>> {
+        let (v_components, v_values) = self.get(vec_id);
 
         v_components.iter().zip(v_values)
     }
@@ -434,7 +347,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use seismic::SparseDataset;
+    /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
     ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
@@ -442,17 +355,16 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                ];
     ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
     ///
     /// assert_eq!(dataset.len(), 3);
     /// ```
-    #[must_use]
     pub fn len(&self) -> usize {
-        self.n_vecs
+        self.offsets.as_ref().len() - 1
     }
 
     /// Checks if the dataset is empty.
-    ///     
+    ///
     /// # Examples
     ///
     /// ```
@@ -462,7 +374,6 @@ where
     ///
     /// assert!(dataset.is_empty());
     /// ```
-    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -472,7 +383,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use seismic::SparseDataset;
+    /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
     ///                 (vec![0, 2, 4], vec![1.0, 2.0, 3.0]),
@@ -480,13 +391,12 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                ];
     ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
     ///
     /// assert_eq!(dataset.dim(), 5); // Largest component ID is 4, so dim() returns 5
     /// ```
-    #[must_use]
     pub fn dim(&self) -> usize {
-        self.d
+        self.dim
     }
 
     /// Returns the number of non-zero components in the dataset.
@@ -497,7 +407,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use seismic::SparseDataset;
+    /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
     ///                 (vec![0, 2, 4], vec![1.0, 2.0, 3.0]),
@@ -505,47 +415,66 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                ];
     ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
     ///
     /// assert_eq!(dataset.nnz(), 9); // Total non-zero components across all vectors
     /// ```
-    #[must_use]
     pub fn nnz(&self) -> usize {
-        self.components.len()
+        self.components.as_ref().len()
     }
 
-    /// Converts the `offset` of a vector within the dataset to its id, i.e., the position
-    /// of the vector within the dataset.
+    // TODO: Do instead `impl<...> From<SparseDatasetGeneric<...>> for SparseDatasetGeneric<...>`.
+    // However, this requires https://github.com/rust-lang/rust/issues/37653
+    /// Converts a `SparseDatasetGeneric<D, f32, ...>` into a `SparseDatasetGeneric<C, V, ...>`, where `V` is can be casted from a `f32`.
     ///
-    /// # Panics
-    /// Panics if the `offset` is not the first postion of a vector in the dataset.
-    #[must_use]
-    #[inline]
-    pub fn offset_to_id(&self, offset: usize) -> usize {
-        self.offsets.binary_search(&offset).unwrap()
+    /// # Examples
+    ///
+    /// ```
+    /// use half::f16;
+    /// use seismic::{SparseDataset, SparseDatasetMut};
+    ///
+    /// let data = vec![
+    ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
+    ///                 (vec![1, 3],       vec![4.0, 5.0]),
+    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
+    ///                ];
+    ///
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
+    /// let dataset_f16 = SparseDataset::<u16, f16>::from_dataset_f32(dataset);
+    ///
+    /// assert_eq!(dataset_f16.nnz(), 9); // Total non-zero components across all vectors
+    /// ```
+    pub fn from_dataset_f32<D, P, AD, AU>(dataset: SparseDatasetGeneric<D, f32, P, AD, AU>) -> Self
+    where
+        D: ComponentType,
+        O: From<P>,
+        P: AsRef<[usize]>,
+        AC: From<AD>,
+        AD: AsRef<[D]>,
+        AV: From<Vec<V>>,
+        AU: AsRef<[f32]>,
+    {
+        Self {
+            dim: dataset.dim,
+            offsets: dataset.offsets.into(),
+            components: dataset.components.into(),
+            values: dataset
+                .values
+                .as_ref()
+                .iter()
+                .map(|&v| V::from_f32_saturating(v))
+                .collect_vec()
+                .into(),
+            _phantom: PhantomData,
+        }
     }
+}
 
-    #[must_use]
-    #[inline]
-    pub fn id_to_offset(&self, id: usize) -> usize {
-        assert!(id < self.n_vecs, "The id is out of range");
-        self.offsets[id]
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn id_to_offset_len(&self, id: usize) -> (usize, usize) {
-        assert!(id < self.n_vecs, "The id is out of range");
-        (self.offsets[id], self.offsets[id + 1] - self.offsets[id])
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn id_to_encoded_offset(&self, id: usize) -> usize {
-        assert!(id < self.n_vecs, "The id is out of range");
-        self.offsets[id] / 2
-    }
-
+impl<C, V> SparseDatasetMut<C, V>
+where
+    C: ComponentType,
+    V: ValueType,
+{
     // The format of this binary file is the following.
     // Number of vectors n_vecs qin 4 bytes, follows n_vecs sparse vectors.
     // For each vector we encode:
@@ -573,29 +502,19 @@ where
     //         lst = sorted(list(d.items()))
     //         write_binary_sequence(lst, fout)
     // ````
-    /// # Panics
-    /// Panics if a component cannot be converted to type `C`.
-    pub fn read_bin_file(fname: &str) -> IoResult<SparseDataset<C, f32>>
-    where
-        C: ComponentType,
-        //        <C as TryFrom<u32>>::Error: std::fmt::Debug,
-    {
+    pub fn read_bin_file(fname: &str) -> IoResult<Self> {
         Self::read_bin_file_limit(fname, None)
     }
 
-    pub fn read_bin_file_limit(fname: &str, limit: Option<usize>) -> IoResult<SparseDataset<C, f32>>
-    where
-        C: ComponentType,
-        //        <C as TryFrom<u32>>::Error: std::fmt::Debug,
-    {
+    pub fn read_bin_file_limit(fname: &str, limit: Option<usize>) -> IoResult<Self> {
         let path = Path::new(fname);
         let f = File::open(path)?;
         //let f_size = f.metadata().unwrap().len() as usize;
 
         let mut br = BufReader::new(f);
 
-        let mut buffer_d = [0u8; std::mem::size_of::<u32>()];
-        let mut buffer = [0u8; std::mem::size_of::<f32>()];
+        let mut buffer_d = [0_u8; std::mem::size_of::<u32>()];
+        let mut buffer = [0_u8; std::mem::size_of::<f32>()];
 
         br.read_exact(&mut buffer_d)?;
         let mut n_vecs = u32::from_le_bytes(buffer_d) as usize;
@@ -604,13 +523,13 @@ where
             n_vecs = n.min(n_vecs);
         }
 
-        let mut data = SparseDatasetMut::<C, f32>::default();
+        let mut data = Self::default();
         for _ in 0..n_vecs {
             br.read_exact(&mut buffer_d)?;
             let n = u32::from_le_bytes(buffer_d) as usize;
 
             let mut components = Vec::with_capacity(n);
-            let mut values = Vec::<f32>::with_capacity(n);
+            let mut values = Vec::with_capacity(n);
 
             for _ in 0..n {
                 br.read_exact(&mut buffer_d)?;
@@ -621,50 +540,24 @@ where
             }
             for _ in 0..n {
                 br.read_exact(&mut buffer)?;
-                let v = f32::from_le_bytes(buffer);
+                let v = V::from_f32_saturating(f32::from_le_bytes(buffer));
                 values.push(v);
             }
 
             data.push(&components, &values);
         }
 
-        Ok(data.into())
+        Ok(data)
     }
 }
 
-/// A mutable representation of a sparse dataset.
-///
-/// This struct provides functionality for manipulating a sparse dataset with mutable access.
-/// It stores sparse vectors in the dataset, where each vector consists of components
-/// and their corresponding values of type `T`. The type `T` must implement the `SpaceUsage` trait,
-/// allowing for efficient memory usage calculations, and it must also be `Copy`.
-///
-/// # Examples
-///
-/// ```
-/// use seismic::SparseDatasetMut;
-///
-/// // Create a new empty dataset
-/// let mut dataset = SparseDatasetMut::<u16, f32>::default();
-/// ```
-///
-///
-#[derive(Debug, Clone)]
-pub struct SparseDatasetMut<C, T>
+impl<C, V, O, AC, AV> Default for SparseDatasetGeneric<C, V, O, AC, AV>
 where
     C: ComponentType,
-    T: SpaceUsage + ValueType,
-{
-    d: usize,
-    offsets: Vec<usize>,
-    components: Vec<C>,
-    values: Vec<T>,
-}
-
-impl<C, T> Default for SparseDatasetMut<C, T>
-where
-    C: ComponentType,
-    T: SpaceUsage + ValueType,
+    V: ValueType,
+    O: AsRef<[usize]> + From<[usize; 1]>,
+    AC: AsRef<[C]> + Default,
+    AV: AsRef<[V]> + Default,
 {
     /// Constructs a new, empty mutable sparse dataset.
     ///
@@ -679,18 +572,19 @@ where
     /// ```
     fn default() -> Self {
         Self {
-            d: 0,
-            offsets: vec![0; 1],
-            components: Vec::new(),
-            values: Vec::new(),
+            dim: Default::default(),
+            offsets: [0].into(),
+            components: Default::default(),
+            values: Default::default(),
+            _phantom: PhantomData,
         }
     }
 }
 
-impl<C, T> SparseDatasetMut<C, T>
+impl<C, V> SparseDatasetMut<C, V>
 where
     C: ComponentType,
-    T: SpaceUsage + ValueType,
+    V: ValueType,
 {
     /// Constructs a new, empty mutable sparse dataset.
     ///
@@ -706,76 +600,9 @@ where
     ///
     /// # Returns
     ///
-    /// A new instance of `SparseDatasetMut<T>`.
+    /// A new instance of `SparseDatasetMut<V>`.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Retrieves the components and values of the sparse vector at the specified index.
-    ///
-    /// This method returns a tuple containing slices of components and values
-    /// of the sparse vector located at the given index.
-    ///
-    /// # Parameters
-    ///
-    /// * `id`: The index of the sparse vector to retrieve.
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing slices of components and values of the sparse vector.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the specified index is out of range.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDatasetMut;
-    ///
-    /// let data = vec![
-    ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
-    ///                 (vec![1, 3],       vec![4.0, 5.0]),
-    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
-    ///                 ];
-    ///
-    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
-    ///
-    /// let (components, values) = dataset.get(1);
-    /// assert_eq!(components, &[1, 3]);
-    /// assert_eq!(values, &[4.0, 5.0]);
-    /// ```
-    #[must_use]
-    #[inline]
-    pub fn get(&self, id: usize) -> (&[C], &[T]) {
-        //assert!(id < self.n_vecs, "The id is out of range"); check already done by range
-
-        let v_components = &self.components[SparseDataset::<C, T>::vector_range(&self.offsets, id)];
-        let v_values = &self.values[SparseDataset::<C, T>::vector_range(&self.offsets, id)];
-
-        (v_components, v_values)
-    }
-
-    //TODO: we need to change this into push_iterator.
-    pub fn push_pairs(&mut self, pairs: &[(C, T)]) {
-        assert!(
-            pairs.windows(2).all(|w| w[0].0 < w[1].0),
-            "Components must be given in sorted order"
-        );
-
-        self.offsets
-            .push(*self.offsets.last().unwrap() + pairs.len());
-
-        if pairs.is_empty() {
-            return;
-        }
-
-        if pairs.last().unwrap().0.as_() >= self.d {
-            self.d = pairs.last().unwrap().0.as_() + 1;
-        }
-
-        self.components.extend(pairs.iter().map(|(c, _)| c));
-        self.values.extend(pairs.iter().map(|(_, v)| v));
     }
 
     /// Adds a new sparse vector to the dataset.
@@ -810,267 +637,69 @@ where
     /// assert_eq!(dataset.dim(), 5);
     /// assert_eq!(dataset.nnz(), 3);
     /// ```
-    pub fn push(&mut self, components: &[C], values: &[T]) {
+    pub fn push(&mut self, components: &[C], values: &[V]) {
         assert_eq!(
             components.len(),
             values.len(),
             "Vectors have different sizes"
         );
-        // a vector can be empty now
-        // assert!(!components.is_empty());
+
         assert!(
-            components.windows(2).all(|w| w[0] <= w[1]),
+            components.is_sorted(),
             "Components must be given in sorted order"
         );
 
-        self.offsets
-            .push(*self.offsets.last().unwrap() + components.len());
-
-        if components.is_empty() {
-            return;
-        }
-
-        if (*components.last().unwrap()).as_() >= self.d {
-            self.d = (*components.last().unwrap()).as_() + 1;
+        if let Some(last_component) = components.last().map(|l| l.as_())
+            && last_component >= self.dim
+        {
+            self.dim = last_component + 1;
         }
 
         self.components.extend(components);
         self.values.extend(values);
+        self.offsets.push(self.components.len());
     }
 
-    /// Returns the length of the vector with the specified index.
-    ///
-    /// This method returns the length of the vector with the specified index in the dataset.
-    /// The length represents the number of non-zero components in the vector.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the specified index is out of range.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDatasetMut;
-    ///
-    /// let data = vec![
-    ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
-    ///                 (vec![1, 3],       vec![4.0, 5.0]),
-    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
-    ///                 ];
-    ///
-    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
-    ///
-    /// assert_eq!(dataset.vector_len(1), 2); // Length of the vector with index 1
-    /// ```
-    #[must_use]
-    #[inline]
-    pub fn vector_len(&self, id: usize) -> usize {
-        assert!(id < self.offsets.len() - 1, "The id is out of range");
+    pub fn push_iterator(&mut self, pairs: impl Iterator<Item = (C, V)>) {
+        // It would be nice to do `(self.components, self.values).extend(...)`, but that would move out of self...
+        let (components, values): (Vec<_>, Vec<_>) = pairs.unzip();
+        assert!(
+            components.iter().is_sorted(),
+            "Components must be given in sorted order"
+        );
 
-        self.offsets[id + 1] - self.offsets[id]
-    }
-
-    /// Returns the number of vectors in the dataset.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDatasetMut;
-    ///
-    /// let mut dataset = SparseDatasetMut::<u16, f32>::default();
-    /// dataset.push(&[0, 2, 4], &[1.0, 2.0, 3.0]);
-    ///
-    /// assert_eq!(dataset.len(), 1);
-    /// ```
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.offsets.len() - 1
-    }
-
-    /// Checks if the dataset is empty.
-    ///     
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDatasetMut;
-    ///
-    /// let mut dataset = SparseDatasetMut::<u16, f32>::default();
-    /// dataset.push(&[0, 2, 4], &[1.0, 2.0, 3.0]);
-    ///
-    /// assert!(!dataset.is_empty());
-    /// ```
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Returns the number of components of the dataset, i.e., it returns one plus the ID of the largest component.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDatasetMut;
-    ///
-    /// let mut dataset = SparseDatasetMut::<u16, f32>::new();
-    ///
-    /// dataset.push(&[0, 2, 4], &[1.0, 2.0, 3.0]);
-    ///
-    /// assert_eq!(dataset.dim(), 5); // Largest component ID is 4, so dim() returns 5
-    /// ```
-    #[must_use]
-    pub fn dim(&self) -> usize {
-        self.d
-    }
-
-    /// Returns the number of non-zero components in the dataset.
-    ///
-    /// This function returns the total count of non-zero components across all vectors
-    /// currently stored in the dataset.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDatasetMut;
-    ///
-    /// let data = vec![
-    ///                 (vec![0, 2, 4], vec![1.0, 2.0, 3.0]),
-    ///                 (vec![1, 3], vec![4.0, 5.0]),
-    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
-    ///                ];
-    ///
-    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
-    ///
-    /// assert_eq!(dataset.nnz(), 9); // Total non-zero components across all vectors
-    /// ```
-    #[must_use]
-    pub fn nnz(&self) -> usize {
-        self.components.len()
-    }
-
-    /// Returns an iterator over the vectors of the dataset.
-    ///
-    /// This method returns an iterator that yields references to each vector in the dataset.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDatasetMut;
-    ///
-    /// let data = vec![
-    ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
-    ///                 (vec![1, 3],       vec![4.0, 5.0]),
-    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
-    ///                 ];
-    ///
-    /// let dataset: SparseDatasetMut<u16, f32> = data.clone().into_iter().collect();
-    ///
-    /// for ((c0, v0), (c1,v1)) in dataset.iter().zip(data.iter()) {
-    ///     assert_eq!(c0, c1);
-    ///     assert_eq!(v0, v1);
-    /// }
-    /// ```
-    pub fn iter(&self) -> SparseDatasetIter<C, T> {
-        SparseDatasetIter::new_with_mut(self)
-    }
-
-    /// Returns an iterator over the sparse vector with the specified id.
-    ///
-    /// This method returns an iterator that yields pairs of components and values for the sparse vector
-    /// with the specified id.
-    ///
-    /// # Parameters
-    ///
-    /// * `vec_id`: The id of the sparse vector to iterate over.
-    ///
-    /// # Returns
-    ///
-    /// An iterator over the components and values of the sparse vector.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the specified `vec_id` is out of bounds.
-    pub fn iter_vector(
-        &self,
-        vec_id: usize,
-    ) -> std::iter::Zip<std::slice::Iter<'_, C>, std::slice::Iter<'_, T>> {
-        assert!(vec_id < self.len(), "The id {} is out of range", vec_id);
-
-        let start = self.offsets[vec_id];
-        let end = self.offsets[vec_id + 1];
-
-        let v_components = &self.components[start..end];
-        let v_values = &self.values[start..end];
-
-        v_components.iter().zip(v_values)
-    }
-}
-
-impl<C, T> FromIterator<(Vec<C>, Vec<T>)> for SparseDataset<C, T>
-where
-    C: ComponentType,
-    T: SpaceUsage + ValueType,
-{
-    /// Constructs a `SparseDataset<C, T>` from an iterator over pairs of vectors.
-    ///
-    /// This function consumes the provided iterator and constructs a new `SparseDataset<T>`.
-    /// Each pair in the iterator represents a pair of vectors, where the first vector contains
-    /// the components and the second vector contains their corresponding values.
-    ///
-    /// # Parameters
-    ///
-    /// * `iter`: An iterator over pairs of vectors `(vec[C], vec[T])`.
-    ///
-    /// # Returns
-    ///
-    /// A new instance of `SparseDataset<C, T>` populated with the pairs from the iterator.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDataset;
-    ///
-    /// let data = vec![
-    ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
-    ///                 (vec![1, 3],       vec![4.0, 5.0]),
-    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
-    ///                 ];
-    ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
-    ///
-    /// assert_eq!(dataset.nnz(), 9); // Total non-zero components across all vectors
-    /// ```
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = (Vec<C>, Vec<T>)>,
-    {
-        let mut dataset = SparseDatasetMut::new();
-
-        for (components, values) in iter {
-            dataset.push(&components, &values);
+        if let Some(last_component) = components.last().map(|l| l.as_())
+            && last_component >= self.dim
+        {
+            self.dim = last_component + 1;
         }
 
-        dataset.into()
+        self.components.extend(components);
+        self.values.extend(values);
+        self.offsets.push(self.components.len());
     }
 }
 
-impl<C, T> FromIterator<(Vec<C>, Vec<T>)> for SparseDatasetMut<C, T>
+impl<C, V, AC, AV> FromIterator<(AC, AV)> for SparseDatasetMut<C, V>
 where
     C: ComponentType,
-    T: SpaceUsage + ValueType,
+    V: ValueType,
+    AC: AsRef<[C]>,
+    AV: AsRef<[V]>,
 {
-    /// Constructs a `SparseDatasetMut<C, T>` from an iterator over pairs of vectors.
+    /// Constructs a `SparseDatasetMut<V>` from an iterator over pairs of references to `[u16]` and `[V]`.
     ///
-    /// This function consumes the provided iterator and constructs a new `SparseDataset<T>`.
+    /// This function consumes the provided iterator and constructs a new `SparseDatasetMut<V>`.
     /// Each pair in the iterator represents a pair of vectors, where the first vector contains
     /// the components and the second vector contains their corresponding values.
     ///
     /// # Parameters
     ///
-    /// * `iter`: An iterator over pairs of vectors `(vec[C], vec[T])`.
+    /// * `iter`: An iterator over pairs of vectors `(AsRef<[C]>, AsRef<[V]>)`.
     ///
     /// # Returns
     ///
-    /// A new instance of `SparseDatasetMut<C, T>` populated with the pairs from the iterator.
+    /// A new instance of `SparseDatasetMut<C, V>` populated with the pairs from the iterator.
     ///
     /// # Examples
     ///
@@ -1089,113 +718,29 @@ where
     /// ```
     fn from_iter<I>(iter: I) -> Self
     where
-        I: IntoIterator<Item = (Vec<C>, Vec<T>)>,
+        I: IntoIterator<Item = (AC, AV)>,
     {
-        let mut dataset = SparseDatasetMut::new();
+        let mut dataset = SparseDatasetMut::<C, V>::new();
 
         for (components, values) in iter {
-            dataset.push(&components, &values);
+            dataset.push(components.as_ref(), values.as_ref());
         }
 
         dataset
     }
 }
 
-impl<'a, C, T> FromIterator<(&'a [C], &'a [T])> for SparseDataset<C, T>
+// Unfortunately, Rust doesn't yet support specialization, meaning that we can't use From too generically (otherwise it fails due to reimplementing `From<T> for T`)
+
+impl<C, V> From<SparseDatasetMut<C, V>> for SparseDataset<C, V>
 where
     C: ComponentType,
-    T: ValueType + SpaceUsage,
-{
-    /// Constructs a `SparseDataset<C, T>` from an iterator over pairs of slices.
-    ///
-    /// This function consumes the provided iterator and constructs a new `SparseDataset<T>`.
-    /// Each pair in the iterator represents a pair of slices, where the first slice contains
-    /// the components and the second slice contains their corresponding values.
-    ///
-    /// # Parameters
-    ///
-    /// * `iter`: An iterator over pairs of slices `(&[C], &[T])`.
-    ///
-    /// # Returns
-    ///
-    /// A new instance of `SparseDataset<C, T>` populated with the pairs from the iterator.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDataset;
-    ///
-    /// let data = &[(vec![0, 2, 4], vec![1.0, 2.0, 3.0]), (vec![1, 3], vec![4.0, 5.0]), (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])];
-    /// let dataset: SparseDataset<u16, f32> = data.iter().map(|(c, v)| (c.as_slice(), v.as_slice()) ).collect();
-    ///
-    /// assert_eq!(dataset.nnz(), 9); // Total non-zero components across all vectors
-    /// ```
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = (&'a [C], &'a [T])>,
-    {
-        let mut dataset = SparseDatasetMut::new();
-
-        for (components, values) in iter {
-            dataset.push(components, values);
-        }
-
-        dataset.into()
-    }
-}
-
-impl<'a, C, T> FromIterator<(&'a [C], &'a [T])> for SparseDatasetMut<C, T>
-where
-    C: ComponentType,
-    T: SpaceUsage + ValueType,
-{
-    /// Constructs a `SparseDatasetMut<C, T>` from an iterator over pairs of slices.
-    ///
-    /// This function consumes the provided iterator and constructs a new `SparseDatasetMut<T>`.
-    /// Each pair in the iterator represents a pair of slices, where the first slice contains
-    /// the components and the second slice contains their corresponding values.
-    ///
-    /// # Parameters
-    ///
-    /// * `iter`: An iterator over pairs of slices `(&[C], &[T])`.
-    ///
-    /// # Returns
-    ///
-    /// A new instance of `SparseDatasetMut<C, T>` populated with the pairs from the iterator.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDatasetMut;
-    ///
-    /// let data = &[(vec![0, 2, 4], vec![1.0, 2.0, 3.0]), (vec![1, 3], vec![4.0, 5.0]), (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])];
-    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().map(|(c, v)| (c.as_slice(), v.as_slice())).collect();
-    ///
-    /// assert_eq!(dataset.nnz(), 9); // Total non-zero components across all vectors
-    /// ```
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = (&'a [C], &'a [T])>,
-    {
-        let mut dataset = SparseDatasetMut::<C, T>::new();
-
-        for (components, values) in iter {
-            dataset.push(components, values);
-        }
-
-        dataset
-    }
-}
-
-impl<C, T> From<SparseDatasetMut<C, T>> for SparseDataset<C, T>
-where
-    C: ComponentType,
-    T: ValueType,
+    V: ValueType,
 {
     /// Converts a mutable sparse dataset into an immutable one.
     ///
-    /// This function consumes the provided `SparseDatasetMut<T>` and produces
-    /// a corresponding immutable `SparseDataset<T>` instance. The conversion is performed
+    /// This function consumes the provided `SparseDatasetMut<C, V>` and produces
+    /// a corresponding immutable `SparseDataset<C, V>` instance. The conversion is performed
     /// by transferring ownership of the internal data structures from the mutable dataset
     /// to the immutable one.
     ///
@@ -1214,37 +759,26 @@ where
     ///
     /// assert_eq!(immutable_dataset.nnz(), 9); // Total non-zero components across all vectors
     /// ```
-    fn from(dataset: SparseDatasetMut<C, T>) -> Self {
+    fn from(dataset: SparseDatasetMut<C, V>) -> Self {
         Self {
-            n_vecs: dataset.offsets.len() - 1,
-            d: dataset.d,
-            offsets: dataset.offsets.into_boxed_slice(),
-            components: dataset.components.into_boxed_slice(),
-            values: dataset.values.into_boxed_slice(),
+            dim: dataset.dim,
+            offsets: dataset.offsets.into(),
+            components: dataset.components.into(),
+            values: dataset.values.into(),
+            _phantom: PhantomData,
         }
     }
 }
 
-impl<C, T> AsRef<SparseDataset<C, T>> for SparseDataset<C, T>
+impl<C, V> From<SparseDataset<C, V>> for SparseDatasetMut<C, V>
 where
     C: ComponentType,
-    T: ValueType,
-{
-    #[inline]
-    fn as_ref(&self) -> &SparseDataset<C, T> {
-        self
-    }
-}
-
-impl<C, T> From<SparseDataset<C, T>> for SparseDatasetMut<C, T>
-where
-    C: ComponentType,
-    T: ValueType,
+    V: ValueType,
 {
     /// Converts an immutable sparse dataset into a mutable one.
     ///
-    /// This function consumes the provided `SparseDataset<C, T>` and produces
-    /// a corresponding mutable `SparseDatasetMut<C, T>` instance. The conversion is performed
+    /// This function consumes the provided `SparseDataset<C, V>` and produces
+    /// a corresponding mutable `SparseDatasetMut<C, V>` instance. The conversion is performed
     /// by transferring ownership of the internal data structures from the immutable dataset
     /// to the mutable one.
     ///
@@ -1268,126 +802,57 @@ where
     ///
     /// assert_eq!(mutable_dataset_again.nnz(), 11); // Total non-zero components across all vectors
     /// ```
-    fn from(dataset: SparseDataset<C, T>) -> Self {
+    fn from(dataset: SparseDataset<C, V>) -> Self {
         Self {
-            d: dataset.d,
+            dim: dataset.dim,
             offsets: dataset.offsets.into(),
             components: dataset.components.into(),
             values: dataset.values.into(),
-        }
-    }
-}
-
-impl<'a, C, T> IntoParallelIterator for &'a SparseDataset<C, T>
-where
-    C: ComponentType,
-    T: ValueType,
-{
-    type Iter = ParSparseDatasetIter<'a, C, T>;
-    type Item = (&'a [C], &'a [T]);
-
-    fn into_par_iter(self) -> Self::Iter {
-        ParSparseDatasetIter {
-            last_offset: self.offsets[0],
-            offsets: &self.offsets[1..],
-            components: &self.components,
-            values: &self.values,
-        }
-    }
-}
-
-impl<'a, C, T> IntoParallelIterator for &'a SparseDatasetMut<C, T>
-where
-    C: ComponentType,
-    T: ValueType,
-{
-    type Iter = ParSparseDatasetIter<'a, C, T>;
-    type Item = (&'a [C], &'a [T]);
-
-    fn into_par_iter(self) -> Self::Iter {
-        ParSparseDatasetIter {
-            last_offset: self.offsets[0],
-            offsets: &self.offsets[1..],
-            components: &self.components,
-            values: &self.values,
+            _phantom: PhantomData,
         }
     }
 }
 
 /// A struct to iterate over a sparse dataset. It assumes the dataset can be represented as a pair of slices.
 #[derive(Clone)]
-pub struct SparseDatasetIter<'a, C, T>
+pub struct SparseDatasetIter<'a, C, V>
 where
     C: ComponentType,
-    T: ValueType,
+    V: ValueType,
 {
     last_offset: usize,
     offsets: &'a [usize],
     components: &'a [C],
-    values: &'a [T],
+    values: &'a [V],
 }
 
-impl<'a, C, T> SparseDatasetIter<'a, C, T>
+impl<'a, C, V> SparseDatasetIter<'a, C, V>
 where
     C: ComponentType,
-    T: ValueType,
+    V: ValueType,
 {
     #[inline]
-    fn new(dataset: &'a SparseDataset<C, T>) -> Self {
+    fn new<O, AC, AV>(dataset: &'a SparseDatasetGeneric<C, V, O, AC, AV>) -> Self
+    where
+        O: AsRef<[usize]>,
+        AC: AsRef<[C]>,
+        AV: AsRef<[V]>,
+    {
         Self {
             last_offset: 0,
-            offsets: &dataset.offsets[1..],
-            components: &dataset.components,
-            values: &dataset.values,
-        }
-    }
-
-    #[inline]
-    fn new_with_mut(dataset: &'a SparseDatasetMut<C, T>) -> Self {
-        Self {
-            last_offset: 0,
-            offsets: &dataset.offsets[1..],
-            components: &dataset.components,
-            values: &dataset.values,
+            offsets: &dataset.offsets.as_ref()[1..],
+            components: dataset.components.as_ref(),
+            values: dataset.values.as_ref(),
         }
     }
 }
 
-/// A struct to iterate over a sparse dataset in parallel.
-/// It assumes the dataset can be represented as a pair of slices.
-#[derive(Clone)]
-pub struct ParSparseDatasetIter<'a, C, T>
+impl<'a, C, V> Iterator for SparseDatasetIter<'a, C, V>
 where
     C: ComponentType,
-    T: ValueType,
+    V: ValueType,
 {
-    last_offset: usize,
-    offsets: &'a [usize],
-    components: &'a [C],
-    values: &'a [T],
-}
-
-// impl<'a, T> ParSparseDatasetIter<'a, T>
-// where
-//     T: ValueType,
-// {
-//     #[inline]
-//     fn new(dataset: &'a SparseDataset<T>) -> Self {
-//         Self {
-//             last_offset: 0,
-//             offsets: &dataset.offsets[1..],
-//             components: &dataset.components,
-//             values: &dataset.values,
-//         }
-//     }
-// }
-
-impl<'a, C, T> Iterator for SparseDatasetIter<'a, C, T>
-where
-    C: ComponentType,
-    T: ValueType,
-{
-    type Item = (&'a [C], &'a [T]);
+    type Item = (&'a [C], &'a [V]);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -1406,12 +871,47 @@ where
     }
 }
 
-impl<'a, C, T> ParallelIterator for ParSparseDatasetIter<'a, C, T>
+/// A struct to iterate over a sparse dataset in parallel.
+/// It assumes the dataset can be represented as a pair of slices.
+#[derive(Clone)]
+pub struct ParSparseDatasetIter<'a, C, V>
 where
     C: ComponentType,
-    T: ValueType,
+    V: ValueType,
 {
-    type Item = (&'a [C], &'a [T]);
+    last_offset: usize,
+    offsets: &'a [usize],
+    components: &'a [C],
+    values: &'a [V],
+}
+
+impl<'a, C, V> ParSparseDatasetIter<'a, C, V>
+where
+    C: ComponentType,
+    V: ValueType,
+{
+    #[inline]
+    fn new<O, AC, AV>(dataset: &'a SparseDatasetGeneric<C, V, O, AC, AV>) -> Self
+    where
+        O: AsRef<[usize]>,
+        AC: AsRef<[C]>,
+        AV: AsRef<[V]>,
+    {
+        Self {
+            last_offset: 0,
+            offsets: &dataset.offsets.as_ref()[1..],
+            components: dataset.components.as_ref(),
+            values: dataset.values.as_ref(),
+        }
+    }
+}
+
+impl<'a, C, V> ParallelIterator for ParSparseDatasetIter<'a, C, V>
+where
+    C: ComponentType,
+    V: ValueType,
+{
+    type Item = (&'a [C], &'a [V]);
 
     fn drive_unindexed<CS>(self, consumer: CS) -> CS::Result
     where
@@ -1425,10 +925,10 @@ where
     }
 }
 
-impl<C, T> IndexedParallelIterator for ParSparseDatasetIter<'_, C, T>
+impl<C, V> IndexedParallelIterator for ParSparseDatasetIter<'_, C, V>
 where
     C: ComponentType,
-    T: ValueType,
+    V: ValueType,
 {
     fn with_producer<CB: ProducerCallback<Self::Item>>(self, callback: CB) -> CB::Output {
         let producer = SparseDatasetProducer::from(self);
@@ -1444,20 +944,20 @@ where
     }
 }
 
-impl<C, T> ExactSizeIterator for SparseDatasetIter<'_, C, T>
+impl<C, V> ExactSizeIterator for SparseDatasetIter<'_, C, V>
 where
     C: ComponentType,
-    T: ValueType,
+    V: ValueType,
 {
     fn len(&self) -> usize {
         self.offsets.len()
     }
 }
 
-impl<C, T> DoubleEndedIterator for SparseDatasetIter<'_, C, T>
+impl<C, V> DoubleEndedIterator for SparseDatasetIter<'_, C, V>
 where
     C: ComponentType,
-    T: ValueType,
+    V: ValueType,
 {
     /// Retrieves the next vector from the end of the iterator.
     ///
@@ -1469,7 +969,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use seismic::SparseDataset;
+    /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
     ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
@@ -1477,7 +977,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<u16, f32> = data.clone().into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.clone().into_iter().collect();
     ///
     /// let data_rev: Vec<_> =  dataset.iter().rev().collect();
     ///
@@ -1503,24 +1003,24 @@ where
         Some((cur_components, cur_values))
     }
 }
-struct SparseDatasetProducer<'a, C, T>
+struct SparseDatasetProducer<'a, C, V>
 where
     C: ComponentType,
-    T: ValueType,
+    V: ValueType,
 {
     last_offset: usize,
     offsets: &'a [usize],
     components: &'a [C],
-    values: &'a [T],
+    values: &'a [V],
 }
 
-impl<'a, C, T> Producer for SparseDatasetProducer<'a, C, T>
+impl<'a, C, V> Producer for SparseDatasetProducer<'a, C, V>
 where
     C: ComponentType,
-    T: ValueType,
+    V: ValueType,
 {
-    type Item = (&'a [C], &'a [T]);
-    type IntoIter = SparseDatasetIter<'a, C, T>;
+    type Item = (&'a [C], &'a [V]);
+    type IntoIter = SparseDatasetIter<'a, C, V>;
 
     fn into_iter(self) -> Self::IntoIter {
         SparseDatasetIter {
@@ -1560,12 +1060,12 @@ where
     }
 }
 
-impl<'a, C, T> From<ParSparseDatasetIter<'a, C, T>> for SparseDatasetProducer<'a, C, T>
+impl<'a, C, V> From<ParSparseDatasetIter<'a, C, V>> for SparseDatasetProducer<'a, C, V>
 where
     C: ComponentType,
-    T: ValueType,
+    V: ValueType,
 {
-    fn from(other: ParSparseDatasetIter<'a, C, T>) -> Self {
+    fn from(other: ParSparseDatasetIter<'a, C, V>) -> Self {
         Self {
             last_offset: other.last_offset,
             offsets: other.offsets,
@@ -1575,29 +1075,17 @@ where
     }
 }
 
-impl<C, T> SpaceUsage for SparseDataset<C, T>
+impl<C, V, O, AC, AV> SpaceUsage for SparseDatasetGeneric<C, V, O, AC, AV>
 where
     C: ComponentType,
-    T: ValueType,
+    V: ValueType,
+    O: AsRef<[usize]> + SpaceUsage,
+    AC: AsRef<[C]> + SpaceUsage,
+    AV: AsRef<[V]> + SpaceUsage,
 {
     /// Returns the size of the dataset in bytes.
     fn space_usage_byte(&self) -> usize {
-        self.n_vecs.space_usage_byte()
-            + self.d.space_usage_byte()
-            + self.offsets.space_usage_byte()
-            + self.components.space_usage_byte()
-            + self.values.space_usage_byte()
-    }
-}
-
-impl<C, T> SpaceUsage for SparseDatasetMut<C, T>
-where
-    C: ComponentType,
-    T: ValueType,
-{
-    /// Returns the size of the dataset in bytes.
-    fn space_usage_byte(&self) -> usize {
-        self.d.space_usage_byte()
+        self.dim.space_usage_byte()
             + self.offsets.space_usage_byte()
             + self.components.space_usage_byte()
             + self.values.space_usage_byte()
@@ -1639,7 +1127,7 @@ mod tests {
         assert_eq!(dataset.dim(), 5);
         assert_eq!(dataset.nnz(), 7);
 
-        let dataset = SparseDataset::from(dataset);
+        let dataset = SparseDataset::<u16, f32>::from(dataset);
 
         // Check the contents of the dataset
         let (components, values) = dataset.get(0);

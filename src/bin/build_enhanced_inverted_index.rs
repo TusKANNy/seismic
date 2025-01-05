@@ -1,11 +1,11 @@
+use seismic::SeismicIndex;
 use seismic::inverted_index::{
     BlockingStrategy, ClusteringAlgorithm, ClusteringAlgorithmClap, Configuration,
     KnnConfiguration, PruningStrategy, SummarizationStrategy,
 };
-use seismic::SeismicIndex;
+use seismic::utils::write_to_path;
 
 use half::f16;
-use std::fs;
 
 use clap::Parser;
 use std::time::Instant;
@@ -20,7 +20,7 @@ struct Args {
     #[clap(short, long, value_parser)]
     input_file: Option<String>,
 
-    /// The path of the output file. The extension will encode the values of thebuilding parameters.
+    /// The path of the output file. The extension will encode the values of the building parameters.
     #[clap(short, long, value_parser)]
     output_file: Option<String>,
 
@@ -29,12 +29,12 @@ struct Args {
     #[arg(default_value_t = 6000)]
     n_postings: usize,
 
-    /// Block size in the fixed size blockin
+    /// Block size in the fixed size blocking.
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 10)]
     block_size: usize,
 
-    /// Regulates the number of centroids built for each posting list. The number of centroids is at most the fraction of the posting list lenght.
+    /// Regulates the number of centroids built for each posting list. The number of centroids is at most the fraction of the posting list length.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.1)]
     centroid_fraction: f32,
@@ -65,12 +65,12 @@ struct Args {
     #[arg(default_value_t = 0)]
     knn: usize,
 
-    /// Path to the file of precomputed neareast neighbors.
+    /// Path to the file of precomputed nearest neighbors.
     #[clap(long, value_parser)]
     knn_path: Option<String>,
 
     /// Number of documents per chunk in the batched indexing mode.
-    #[clap(short, long, value_parser)]
+    #[clap(long, value_parser)]
     batched_indexing: Option<usize>,
 }
 
@@ -124,12 +124,10 @@ pub fn main() {
         elapsed.as_secs()
     );
 
-    let serialized = bincode::serialize(&index).unwrap();
-
     let path = args.output_file.unwrap() + ".index.seismic";
-
     println!("Saving ... {}", path);
-    let r = fs::write(path, serialized);
+    let r = write_to_path(index, path.as_str());
+
     println!("{:?}", r);
 
     let elapsed = time.elapsed();

@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::{ComponentType, SpaceUsage, SparseDataset, ValueType};
@@ -10,7 +11,7 @@ use toolkit::EliasFano;
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct QuantizedSummary<C: ComponentType> {
     n_summaries: usize,
-    d: usize,
+    dim: usize,
     component_ids: Option<Box<[C]>>,
     offsets: EliasFano,
     summaries_ids: BitFieldBoxed,
@@ -42,7 +43,7 @@ impl<C: ComponentType> SpaceUsage for QuantizedSummary<C> {
 
         component_ids_size
             + SpaceUsage::space_usage_byte(&self.n_summaries)
-            + SpaceUsage::space_usage_byte(&self.d)
+            + SpaceUsage::space_usage_byte(&self.dim)
             + SpaceUsage::space_usage_byte(&self.offsets)
             + SpaceUsage::space_usage_byte(&self.summaries_ids)
             + SpaceUsage::space_usage_byte(&self.values)
@@ -70,36 +71,100 @@ impl<C: ComponentType> QuantizedSummary<C> {
         EliasFano::estimate_space_bits(max_offset + 1 + d, d)
     }
 
-    #[must_use]
-    pub fn distances_iter(&self, query_components: &[C], query_values: &[f32]) -> DistancesIter {
-        DistancesIter::new(self, query_components, query_values)
+    pub fn distances(&self, query_components: &[C], query_values: &[f32]) -> Vec<f32> {
+        let mut accumulator = vec![0_f32; self.n_summaries];
+
+        if let Some(component_ids) = self.component_ids.as_ref() {
+            let mut i = 0; // index for component_ids
+            let mut j = 0; // index for query_components
+
+            while i < component_ids.len() && j < query_components.len() {
+                // TODO: dont do casting here once both are of type C::ComponentType
+                let comp_id = component_ids[i].as_();
+                let query_comp = query_components[j].as_();
+
+                if comp_id == query_comp {
+                    // Found matching component, process it
+                    let qv = query_values[j];
+                    let current_offset = self.offsets.select(i).unwrap();
+                    let next_offset = self.offsets.select(i + 1).unwrap();
+
+                    // let current_summaries_ids =
+                    //     &summaries.summaries_ids[current_offset..next_offset];
+                    let current_values =
+                        unsafe { self.values.get_unchecked(current_offset..next_offset) };
+
+                    for (pos, &v) in (current_offset..next_offset).zip(current_values) {
+                        let s_id = unsafe { self.summaries_ids.get_unchecked(pos) as usize };
+                        let dequantized_val = unsafe {
+                            v as f32 * self.quants.get_unchecked(s_id)
+                                + self.minimums.get_unchecked(s_id)
+                        };
+                        *unsafe { accumulator.get_unchecked_mut(s_id) } += dequantized_val * qv;
+                    }
+
+                    i += 1;
+                    j += 1;
+                } else if comp_id < query_comp {
+                    i += 1;
+                } else {
+                    j += 1;
+                }
+            }
+        } else {
+            // If there are no component_ids, we use the query_components directly
+            // This is the case when we have a dense offset vector
+
+            for (&qc, &qv) in query_components
+                .iter()
+                .zip(query_values)
+                .take_while(|(qc, _)| (qc.as_()) < self.dim)
+            {
+                let current_offset = self.offsets.select(qc.as_()).unwrap() - qc.as_();
+                let next_offset = self.offsets.select(qc.as_() + 1).unwrap() - (qc.as_() + 1);
+
+                // let current_summaries_ids = unsafe {self.summaries_ids.get_unchecked(current_offset..next_offset)};
+                let current_values =
+                    unsafe { self.values.get_unchecked(current_offset..next_offset) };
+
+                for (pos, &v) in (current_offset..next_offset).zip(current_values) {
+                    let s_id = unsafe { self.summaries_ids.get_unchecked(pos) as usize };
+                    let dequantized_val = unsafe {
+                        v as f32 * self.quants.get_unchecked(s_id)
+                            + self.minimums.get_unchecked(s_id)
+                    };
+                    *unsafe { accumulator.get_unchecked_mut(s_id) } += dequantized_val * qv;
+                }
+
+                // for i in 0..accumulator.len() {
+                //     accumulator[i] = accumulator[i] * self.quants[i] + self.minimums[i] * q_vs[i];
+                // }
+            }
+        }
+
+        accumulator
     }
 
-    #[inline]
-    #[must_use]
     fn quantize<T: ValueType>(values: &[T]) -> (f32, f32, Vec<u8>) {
         assert!(!values.is_empty());
 
         // Compute min and max values in the vector
-        let (min, max) = values.iter().fold((values[0], values[0]), |acc, &v| {
-            (
-                if acc.0 < v { acc.0 } else { v },
-                if acc.1 > v { acc.1 } else { v },
-            )
-        });
+        let (min, max) = values
+            .iter()
+            .minmax_by(|a, b| a.partial_cmp(b).unwrap())
+            .into_option()
+            .unwrap();
 
-        let (min, max) = (min.to_f32(), max.to_f32());
+        let (min, max) = (min.to_f32().unwrap(), max.to_f32().unwrap());
 
-        // Quantization splits the range [min, max] into Self::N_CLASSES blocks of equal size
-        // (max-m)/Self::N_CLASSES.
-        // Exponential quantization could be possible as well.
-
-        let mut quantized_values = Vec::with_capacity(values.len());
+        // Quantization splits the range [min, max] into n_classes blocks of equal size (max-min)/n_clasess.
+        // Max value is likely going to be n_classes - 1, due to rounding errors.
+        // (Exponential quantization could be possible as well.)
         let quant = (max - min) / (Self::N_CLASSES as f32);
-        for &v in values {
-            let q = ((v.to_f32() - min) / quant) as u8;
-            quantized_values.push(q);
-        }
+        let quantized_values = values
+            .iter()
+            .map(|&v| ((v.to_f32().unwrap() - min) / quant) as u8)
+            .collect();
 
         (min, quant, quantized_values)
     }
@@ -114,7 +179,7 @@ impl<C: ComponentType> QuantizedSummary<C> {
         };
 
         let n_summaries_size = SpaceUsage::space_usage_byte(&self.n_summaries);
-        let d_size = SpaceUsage::space_usage_byte(&self.d);
+        let d_size = SpaceUsage::space_usage_byte(&self.dim);
         let offsets_size = SpaceUsage::space_usage_byte(&self.offsets);
         let summaries_ids_size = SpaceUsage::space_usage_byte(&self.summaries_ids);
         let values_size = SpaceUsage::space_usage_byte(&self.values);
@@ -139,7 +204,7 @@ impl<C: ComponentType> QuantizedSummary<C> {
             total_size as f64 / 1_048_576.0
         );
         println!("n_summaries: {}", self.n_summaries);
-        println!("d (dimensions): {}", self.d);
+        println!("d (dimensions): {}", self.dim);
 
         if let Some(ref component_ids) = self.component_ids {
             println!(
@@ -320,128 +385,18 @@ where
             }
         }
 
-        let me = Self {
+        Self {
             n_summaries: dataset.len(),
-            d: dataset.dim(),
-            component_ids: if let Some(component_ids) = component_ids {
-                Some(component_ids.into_boxed_slice())
-            } else {
-                None
-            },
+            dim: dataset.dim(),
+            component_ids: component_ids.map(|c| c.into_boxed_slice()),
             offsets: EliasFano::from(&offsets),
             summaries_ids: BitFieldBoxed::from(summaries_ids),
             values: codes.into_boxed_slice(),
             minimums: minimums.into_boxed_slice(),
             quants: quants.into_boxed_slice(),
-        };
+        }
 
         // me.print_space_usage();
-
-        me
-    }
-}
-
-pub struct DistancesIter {
-    current: usize,
-    distances: Vec<f32>,
-}
-
-impl DistancesIter {
-    fn new<C>(summaries: &QuantizedSummary<C>, query_components: &[C], query_values: &[f32]) -> Self
-    where
-        C: ComponentType,
-    {
-        let mut accumulator = vec![0_f32; summaries.n_summaries];
-
-        if let Some(component_ids) = &summaries.component_ids {
-            let mut i = 0; // index for component_ids
-            let mut j = 0; // index for query_components
-
-            while i < component_ids.len() && j < query_components.len() {
-                // TODO: dont do casting here once both are of type C::ComponentType
-                let comp_id = component_ids[i].as_();
-                let query_comp = query_components[j].as_();
-
-                if comp_id == query_comp {
-                    // Found matching component, process it
-                    let qv = query_values[j];
-                    let current_offset = summaries.offsets.select(i).unwrap();
-                    let next_offset = summaries.offsets.select(i + 1).unwrap();
-
-                    // let current_summaries_ids =
-                    //     &summaries.summaries_ids[current_offset..next_offset];
-                    let current_values = &summaries.values[current_offset..next_offset];
-
-                    for (pos, &v) in (current_offset..next_offset).zip(current_values) {
-                        let s_id = unsafe { summaries.summaries_ids.get_unchecked(pos) as usize };
-                        let val = v as f32 * summaries.quants[s_id as usize]
-                            + summaries.minimums[s_id as usize];
-                        accumulator[s_id as usize] += val * qv;
-                    }
-
-                    i += 1;
-                    j += 1;
-                } else if comp_id < query_comp {
-                    i += 1;
-                } else {
-                    j += 1;
-                }
-            }
-            return Self {
-                current: 0,
-                distances: accumulator,
-            };
-        }
-        // If there are no component_ids, we use the query_components directly
-        // This is the case when we have a dense offset vector
-
-        for (&qc, &qv) in query_components.iter().zip(query_values) {
-            if qc.as_() >= summaries.d {
-                break;
-            }
-            let current_offset = summaries.offsets.select(qc.as_()).unwrap() - qc.as_();
-            let next_offset = summaries.offsets.select(qc.as_() + 1).unwrap() - (qc.as_() + 1);
-
-            if current_offset == next_offset {
-                continue;
-            }
-            // let current_summaries_ids = &summaries.summaries_ids[current_offset..next_offset];
-            let current_values = &summaries.values[current_offset..next_offset];
-
-            for (pos, &v) in (current_offset..next_offset).zip(current_values) {
-                let s_id = unsafe { summaries.summaries_ids.get_unchecked(pos) as usize };
-
-                // for (&s_id, &v) in current_summaries_ids.iter().zip(current_values) {
-                let val =
-                    v as f32 * summaries.quants[s_id as usize] + summaries.minimums[s_id as usize];
-                //accumulator[c as usize] += v as f32 * qv;
-                //q_vs[c as usize] += qv;
-                accumulator[s_id as usize] += val * qv;
-            }
-
-            // for i in 0..accumulator.len() {
-            //     accumulator[i] = accumulator[i] * self.quants[i] + self.minimums[i] * q_vs[i];
-            // }
-        }
-
-        Self {
-            current: 0,
-            distances: accumulator,
-        }
-    }
-}
-
-impl Iterator for DistancesIter {
-    type Item = f32;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.current < self.distances.len() {
-            let current = self.current;
-            self.current += 1;
-            Some(self.distances[current])
-        } else {
-            None
-        }
     }
 }
 
@@ -452,7 +407,7 @@ mod tests {
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
 
-    fn generate_random_sparse_dataset<C: ComponentType>(
+    fn generate_random_sparse_dataset<C>(
         seed: u64,
         n_vecs: usize,
         dim: usize,
@@ -461,14 +416,14 @@ mod tests {
         value: f32,
     ) -> SparseDataset<C, f32>
     where
-        C: std::convert::TryFrom<usize>,
+        C: ComponentType + std::convert::TryFrom<usize>,
         <C as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
     {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         let mut dataset = SparseDatasetMut::new();
 
         for _ in 0..n_vecs {
-            let nnz = rng.gen_range(min_nnz..=max_nnz);
+            let nnz = rng.random_range(min_nnz..=max_nnz);
             let mut components: Vec<usize> = (0..dim).collect();
             components.shuffle(&mut rng);
             components.truncate(nnz);
@@ -485,7 +440,7 @@ mod tests {
         dataset.into()
     }
 
-    fn generate_random_queries<C: ComponentType>(
+    fn generate_random_queries<C>(
         seed: u64,
         n_queries: usize,
         dim: usize,
@@ -493,14 +448,14 @@ mod tests {
         max_nnz: usize,
     ) -> SparseDatasetMut<C, f32>
     where
-        C: std::convert::TryFrom<usize>,
+        C: ComponentType + std::convert::TryFrom<usize>,
         <C as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
     {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         let mut dataset = SparseDatasetMut::new();
 
         for _ in 0..n_queries {
-            let nnz = rng.gen_range(min_nnz..=max_nnz);
+            let nnz = rng.random_range(min_nnz..=max_nnz);
             let mut components: Vec<usize> = (0..dim).collect();
             components.shuffle(&mut rng);
             components.truncate(nnz);
@@ -510,7 +465,7 @@ mod tests {
                 .into_iter()
                 .map(|x| C::try_from(x).unwrap())
                 .collect();
-            let values: Vec<f32> = (0..nnz).map(|_| rng.gen::<f32>()).collect();
+            let values: Vec<f32> = (0..nnz).map(|_| rng.random::<f32>()).collect();
             dataset.push(&components, &values);
         }
 
@@ -551,8 +506,8 @@ mod tests {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
         // Generate random dimensions within specified ranges
-        let n_vecs = rng.gen_range(50..=100);
-        let dim = rng.gen_range(100_000..=140_000);
+        let n_vecs = rng.random_range(50..=100);
+        let dim = rng.random_range(100_000..=140_000);
         let min_nnz = 300;
         let max_nnz = 500;
 
@@ -585,9 +540,7 @@ mod tests {
         // For each query, compare distances
         for (query_id, (query_components, query_values)) in queries.iter().enumerate() {
             // Get distances using DistancesIter
-            let distances: Vec<f32> = summary
-                .distances_iter(query_components, query_values)
-                .collect();
+            let distances: Vec<f32> = summary.distances(query_components, query_values);
             assert_eq!(distances.len(), dataset.len());
 
             // Compute distances explicitly

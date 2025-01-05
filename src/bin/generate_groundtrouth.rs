@@ -3,9 +3,9 @@ use std::fs::File;
 use std::io::Write;
 
 use indicatif::ParallelProgressIterator;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::ParallelIterator;
 
-use seismic::SparseDataset;
+use seismic::*;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -31,8 +31,8 @@ struct Args {
 pub fn main() {
     let args = Args::parse();
 
-    let dataset = SparseDataset::<u32, f32>::read_bin_file(&args.input_file.unwrap()).unwrap();
-    let queries = SparseDataset::<u32, f32>::read_bin_file(&args.query_file.unwrap()).unwrap();
+    let dataset = SparseDatasetMut::<u32, f32>::read_bin_file(&args.input_file.unwrap()).unwrap();
+    let queries = SparseDatasetMut::<u32, f32>::read_bin_file(&args.query_file.unwrap()).unwrap();
     let k = args.k;
     let output_path = args.output_path.unwrap();
 

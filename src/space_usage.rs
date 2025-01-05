@@ -1,6 +1,8 @@
-use half::bf16;
-use half::f16;
+use crate::num_marker::MarkerFixedSigned;
+use half::{bf16, f16};
 use std::mem;
+
+use crate::utils::PackedPostingBlock;
 
 /// A trait to report the space usage of a data structure.
 pub trait SpaceUsage {
@@ -65,5 +67,31 @@ macro_rules! impl_space_usage {
 }
 
 impl_space_usage![
-    bool, i8, u8, i16, u16, i32, u32, i64, u64, i128, u128, isize, usize, f32, f64, f16, bf16
+    bool,
+    i8,
+    u8,
+    i16,
+    u16,
+    i32,
+    u32,
+    i64,
+    u64,
+    i128,
+    u128,
+    isize,
+    usize,
+    f32,
+    f64,
+    f16,
+    bf16,
+    PackedPostingBlock
 ];
+
+impl<T> SpaceUsage for T
+where
+    T: MarkerFixedSigned,
+{
+    fn space_usage_byte(&self) -> usize {
+        mem::size_of::<Self>()
+    }
+}
