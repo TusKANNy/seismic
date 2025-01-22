@@ -1042,7 +1042,8 @@ impl Knn {
     ) where
         T: DataType,
     {
-        let n_knn = cmp::max(self.d, in_n_knn);
+        //let n_knn = cmp::max(self.d, in_n_knn);
+        let n_knn = cmp::min(self.d, in_n_knn);
 
         let neighbours: Vec<_> = heap.topk();
         for &(_distance, offset) in neighbours.iter() {
