@@ -8,10 +8,12 @@ use std::{
 use crate::{
     ComponentType,
     json_utils::{JsonFormat, extract_jsonl},
+    sparse_dataset::{FromDatasetGenericF32, SparseDatasetMutTrait, SparseDatasetTrait},
 };
 
 use indicatif::ProgressIterator;
 use itertools::Itertools;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use serde_json::Deserializer;
@@ -19,26 +21,25 @@ use serde_json::Deserializer;
 use flate2::read::GzDecoder;
 use tar::Archive;
 
-use crate::{
-    InvertedIndex, SpaceUsage, SparseDataset, SparseDatasetMut, ValueType,
-    inverted_index::Configuration, inverted_index::Knn,
-};
+use crate::{InvertedIndex, SpaceUsage, inverted_index::Configuration, inverted_index::Knn};
 
 #[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub struct SeismicIndex<C, V>
+pub struct SeismicIndex<S>
 where
-    C: ComponentType,
-    V: ValueType,
+    S: SparseDatasetTrait,
 {
-    inverted_index: InvertedIndex<C, V>,
+    #[serde(bound(
+        serialize = "S: Serialize, S::Component: Serialize",
+        deserialize = "S: DeserializeOwned, S::Component: DeserializeOwned"
+    ))]
+    inverted_index: InvertedIndex<S>,
     document_mapping: Option<Box<[String]>>,
-    token_to_id_map: HashMap<String, C>,
+    token_to_id_map: HashMap<String, usize>,
 }
 
-impl<C, V> SpaceUsage for SeismicIndex<C, V>
+impl<S> SpaceUsage for SeismicIndex<S>
 where
-    C: ComponentType,
-    V: ValueType,
+    S: SparseDatasetTrait,
 {
     fn space_usage_byte(&self) -> usize {
         //TODO: add the SpaceUsage of document_mapping and token_to_id_map
@@ -46,24 +47,20 @@ where
     }
 }
 
-impl<C, V> SeismicIndex<C, V>
+impl<S> SeismicIndex<S>
 where
-    C: ComponentType,
-    V: PartialOrd + ValueType,
+    S: SparseDatasetTrait + Sync,
 {
     pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
         self.inverted_index.get_doc_ids_in_postings(list_id)
     }
 
     pub fn new(
-        dataset: SparseDataset<C, V>,
+        dataset: S,
         config: Configuration,
         document_mapping: Option<impl Into<Box<[String]>>>,
-        token_to_id_map: HashMap<String, C>,
-    ) -> Self
-    where
-        V: ValueType + PartialOrd,
-    {
+        token_to_id_map: HashMap<String, usize>,
+    ) -> Self {
         let inverted_index = InvertedIndex::build(dataset, config);
 
         Self {
@@ -108,8 +105,13 @@ where
                 .iter()
                 .zip(query_values)
                 .filter(|(qc, _)| self.token_to_id_map.contains_key(*qc))
-                .map(|(qc, &qv)| (self.token_to_id_map[qc], qv))
-                .sorted_by(|(a, _), (b, _)| a.cmp(b))
+                .map(|(qc, &qv)| {
+                    (
+                        S::Component::from_usize(self.token_to_id_map[qc]).unwrap(),
+                        qv,
+                    )
+                })
+                .sorted_by_key(|(c, _)| *c)
                 .unzip();
 
         self.inverted_index.search(
@@ -148,42 +150,48 @@ where
         self.remap_doc_ids(results, query_id) // return the documents remapped
     }
 
-    pub fn process_data(
+    pub fn process_data<T>(
         reader: BufReader<impl std::io::Read>,
         row_count: usize,
         input_token_to_id_map: Option<HashMap<String, usize>>,
-    ) -> (SparseDataset<C, V>, Vec<String>, HashMap<String, C>) {
+    ) -> (S, Vec<String>, HashMap<String, usize>)
+    where
+        T: SparseDatasetMutTrait,
+        S: FromDatasetGenericF32<T>,
+    {
         let mut doc_id_mapping = Vec::with_capacity(row_count);
-        let mut token_to_id_mapping = HashMap::<String, C>::new();
-        let mut converted_data = SparseDatasetMut::<C, V>::default();
+        let mut token_to_id_mapping = HashMap::<String, usize>::new();
+        let mut converted_data = T::default();
 
         let stream: serde_json::StreamDeserializer<_, JsonFormat> =
             Deserializer::from_reader(reader).into_iter();
 
         for x in stream.into_iter().progress_count(row_count as u64) {
-            let (doc_id, tokens, values) = extract_jsonl::<V>(x.unwrap());
+            let (doc_id, tokens, values) = extract_jsonl::<T::Value>(x.unwrap());
             doc_id_mapping.push(doc_id);
 
             let ids: Vec<_> = match &input_token_to_id_map {
                 None => {
                     for token in tokens.iter() {
                         if !token_to_id_mapping.contains_key(token) {
-                            token_to_id_mapping.insert(
-                                token.to_string(),
-                                C::from_usize(token_to_id_mapping.len()).unwrap(),
-                            );
+                            token_to_id_mapping
+                                .insert(token.to_string(), token_to_id_mapping.len());
                         }
                     }
+                    let n_bits = size_of::<T::Component>() as u32 * 8;
                     assert!(
-                        token_to_id_mapping.len() < 2_usize.pow(C::WIDTH as u32),
+                        token_to_id_mapping.len() < 2_usize.pow(n_bits),
                         "The number of different tokens exceeds 2^{}.",
-                        C::WIDTH
+                        n_bits
                     );
-                    tokens.iter().map(|t| token_to_id_mapping[t]).collect()
+                    tokens
+                        .into_iter()
+                        .map(|t| T::Component::from_usize(token_to_id_mapping[&t]).unwrap())
+                        .collect()
                 }
                 Some(valid_mapping) => tokens
-                    .iter()
-                    .map(|t| C::from_usize(valid_mapping[t]).unwrap())
+                    .into_iter()
+                    .map(|t| T::Component::from_usize(valid_mapping[&t]).unwrap())
                     .collect(),
             };
 
@@ -192,16 +200,20 @@ where
             converted_data.push_iterator(converted_iterator);
         }
 
-        let final_data: SparseDataset<C, V> = SparseDataset::<C, V>::from(converted_data);
+        let final_data = S::from_dataset_f32(converted_data);
 
         (final_data, doc_id_mapping, token_to_id_mapping)
     }
 
-    pub fn from_file(
+    pub fn from_file<T>(
         file_path: &String,
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
-    ) -> Result<Self, io::Error> {
+    ) -> Result<Self, io::Error>
+    where
+        T: SparseDatasetMutTrait,
+        S: FromDatasetGenericF32<T>,
+    {
         if file_path.ends_with(".jsonl") {
             Ok(SeismicIndex::from_json(
                 file_path,
@@ -222,12 +234,16 @@ where
         }
     }
 
-    pub fn from_json(
+    pub fn from_json<T>(
         json_path: &String,
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
-    ) -> Self {
-        println!("Reading the collection...");
+    ) -> Self
+    where
+        T: SparseDatasetMutTrait,
+        S: FromDatasetGenericF32<T>,
+    {
+        println!("Reading the collection..");
         let start = Instant::now();
 
         //read the file and count rows
@@ -256,12 +272,17 @@ where
         )
     }
 
-    pub fn from_tar(
+    #[allow(unused_variables)]
+    pub fn from_tar<T>(
         tar_path: &String,
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
-    ) -> Self {
-        println!("Reading the collection...");
+    ) -> Self
+    where
+        T: SparseDatasetMutTrait,
+        S: FromDatasetGenericF32<T>,
+    {
+        println!("Reading the collection..");
         let start = Instant::now();
 
         //decompress gz, extract first file (json) of the archive
@@ -320,11 +341,11 @@ where
         self.inverted_index.is_empty()
     }
 
-    pub fn inverted_index(&self) -> &InvertedIndex<C, V> {
+    pub fn inverted_index(&self) -> &InvertedIndex<S> {
         &self.inverted_index
     }
 
-    pub fn dataset(&self) -> &SparseDataset<C, V> {
+    pub fn dataset(&self) -> &S {
         self.inverted_index.dataset()
     }
 
@@ -336,12 +357,13 @@ where
         self.inverted_index.knn_len()
     }
 
-    pub fn from_dataset(dataset: SeismicDataset<C, V>, config: Configuration) -> Self {
+    pub fn from_dataset<T>(dataset: SeismicDataset<T>, config: Configuration) -> Self
+    where
+        T: SparseDatasetMutTrait,
+        S: From<T>,
+    {
         Self {
-            inverted_index: InvertedIndex::build(
-                SparseDataset::from(dataset.sparse_dataset),
-                config,
-            ),
+            inverted_index: InvertedIndex::build(S::from(dataset.sparse_dataset), config),
             document_mapping: Some(dataset.document_mapping.into_boxed_slice()),
             token_to_id_map: dataset.token_to_id_map,
         }
@@ -349,38 +371,32 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub struct SeismicDataset<C, V>
+pub struct SeismicDataset<S>
 where
-    C: ComponentType,
-    V: ValueType,
+    S: SparseDatasetMutTrait,
 {
-    sparse_dataset: SparseDatasetMut<C, V>,
+    sparse_dataset: S,
     document_mapping: Vec<String>,
-    token_to_id_map: HashMap<String, C>,
+    token_to_id_map: HashMap<String, usize>,
 }
 
-impl<C, V> Default for SeismicDataset<C, V>
+impl<S> Default for SeismicDataset<S>
 where
-    C: ComponentType,
-    V: PartialOrd + ValueType,
+    S: SparseDatasetMutTrait,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<C, V> SeismicDataset<C, V>
+impl<S> SeismicDataset<S>
 where
-    C: ComponentType,
-    V: PartialOrd + ValueType,
+    S: SparseDatasetMutTrait,
 {
-    pub fn new() -> Self
-    where
-        V: ValueType + PartialOrd,
-    {
-        let sparse_dataset = SparseDatasetMut::new();
+    pub fn new() -> Self {
+        let sparse_dataset = S::default();
         let document_mapping = Vec::<String>::new();
-        let token_to_id_map = HashMap::<String, C>::new();
+        let token_to_id_map = HashMap::new();
         Self {
             sparse_dataset,
             document_mapping,
@@ -388,11 +404,11 @@ where
         }
     }
 
-    pub fn sparse_dataset(self) -> SparseDatasetMut<C, V> {
+    pub fn sparse_dataset(self) -> S {
         self.sparse_dataset
     }
 
-    pub fn token_to_id_map(&self) -> &HashMap<String, C> {
+    pub fn token_to_id_map(&self) -> &HashMap<String, usize> {
         &self.token_to_id_map
     }
 
@@ -404,39 +420,35 @@ where
         self.sparse_dataset.is_empty()
     }
 
-    pub fn add_document(&mut self, id: String, tokens: &[String], values: &[f32])
-    where
-        V: ValueType,
-    {
+    pub fn add_document(&mut self, id: String, tokens: &[String], values: &[f32]) {
         self.document_mapping.push(id);
 
-        let mut components: Vec<C> = Vec::<_>::with_capacity(tokens.len());
+        let mut components: Vec<S::Component> = Vec::with_capacity(tokens.len());
         for c in tokens.iter() {
             let next_token_id = self.token_to_id_map.len();
             components.push(
-                *self
-                    .token_to_id_map
-                    .entry(c.to_string())
-                    .or_insert_with(|| C::from_usize(next_token_id).unwrap()),
+                S::Component::from_usize(
+                    *self
+                        .token_to_id_map
+                        .entry(c.to_string())
+                        .or_insert_with(|| next_token_id),
+                )
+                .unwrap(),
             );
+            let n_bits = size_of::<S::Component>() as u32 * 8;
             assert!(
-                self.token_to_id_map.len() < 2_usize.pow(C::WIDTH as u32),
+                self.token_to_id_map.len() < 2_usize.pow(n_bits),
                 "The number of different tokens exceeds 2^{}.",
-                C::WIDTH
+                n_bits
             );
         }
 
-        let (sorted_indexes, sorted_components): (Vec<_>, Vec<_>) = components
+        let sorted_components_values = components
             .into_iter()
             .enumerate()
-            .sorted_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unzip();
+            .map(|(i, c)| (c, S::Value::from_f32(values[i]).unwrap()))
+            .sorted_by_key(|(c, _)| *c);
 
-        let sorted_values = sorted_indexes
-            .iter()
-            .map(|&i| V::from_f32_saturating(values[i]))
-            .collect::<Vec<_>>();
-
-        self.sparse_dataset.push(&sorted_components, &sorted_values);
+        self.sparse_dataset.push_iterator(sorted_components_values);
     }
 }

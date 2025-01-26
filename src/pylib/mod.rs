@@ -17,7 +17,7 @@ use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::collections::HashMap;
 
 use crate::utils::{read_from_path, write_to_path};
-use crate::{InvertedIndex, SparseDataset, SparseDatasetMut};
+use crate::{FromDatasetGenericF32, InvertedIndex, SparseDataset, SparseDatasetMut};
 
 const MAX_TOKEN_LEN: usize = 30;
 const SEISMIC_STRING: &str = "U30";
@@ -36,7 +36,7 @@ macro_rules! impl_seismic_index {
         /// dataset using `build` or `build_from_dataset`. See these methods for further details.
         #[pyclass(name= $py_name)]
         pub struct $rust_name {
-            index: Index<$Key, f16>,
+            index: Index<SparseDataset<$Key, f16>>,
         }
 
         #[pymethods]
@@ -165,7 +165,7 @@ macro_rules! impl_seismic_index {
             #[pyo3(signature = (index_path))]
             #[pyo3(text_signature = "(index_path)")]
             pub fn load(index_path: &str) -> PyResult<$rust_name> {
-                let index: Index<$Key, f16> = read_from_path(index_path).map_err(|e| {
+                let index: Index<SparseDataset<$Key, f16>> = read_from_path(index_path).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to deserialize index from '{}': {}",
                         index_path, e
@@ -354,7 +354,7 @@ macro_rules! impl_seismic_index {
             println!("\nBuilding the index...");
             println!("{:?}", config);
 
-            let index = Index::from_file(&input_path.to_owned(), config, input_token_to_id_map)
+            let index = Index::from_file::<SparseDatasetMut<$Key, f32>>(&input_path.to_owned(), config, input_token_to_id_map)
                 .map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to build index from file: {}. File may not exist or be corrupted. Error: {}",
@@ -635,7 +635,7 @@ macro_rules! impl_seismic_index_raw {
         ///
         #[pyclass(name= $py_name)]
         pub struct $rust_name {
-            inverted_index: InvertedIndex<$Key, f16>,
+            inverted_index: InvertedIndex<SparseDataset<$Key, f16>>,
         }
 
 
@@ -782,7 +782,7 @@ macro_rules! impl_seismic_index_raw {
             #[pyo3(signature = (index_path))]
             #[pyo3(text_signature = "(index_path)")]
             pub fn load(index_path: &str) -> PyResult<$rust_name> {
-                let inverted_index: InvertedIndex<$Key, f16> = read_from_path(&index_path).map_err(|e| {
+                let inverted_index: InvertedIndex<SparseDataset<$Key, f16>> = read_from_path(&index_path).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to deserialize index from '{}': {}",
                         index_path, e
@@ -1079,7 +1079,7 @@ macro_rules! impl_seismic_index_raw {
                 let queries = SparseDatasetMut::<$Key, f32>::read_bin_file(query_path).unwrap();
 
                 queries
-                    .par_iter()
+                    .dataset_par_iter()
                     .map(|query| {
                         self.inverted_index.search(
                             query.0,

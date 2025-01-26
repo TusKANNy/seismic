@@ -6,6 +6,7 @@ use seismic::inverted_index::{
     BlockingStrategy, ClusteringAlgorithm, ClusteringAlgorithmClap, Configuration,
     KnnConfiguration, PruningStrategy, PruningStrategyClap, SummarizationStrategy,
 };
+use seismic::sparse_dataset::FromDatasetGenericF32;
 use seismic::utils::write_to_path;
 use seismic::*;
 

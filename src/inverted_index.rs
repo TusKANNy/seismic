@@ -1,9 +1,9 @@
 use crate::utils::{
-    KHeap, PackedPostingBlock, ScoredItem, conditionally_densify, prefetch_read_slice,
-    read_from_path, write_to_path,
+    KHeap, PackedPostingBlock, ScoredItem, prefetch_read_slice, read_from_path, write_to_path,
 };
 use crate::{
-    ComponentType, QuantizedSummary, SpaceUsage, SparseDataset, SparseDatasetMut, ValueType,
+    ComponentType, QuantizedSummary, SpaceUsage, SparseDataset, SparseDatasetMut,
+    SparseDatasetTrait, ValueType,
 };
 use toolkit::BitFieldBoxed;
 use toolkit::bitfield::BitFieldVec;
@@ -12,6 +12,7 @@ use indicatif::ParallelProgressIterator;
 
 use itertools::Itertools;
 use rayon::prelude::*;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::cmp;
 
@@ -21,21 +22,23 @@ use std::time::Instant;
 use std::io::Result as IoResult;
 
 #[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub struct InvertedIndex<C, V>
+pub struct InvertedIndex<S>
 where
-    C: ComponentType,
-    V: ValueType,
+    S: SparseDatasetTrait,
 {
-    forward_index: SparseDataset<C, V>,
-    posting_lists: Box<[PostingList<C>]>,
+    forward_index: S,
+    #[serde(bound(
+        serialize = "S::Component: Serialize",
+        deserialize = "S::Component: DeserializeOwned"
+    ))]
+    posting_lists: Box<[PostingList<S::Component>]>,
     config: Configuration,
     knn: Option<Knn>,
 }
 
-impl<C, V> SpaceUsage for InvertedIndex<C, V>
+impl<S> SpaceUsage for InvertedIndex<S>
 where
-    C: ComponentType,
-    V: ValueType,
+    S: SparseDatasetTrait,
 {
     fn space_usage_byte(&self) -> usize {
         let forward = self.forward_index.space_usage_byte();
@@ -110,10 +113,9 @@ impl Configuration {
     }
 }
 
-impl<C, V> InvertedIndex<C, V>
+impl<S> InvertedIndex<S>
 where
-    C: ComponentType,
-    V: PartialOrd + ValueType,
+    S: SparseDatasetTrait + Sync,
 {
     pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
         assert!(
@@ -177,23 +179,31 @@ where
 
     #[allow(clippy::too_many_arguments)]
     #[must_use]
-    pub fn search(
+    pub fn search<W>(
         &self,
-        query_components: &[C],
-        query_values: &[f32],
+        query_components: &[S::Component],
+        query_values: &[W],
         k: usize,
         query_cut: usize,
         heap_factor: f32,
         n_knn: usize,
         first_sorted: bool,
-    ) -> Vec<(f32, usize)> {
+    ) -> Vec<(f32, usize)>
+    where
+        W: ValueType,
+    {
         // Assert that query components are sorted in case of using a mergsort like strategy for the dot product
         assert!(
             query_components.is_sorted(),
             "Query components must be sorted in ascending order."
         );
 
-        let dense_query = conditionally_densify(query_components, query_values, self.dim());
+        let prepared_query = self.forward_index.prepare_query(
+            query_components
+                .iter()
+                .zip(query_values)
+                .map(|(&c, &v)| (c, v)),
+        );
 
         let mut heap = KHeap::new(k);
         let mut visited = HashSet::with_capacity(query_cut.min(query_components.len()) * 5000); // TODO: 5000 should be n_postings
@@ -203,9 +213,9 @@ where
             .iter()
             .zip(query_values)
             .k_largest_by(query_cut, |a, b| a.1.partial_cmp(b.1).unwrap());
-        if first_sorted && let Some((&component_id, &_value)) = iter.next() {
+        if first_sorted && let Some((&component_id, _value)) = iter.next() {
             self.posting_lists[component_id.as_()].sort_and_search(
-                dense_query.as_deref(),
+                &prepared_query,
                 query_components,
                 query_values,
                 k,
@@ -215,9 +225,9 @@ where
                 &self.forward_index,
             );
         }
-        for (&component_id, &_value) in iter {
+        for (&component_id, _value) in iter {
             self.posting_lists[component_id.as_()].search(
-                dense_query.as_deref(),
+                &prepared_query,
                 query_components,
                 query_values,
                 k,
@@ -231,9 +241,7 @@ where
             && let Some(knn) = self.knn.as_ref()
         {
             knn.refine(
-                dense_query.as_deref(),
-                query_components,
-                query_values,
+                &prepared_query,
                 &mut heap,
                 &mut visited,
                 &self.forward_index,
@@ -250,7 +258,7 @@ where
     }
 
     /// `n_postings`: minimum number of postings to select for each component
-    pub fn build(dataset: SparseDataset<C, V>, config: Configuration) -> Self {
+    pub fn build(dataset: S, config: Configuration) -> Self {
         // Distribute pairs (score, doc_id) to corresponding components for each chunk.
         // We use pairs because later each posting list will be sorted by score
         // by the pruning strategy.
@@ -266,8 +274,8 @@ where
         for chunk in &dataset.iter().enumerate().chunks(chunk_size) {
             let mut chunk_inv_pairs = vec![Vec::new(); dataset.dim()];
 
-            for (doc_id, (components, values)) in chunk {
-                for (&c, &score) in components.iter().zip(values) {
+            for (doc_id, components_values_iter) in chunk {
+                for (c, score) in components_values_iter {
                     chunk_inv_pairs[c.as_()].push((score, doc_id));
                 }
             }
@@ -341,19 +349,24 @@ where
             })
             .collect();
 
-        let me = Self {
+        let elapsed = time.elapsed();
+        println!("{} secs", elapsed.as_secs());
+
+        if config.knn.nknn == 0 && config.knn.knn_path.is_none() {
+            return Self {
+                forward_index: dataset,
+                posting_lists: posting_lists.into_boxed_slice(),
+                config: config.clone(),
+                knn: None,
+            };
+        }
+
+        let me = InvertedIndex::<S> {
             forward_index: dataset,
             posting_lists: posting_lists.into_boxed_slice(),
             config: config.clone(),
             knn: None,
         };
-
-        let elapsed = time.elapsed();
-        println!("{} secs", elapsed.as_secs());
-
-        if config.knn.nknn == 0 && config.knn.knn_path.is_none() {
-            return me;
-        }
 
         let time = Instant::now();
         let knn_config = config.knn.clone();
@@ -380,7 +393,7 @@ where
     }
 
     // Implementation of the pruning strategy that selects the top-`n_postings` from each posting list
-    fn fixed_pruning(inverted_pairs: &mut Vec<Vec<(V, usize)>>, n_postings: usize) {
+    fn fixed_pruning<V: ValueType>(inverted_pairs: &mut Vec<Vec<(V, usize)>>, n_postings: usize) {
         inverted_pairs.par_iter_mut().for_each(|posting_list| {
             *posting_list = posting_list
                 .drain(..)
@@ -390,7 +403,11 @@ where
     }
 
     // Implementation of the pruning strategy that selects the top-x posting from each posting list where x is alpha times the number of postings in the list or max_n_posting if too big.
-    fn coi_pruning(inverted_pairs: &mut Vec<Vec<(V, usize)>>, alpha: f32, max_n_postings: usize) {
+    fn coi_pruning<V: ValueType>(
+        inverted_pairs: &mut Vec<Vec<(V, usize)>>,
+        alpha: f32,
+        max_n_postings: usize,
+    ) {
         inverted_pairs.par_iter_mut().for_each(|posting_list| {
             if posting_list.is_empty() {
                 return;
@@ -407,7 +424,10 @@ where
 
     // Implementation of the pruning strategy that selects a threshold such that survives on average `n_postings` for each posting list
     // In the new version, documents with scores equal to the threshold are included, without exceeding the threshold of 10% of expected postings
-    fn global_threshold_pruning(inverted_pairs: &mut [Vec<(V, usize)>], n_postings: usize) {
+    fn global_threshold_pruning<V: ValueType>(
+        inverted_pairs: &mut [Vec<(V, usize)>],
+        n_postings: usize,
+    ) {
         let tot_postings = inverted_pairs.len() * n_postings; // overall number of postings to select
 
         const EQUALITY_THRESHOLD: usize = 10;
@@ -445,7 +465,7 @@ where
     }
 
     /// Returns the sparse dataset
-    pub fn dataset(&self) -> &SparseDataset<C, V> {
+    pub fn dataset(&self) -> &S {
         &self.forward_index
     }
 
@@ -510,19 +530,19 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[inline]
-    pub fn search<V>(
+    pub fn search<S, W>(
         &self,
-        dense_query: Option<&[f32]>,
+        prepared_query: &S::PreparedQuery<C, W>,
         query_components: &[C],
-        query_values: &[f32],
+        query_values: &[W],
         k: usize,
         heap_factor: f32,
         heap: &mut KHeap<ScoredItem>,
         visited: &mut HashSet<usize>,
-        forward_index: &SparseDataset<C, V>,
+        forward_index: &S,
     ) where
-        V: ValueType,
+        S: SparseDatasetTrait,
+        W: ValueType,
     {
         let dots = self.summaries.distances(query_components, query_values);
 
@@ -546,9 +566,7 @@ impl<C: ComponentType> PostingList<C> {
                 iter.find(|&(_, dot)| !(heap.len() == k && dot < heap_factor * heap.peek().score));
 
             self.evaluate_posting_block(
-                dense_query,
-                query_components,
-                query_values,
+                prepared_query,
                 packed_posting_block,
                 heap,
                 visited,
@@ -561,19 +579,19 @@ impl<C: ComponentType> PostingList<C> {
     // TODO: The reason the function is basically duplicated is to avoid pointless allocations if we don't need to sort.
     // Maybe there is a prettier way to do this without duplicating.
     #[allow(clippy::too_many_arguments)]
-    pub fn sort_and_search<V>(
+    pub fn sort_and_search<S, W>(
         &self,
-        dense_query: Option<&[f32]>,
+        prepared_query: &S::PreparedQuery<C, W>,
         query_components: &[C],
-        query_values: &[f32],
+        query_values: &[W],
         k: usize,
         heap_factor: f32,
         heap: &mut KHeap<ScoredItem>,
         visited: &mut HashSet<usize>,
-        forward_index: &SparseDataset<C, V>,
+        forward_index: &S,
     ) where
-        C: ComponentType,
-        V: ValueType,
+        S: SparseDatasetTrait,
+        W: ValueType,
     {
         let dots = self.summaries.distances(query_components, query_values);
         let dots: Vec<_> = dots
@@ -596,9 +614,7 @@ impl<C: ComponentType> PostingList<C> {
                 iter.find(|&(_, dot)| !(heap.len() == k && dot < heap_factor * heap.peek().score));
 
             self.evaluate_posting_block(
-                dense_query,
-                query_components,
-                query_values,
+                prepared_query,
                 packed_posting_block,
                 heap,
                 visited,
@@ -615,19 +631,17 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[inline]
-    fn evaluate_posting_block<V>(
+    fn evaluate_posting_block<S, D, W>(
         &self,
-        query: Option<&[f32]>,
-        query_term_ids: &[C],
-        query_values: &[f32],
+        prepared_query: &S::PreparedQuery<D, W>,
         packed_posting_block: &[PackedPostingBlock],
         heap: &mut KHeap<ScoredItem>,
         visited: &mut HashSet<usize>,
-        forward_index: &SparseDataset<C, V>,
+        forward_index: &S,
     ) where
-        V: ValueType,
-        C: ComponentType,
+        S: SparseDatasetTrait,
+        D: ComponentType,
+        W: ValueType,
     {
         let mut iter = packed_posting_block.iter();
         let mut cur_pack = iter.next();
@@ -636,20 +650,13 @@ impl<C: ComponentType> PostingList<C> {
             let next_pack = iter.next();
             if let Some(p) = next_pack {
                 let (next_offset, next_len) = p.unpack();
-                forward_index.prefetch_vec_with_offset(next_offset, next_len);
+                forward_index.prefetch_with_offset(next_offset, next_len);
             }
 
             let (offset, len) = pack.unpack();
 
             if visited.insert(offset) {
-                let (v_components, v_values) = forward_index.get_with_offset(offset, len);
-                let distance = C::compute_dot_product(
-                    query,
-                    query_term_ids,
-                    query_values,
-                    v_components,
-                    v_values,
-                );
+                let distance = forward_index.dot_product_from_offset(prepared_query, offset, len);
 
                 heap.push(ScoredItem::new(offset, distance));
             }
@@ -661,14 +668,9 @@ impl<C: ComponentType> PostingList<C> {
     /// Gets a posting list already pruned and represents it by using a blocking
     /// strategy to partition postings into block and a summarization strategy to
     /// represents the summary of each block.
-    pub fn build<V>(
-        dataset: &SparseDataset<C, V>,
-        postings: &[(V, usize)],
-        config: &Configuration,
-    ) -> Self
+    pub fn build<S>(dataset: &S, postings: &[(S::Value, usize)], config: &Configuration) -> Self
     where
-        C: ComponentType,
-        V: PartialOrd + ValueType,
+        S: SparseDatasetTrait<Component = C>,
     {
         let mut posting_list: Vec<_> = postings.iter().map(|(_, docid)| *docid).collect();
 
@@ -690,7 +692,7 @@ impl<C: ComponentType> PostingList<C> {
             ),
         };
 
-        let summaries = SparseDatasetMut::<C, V>::from_iter(block_offsets.array_windows().map(
+        let summary = SparseDatasetMut::from_iter(block_offsets.array_windows().map(
             |&[block_start, block_end]| match config.summarization {
                 SummarizationStrategy::FixedSize { n_components } => Self::fixed_size_summary(
                     dataset,
@@ -719,7 +721,7 @@ impl<C: ComponentType> PostingList<C> {
         Self {
             packed_postings: packed_postings.into_boxed_slice(),
             block_offsets: block_offsets.into_boxed_slice(),
-            summaries: QuantizedSummary::from(SparseDataset::<C, V>::from(summaries)), // Avoid to do from SparseDatasetMut. Problably fixed when moving to kANNolo SparseDataset
+            summaries: QuantizedSummary::from(SparseDataset::from(summary)), // Avoid to do from SparseDatasetMut. Probably fixed when moving to kANNolo SparseDataset
         }
     }
 
@@ -738,16 +740,15 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     // Panics if the number of centroids is greater than u16::MAX.
-    fn blocking_with_random_kmeans<V>(
+    fn blocking_with_random_kmeans<S>(
         posting_list: &mut [usize],
         centroid_fraction: f32,
         min_cluster_size: usize,
-        dataset: &SparseDataset<C, V>,
+        dataset: &S,
         clustering_algorithm: ClusteringAlgorithm,
     ) -> Vec<usize>
     where
-        C: ComponentType,
-        V: ValueType,
+        S: SparseDatasetTrait,
     {
         if posting_list.is_empty() {
             return Vec::new();
@@ -812,19 +813,18 @@ impl<C: ComponentType> PostingList<C> {
 
     // ** Summarization strategies **
 
-    fn fixed_size_summary<V>(
-        dataset: &SparseDataset<C, V>,
+    fn fixed_size_summary<S>(
+        dataset: &S,
         block: &[usize],
         n_components: usize,
-    ) -> (Vec<C>, Vec<V>)
+    ) -> Vec<(S::Component, S::Value)>
     where
-        C: ComponentType,
-        V: PartialOrd + ValueType,
+        S: SparseDatasetTrait,
     {
         let mut hash = HashMap::new();
         for &doc_id in block.iter() {
             // for each component_id, store the largest value seen so far
-            for (&c, &v) in dataset.iter_vector(doc_id) {
+            for (c, v) in dataset.get_iter(doc_id) {
                 hash.entry(c)
                     .and_modify(|h| *h = if *h < v { v } else { *h })
                     .or_insert(v);
@@ -836,31 +836,30 @@ impl<C: ComponentType> PostingList<C> {
             .k_largest_by(n_components, |a, b| a.1.partial_cmp(&b.1).unwrap())
             // Sort by id to make binary search possible
             .sorted_unstable_by_key(|&(id, _)| id)
-            .unzip()
+            .collect()
     }
 
-    fn energy_preserving_summary<V>(
-        dataset: &SparseDataset<C, V>,
+    fn energy_preserving_summary<S>(
+        dataset: &S,
         block: &[usize],
         fraction: f32,
-    ) -> (Vec<C>, Vec<V>)
+    ) -> Vec<(S::Component, S::Value)>
     where
-        C: ComponentType,
-        V: PartialOrd + ValueType,
+        S: SparseDatasetTrait,
     {
         let mut hash = HashMap::new();
         for &doc_id in block.iter() {
             // for each component_id, store the largest value seen so far
-            for (&c, &v) in dataset.iter_vector(doc_id) {
+            for (c, v) in dataset.get_iter(doc_id) {
                 hash.entry(c)
                     .and_modify(|h| *h = if *h < v { v } else { *h })
                     .or_insert(v);
             }
         }
 
-        let mut components_values: Vec<_> = hash.iter().collect();
+        let mut components_values: Vec<_> = hash.into_iter().collect();
 
-        components_values.sort_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap());
+        components_values.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         let total_sum: f32 = components_values
             .iter()
             .map(|(_, x)| x.to_f32().unwrap())
@@ -875,7 +874,7 @@ impl<C: ComponentType> PostingList<C> {
                 acc < until
             })
             .sorted_unstable_by_key(|&(id, _)| id)
-            .unzip()
+            .collect()
     }
 }
 
@@ -1007,10 +1006,9 @@ impl SpaceUsage for Knn {
 }
 
 impl Knn {
-    pub fn new<C, V>(index: &InvertedIndex<C, V>, dim: usize) -> Self
+    pub fn new<S>(index: &InvertedIndex<S>, dim: usize) -> Self
     where
-        V: PartialOrd + ValueType,
-        C: ComponentType,
+        S: SparseDatasetTrait + Sync,
     {
         const KNN_QUERY_CUT: usize = 10;
         const KNN_HEAP_FACTOR: f32 = 0.7;
@@ -1022,12 +1020,14 @@ impl Knn {
             .par_iter()
             .progress_count(index.forward_index.len() as u64)
             .enumerate()
-            .map(|(my_doc_id, (components, values))| {
-                let f32_values: Vec<f32> = values.iter().map(|v| v.to_f32().unwrap()).collect();
+            .map(|(my_doc_id, components_values)| {
+                let (components, f32_values): (Vec<_>, Vec<_>) = components_values
+                    .map(|(c, v)| (c, v.to_f32().unwrap()))
+                    .unzip();
 
                 index
                     .search(
-                        components,
+                        &components,
                         &f32_values,
                         dim + 1, // +1 to filter the document itself if present
                         KNN_QUERY_CUT,
@@ -1103,19 +1103,15 @@ impl Knn {
     }
 
     #[inline]
-    #[allow(clippy::too_many_arguments)]
-    pub fn refine<C, V>(
+    pub fn refine<S, D: ComponentType, W: ValueType>(
         &self,
-        query: Option<&[f32]>,
-        query_term_ids: &[C],
-        query_values: &[f32],
+        prepared_query: &S::PreparedQuery<D, W>,
         heap: &mut KHeap<ScoredItem>,
         visited: &mut HashSet<usize>,
-        forward_index: &SparseDataset<C, V>,
+        forward_index: &S,
         in_n_knn: usize,
     ) where
-        C: ComponentType,
-        V: ValueType,
+        S: SparseDatasetTrait,
     {
         let n_knn = cmp::min(self.dim, in_n_knn);
 
@@ -1137,14 +1133,8 @@ impl Knn {
                 let (offset, len) = (range.start, range.len());
 
                 if visited.insert(offset) {
-                    let (v_components, v_values) = forward_index.get_with_offset(offset, len);
-                    let distance = C::compute_dot_product(
-                        query,
-                        query_term_ids,
-                        query_values,
-                        v_components,
-                        v_values,
-                    );
+                    let distance =
+                        forward_index.dot_product_from_offset(prepared_query, offset, len);
                     heap.push(ScoredItem::new(offset, distance));
                 }
             }

@@ -89,7 +89,8 @@ where
 
     let nknn = args.n_knn;
 
-    let inverted_index: InvertedIndex<C, D> = read_from_path(index_path.unwrap().as_str()).unwrap();
+    let inverted_index: InvertedIndex<SparseDataset<C, D>> =
+        read_from_path(index_path.unwrap().as_str()).unwrap();
 
     let queries = SparseDatasetMut::<C, f32>::read_bin_file(&args.query_file.unwrap()).unwrap();
 
@@ -114,7 +115,9 @@ where
     for _ in 0..n_runs {
         results.clear();
 
-        for (query_id, (q_components, q_values)) in queries.iter().take(n_queries).enumerate() {
+        for (query_id, (q_components, q_values)) in
+            queries.dataset_iter().take(n_queries).enumerate()
+        {
             let cur_results = inverted_index.search(
                 q_components,
                 q_values,

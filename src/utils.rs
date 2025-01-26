@@ -12,7 +12,7 @@ use itertools::Itertools;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{ComponentType, SparseDataset, ValueType};
+use crate::*;
 
 pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std::error::Error>> {
     let mut file = BufReader::new(File::open(path)?);
@@ -179,10 +179,10 @@ pub fn prefetch_read_slice<T>(data: &[T]) {
     }
 }
 
-fn compute_centroid_assignments_approx_dot_product<C: ComponentType, T: ValueType>(
+fn compute_centroid_assignments_approx_dot_product<S: SparseDatasetTrait, T: ValueType>(
     doc_ids: &[usize],
     inverted_index: &[Vec<(usize, T)>],
-    dataset: &SparseDataset<C, T>,
+    dataset: &S,
     centroids: &[usize],
     to_avoid: &HashSet<usize>,
     doc_cut: usize,
@@ -193,9 +193,9 @@ fn compute_centroid_assignments_approx_dot_product<C: ComponentType, T: ValueTyp
         .iter()
         .map(|&doc_id| {
             scores.iter_mut().for_each(|v| *v = 0_f32);
-            for (&component_id, &value) in dataset
-                .iter_vector(doc_id)
-                .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(b.1).unwrap())
+            for (component_id, value) in dataset
+                .get_iter(doc_id)
+                .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(&b.1).unwrap())
             {
                 for &(centroid_id, score) in inverted_index[component_id.as_()].iter() {
                     scores[centroid_id] += score.to_f32().unwrap() * value.to_f32().unwrap();
@@ -220,17 +220,16 @@ fn compute_centroid_assignments_approx_dot_product<C: ComponentType, T: ValueTyp
 ///
 /// The function uses a simple pruned inverted index to speed up the computation and computes the
 /// true dot product between the document and the centroids.
-/// The paramenter `doc_cut` specifies how many components of the document vector to consider whiel computing the dot product.
-pub fn do_random_kmeans_on_docids_ii_approx_dot_product<C, T>(
+/// The parameter `doc_cut` specifies how many components of the document vector to consider while computing the dot product.
+pub fn do_random_kmeans_on_docids_ii_approx_dot_product<S>(
     doc_ids: &[usize],
     n_clusters: usize,
-    dataset: &SparseDataset<C, T>,
+    dataset: &S,
     min_cluster_size: usize,
     doc_cut: usize,
 ) -> Vec<(usize, usize)>
 where
-    C: ComponentType,
-    T: ValueType,
+    S: SparseDatasetTrait,
 {
     let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -243,7 +242,7 @@ where
     let mut inverted_index = vec![Vec::new(); dataset.dim()];
 
     for (i, &centroid_id) in centroid_ids.iter().enumerate() {
-        for (&c, &score) in dataset.iter_vector(centroid_id) {
+        for (c, score) in dataset.get_iter(centroid_id) {
             inverted_index[c.as_()].push((i, score));
         }
     }
@@ -305,17 +304,18 @@ where
     final_assignments
 }
 
-fn compute_centroid_assignments_dot_product<C, T>(
+fn compute_centroid_assignments_dot_product<A, T, S>(
     doc_ids: &[usize],
-    inverted_index: &[Vec<(T, usize)>],
-    dataset: &SparseDataset<C, T>,
+    inverted_index: &[A],
+    dataset: &S,
     centroids: &[usize],
     to_avoid: &HashSet<usize>,
     doc_cut: usize,
 ) -> Vec<(usize, usize)>
 where
-    C: ComponentType,
+    A: AsRef<[(T, usize)]>,
     T: ValueType,
+    S: SparseDatasetTrait,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
 
@@ -327,41 +327,17 @@ where
             continue;
         }
 
-        // Densify the vector
-        let mut dense_vector: Vec<T> = vec![T::zero(); dataset.dim()];
-        for (&c, &v) in dataset.iter_vector(doc_id) {
-            dense_vector[c.as_()] = v;
-        }
-
-        let doc_components = dataset.get(doc_id).0;
-        //FIXME: avoiding this copy requires to parameterize the dot_product computation w.r.t. to the
-        // values type. Not sure if this is worth it.
-        let doc_values = dataset
-            .get(doc_id)
-            .1
-            .iter()
-            .map(|v| v.to_f32().unwrap())
-            .collect::<Vec<_>>();
-
-        let dense_vector = conditionally_densify(doc_components, &doc_values, dataset.dim());
-
+        let prepared_query = dataset.prepare_query(dataset.get_iter(doc_id));
         let mut visited = to_avoid.clone();
 
         // Sort query terms by score and evaluate the posting list only for the top ones
         let (max_centroid_id, _dot) = dataset
-            .iter_vector(doc_id)
-            .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(b.1).unwrap())
-            .flat_map(|(&component_id, &_value)| inverted_index[component_id.as_()].iter())
+            .get_iter(doc_id)
+            .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(&b.1).unwrap())
+            .flat_map(|(component_id, _value)| inverted_index[component_id.as_()].as_ref().iter())
             .filter(|&(_score, centroid_id)| visited.insert(*centroid_id))
             .map(|&(_score, centroid_id)| {
-                let (v_components, v_values) = dataset.get(centroid_id);
-                let dot = C::compute_dot_product(
-                    dense_vector.as_deref(),
-                    doc_components,
-                    &doc_values,
-                    v_components,
-                    v_values,
-                );
+                let dot = dataset.dot_product_from_id(&prepared_query, centroid_id);
                 (centroid_id, dot)
             })
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
@@ -381,17 +357,16 @@ where
 /// true dot product between the document and the centroids.
 /// The parameter `pruning_factor` controls the size of the pruned inverted index.
 /// The parameter `doc_cut` specifies how many components of the document vector to consider while computing the dot product.
-pub fn do_random_kmeans_on_docids_ii_dot_product<C, T>(
+pub fn do_random_kmeans_on_docids_ii_dot_product<S>(
     doc_ids: &[usize],
     n_clusters: usize,
-    dataset: &SparseDataset<C, T>,
+    dataset: &S,
     min_cluster_size: usize,
     pruning_factor: f32,
     doc_cut: usize,
 ) -> Vec<(usize, usize)>
 where
-    C: ComponentType,
-    T: ValueType,
+    S: SparseDatasetTrait,
 {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -406,7 +381,7 @@ where
     let mut inverted_index = vec![Vec::new(); dataset.dim()];
 
     for &centroid_id in centroid_ids.iter() {
-        for (&c, &score) in dataset.iter_vector(centroid_id) {
+        for (c, score) in dataset.get_iter(centroid_id) {
             inverted_index[c.as_()].push((score, centroid_id));
         }
     }
@@ -477,14 +452,16 @@ where
     final_assignments
 }
 
-fn compute_centroid_assignments<C: ComponentType, T: ValueType>(
+fn compute_centroid_assignments<S>(
     doc_ids: &[usize],
-    dataset: &SparseDataset<C, T>,
+    dataset: &S,
     centroids: &[usize],
     to_avoid: &HashSet<usize>,
-) -> Vec<(usize, usize)> {
+) -> Vec<(usize, usize)>
+where
+    S: SparseDatasetTrait,
+{
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
-
     let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
 
     for &doc_id in doc_ids.iter() {
@@ -492,30 +469,12 @@ fn compute_centroid_assignments<C: ComponentType, T: ValueType>(
             centroid_assignments.push((doc_id, doc_id));
             continue;
         }
-
-        let doc_components = dataset.get(doc_id).0;
-        // FIXME: avoiding this copy requires to parameterize the dot_product computation w.r.t. to the
-        // values type. Not sure if this is worth it.
-        let doc_values = dataset
-            .get(doc_id)
-            .1
-            .iter()
-            .map(|v| v.to_f32().unwrap())
-            .collect::<Vec<_>>();
-
-        let dense_vector = conditionally_densify(doc_components, &doc_values, dataset.dim());
+        let prepared_query = dataset.prepare_query(dataset.get_iter(doc_id));
 
         let (centroid_max, _dot) = centroids
             .iter()
             .map(|&centroid_id| {
-                let (v_components, v_values) = dataset.get(centroid_id);
-                let dot = C::compute_dot_product(
-                    dense_vector.as_deref(),
-                    doc_components,
-                    &doc_values,
-                    v_components,
-                    v_values,
-                );
+                let dot = dataset.dot_product_from_id(&prepared_query, centroid_id);
                 (centroid_id, dot)
             })
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
@@ -528,12 +487,15 @@ fn compute_centroid_assignments<C: ComponentType, T: ValueType>(
     centroid_assignments
 }
 
-pub fn do_random_kmeans_on_docids<C: ComponentType, T: ValueType>(
+pub fn do_random_kmeans_on_docids<S>(
     doc_ids: &[usize],
     n_clusters: usize,
-    dataset: &SparseDataset<C, T>,
+    dataset: &S,
     min_cluster_size: usize,
-) -> Vec<(usize, usize)> {
+) -> Vec<(usize, usize)>
+where
+    S: SparseDatasetTrait,
+{
     let seed = 42; // You can use any u64 value as the seed
     let mut rng = StdRng::seed_from_u64(seed);
     let centroid_ids = doc_ids

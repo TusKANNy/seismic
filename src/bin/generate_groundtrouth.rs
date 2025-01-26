@@ -37,9 +37,17 @@ pub fn main() {
     let output_path = args.output_path.unwrap();
 
     let results: Vec<_> = queries
-        .par_iter()
+        .dataset_par_iter()
         .progress_count(queries.len() as u64)
-        .map(|(q_components, q_values)| dataset.search(q_components, q_values, k))
+        .map(|(query_components, query_values)| {
+            dataset.search(
+                query_components
+                    .iter()
+                    .zip(query_values)
+                    .map(|(&c, &v)| (c, v)),
+                k,
+            )
+        })
         .collect();
 
     let mut output_file = File::create(output_path).unwrap();

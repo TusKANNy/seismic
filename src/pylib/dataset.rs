@@ -11,7 +11,7 @@ macro_rules! impl_seismic_dataset {
         #[derive(Clone)]
         #[pyclass(name = $py_name)]
         pub struct $rust_name {
-            dataset: Dataset<$Key, f16>,
+            dataset: Dataset<SparseDatasetMut<$Key, f16>>,
         }
 
         #[pymethods]

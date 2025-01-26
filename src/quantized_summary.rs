@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-use crate::{ComponentType, SpaceUsage, SparseDataset, ValueType};
+use crate::{ComponentType, SpaceUsage, SparseDataset, SparseDatasetTrait, ValueType};
 
 use rustc_hash::FxHashMap;
 
@@ -71,7 +71,10 @@ impl<C: ComponentType> QuantizedSummary<C> {
         EliasFano::estimate_space_bits(max_offset + 1 + d, d)
     }
 
-    pub fn distances(&self, query_components: &[C], query_values: &[f32]) -> Vec<f32> {
+    pub fn distances<V>(&self, query_components: &[C], query_values: &[V]) -> Vec<f32>
+    where
+        V: ValueType,
+    {
         let mut accumulator = vec![0_f32; self.n_summaries];
 
         if let Some(component_ids) = self.component_ids.as_ref() {
@@ -100,7 +103,8 @@ impl<C: ComponentType> QuantizedSummary<C> {
                             v as f32 * self.quants.get_unchecked(s_id)
                                 + self.minimums.get_unchecked(s_id)
                         };
-                        *unsafe { accumulator.get_unchecked_mut(s_id) } += dequantized_val * qv;
+                        *unsafe { accumulator.get_unchecked_mut(s_id) } +=
+                            dequantized_val * qv.to_f32().unwrap();
                     }
 
                     i += 1;
@@ -133,7 +137,8 @@ impl<C: ComponentType> QuantizedSummary<C> {
                         v as f32 * self.quants.get_unchecked(s_id)
                             + self.minimums.get_unchecked(s_id)
                     };
-                    *unsafe { accumulator.get_unchecked_mut(s_id) } += dequantized_val * qv;
+                    *unsafe { accumulator.get_unchecked_mut(s_id) } +=
+                        dequantized_val * qv.to_f32().unwrap();
                 }
 
                 // for i in 0..accumulator.len() {
@@ -311,7 +316,7 @@ where
         let mut minimums = Vec::with_capacity(inverted_pairs.len());
         let mut quants = Vec::with_capacity(inverted_pairs.len());
 
-        for (doc_id, (components, values)) in dataset.iter().enumerate() {
+        for (doc_id, (components, values)) in dataset.dataset_iter().enumerate() {
             let (minimum, quant, current_codes) = Self::quantize(values);
 
             minimums.push(minimum);
@@ -530,7 +535,7 @@ mod tests {
         );
 
         // Also add dataset itselft to the queries
-        for (c, v) in dataset.iter() {
+        for (c, v) in dataset.dataset_iter() {
             queries.push(c, v);
         }
 
@@ -538,14 +543,14 @@ mod tests {
         let summary = QuantizedSummary::from(&dataset);
 
         // For each query, compare distances
-        for (query_id, (query_components, query_values)) in queries.iter().enumerate() {
+        for (query_id, (query_components, query_values)) in queries.dataset_iter().enumerate() {
             // Get distances using DistancesIter
             let distances: Vec<f32> = summary.distances(query_components, query_values);
             assert_eq!(distances.len(), dataset.len());
 
             // Compute distances explicitly
             let mut expected_distances = Vec::with_capacity(dataset.len());
-            for (vec_components, vec_values) in dataset.iter() {
+            for (vec_components, vec_values) in dataset.dataset_iter() {
                 let distance = compute_inner_product(
                     query_components,
                     query_values,

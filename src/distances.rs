@@ -13,8 +13,7 @@ use crate::{ComponentType, ValueType};
 /// # Arguments
 ///
 /// * `query` - The dense query vector.
-/// * `v_term_ids` - The indices of the non-zero components in the vector.
-/// * `v_values` - The values of the non-zero components in the vector.
+/// * component_values - Iterator of the non-zero components and values in the vector.
 ///
 /// # Returns
 ///
@@ -26,28 +25,27 @@ use crate::{ComponentType, ValueType};
 /// use seismic::distances::dot_product_dense_sparse;
 ///
 /// let query = [1.0, 2.0, 3.0, 0.0];
-/// let v_term_ids = [0_u16, 2, 3];
+/// let v_term_ids = [0, 2, 3];
 /// let v_values = [1.0, 1.0, 1.5];
 ///
-/// let result = dot_product_dense_sparse(&query, &v_term_ids, &v_values);
+/// let result = dot_product_dense_sparse(&query, v_term_ids.into_iter().zip(v_values));
 /// assert_eq!(result, 4.0);
 /// ```
 #[inline]
-pub fn dot_product_dense_sparse<C, Q, V>(query: &[Q], v_term_ids: &[C], v_values: &[V]) -> f32
+pub fn dot_product_dense_sparse<Q>(
+    query: &[Q],
+    component_values: impl Iterator<Item = (usize, f32)>,
+) -> f32
 where
-    C: ComponentType,
     Q: ValueType,
-    V: ValueType,
 {
-    v_term_ids
-        .iter()
-        .zip(v_values)
-        .map(|(&c, &v)| {
+    component_values
+        .map(|(c, v)| {
             // SAFETY: query.len() == dim + 1. This assumes the input is sanitized.
-            unsafe { *query.get_unchecked(c.as_()) }
+            unsafe { *query.get_unchecked(c) }
                 .to_f32()
                 .unwrap()
-                .algebraic_mul(v.to_f32().unwrap())
+                .algebraic_mul(v)
         })
         .fold(0.0, |acc, x| acc.algebraic_add(x))
 }
@@ -60,8 +58,7 @@ where
 ///
 /// * `query_term_ids` - The ids of the query terms.
 /// * `query_values` - The values of the query terms.
-/// * `v_term_ids` - The ids of the vector terms.
-/// * `v_values` - The values of the vector terms.
+/// * component_values - Iterator of the non-zero components and values in the vector.
 ///
 /// # Returns
 ///
@@ -74,49 +71,41 @@ where
 ///
 /// let query_term_ids = [1_u32, 2, 7];
 /// let query_values = [1.0, 1.0, 1.0];
-/// let v_term_ids = [0_u32, 1, 2, 3, 4];
+/// let v_term_ids = [0_usize, 1, 2, 3, 4];
 /// let v_values = [0.1, 1.0, 1.0, 1.0, 0.5];
 ///
-/// let result = dot_product_with_merge(&query_term_ids, &query_values, &v_term_ids, &v_values);
+/// let result = dot_product_with_merge(&query_term_ids, &query_values, v_term_ids.into_iter().zip(v_values));
 /// assert_eq!(result, 2.0);
 /// ```
 #[inline]
 #[must_use]
-pub fn dot_product_with_merge<C, Q, V>(
+pub fn dot_product_with_merge<C, Q>(
     query_term_ids: &[C],
     query_values: &[Q],
-    v_term_ids: &[C],
-    v_values: &[V],
+    mut component_values: impl Iterator<Item = (usize, f32)>,
 ) -> f32
 where
     C: ComponentType,
     Q: ValueType,
-    V: ValueType,
 {
-    unsafe {
-        assert_unchecked(
-            v_term_ids.len() == v_values.len() && query_term_ids.len() == query_values.len(),
-        )
-    }
     let mut result = 0.0;
-    let mut v_iter = v_term_ids.iter().zip(v_values);
-    let mut current = v_iter.next();
+    let mut current = component_values.next();
     let b = current.is_some();
     for (&q_id, &q_v) in query_term_ids.iter().zip(query_values) {
         // This assert actually improves performance: https://github.com/rust-lang/rust/issues/134667
         if b {
             unsafe { assert_unchecked(current.is_some()) }
         }
-        while let Some((&v_id, _)) = current
-            && v_id < q_id
+        while let Some((v_id, _)) = current
+            && v_id < q_id.as_()
         {
-            current = v_iter.next();
+            current = component_values.next();
         }
         if !b {
             unsafe { assert_unchecked(current.is_none()) }
         }
         match current {
-            Some((&v_id, v_v)) if v_id == q_id => {
+            Some((v_id, v_v)) if v_id == q_id.as_() => {
                 result += v_v.to_f32().unwrap() * q_v.to_f32().unwrap();
             }
             None => {

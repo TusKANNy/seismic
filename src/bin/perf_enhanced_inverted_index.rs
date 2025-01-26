@@ -10,6 +10,7 @@ use seismic::json_utils::read_queries;
 use seismic::utils::read_from_path;
 
 use clap::Parser;
+use seismic::SparseDataset;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -73,7 +74,7 @@ pub fn main() {
 
     let nknn = args.n_knn;
 
-    let inverted_index: SeismicIndex<u16, f16> =
+    let inverted_index: SeismicIndex<SparseDataset<u16, f16>> =
         read_from_path(index_path.unwrap().as_str()).unwrap();
 
     //let queries = SparseDataset::<f32>::read_bin_file(&query_path.unwrap()).unwrap();
