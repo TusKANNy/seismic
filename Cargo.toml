@@ -11,6 +11,7 @@ readme = "README.md"
 
 [features]
 default = ["prefetch"]
+partitioned-dataset = []
 prefetch = []
 pyo3 = ["dep:pyo3", "dep:numpy"]
 
@@ -20,13 +21,30 @@ name = "seismic"
 # "cdylib" is necessary to produce a shared library for Python to import from.
 crate-type = ["cdylib", "lib"]
 
+[[bin]]
+name = "build_inverted_index_partitioned"
+path = "src/bin/build_inverted_index_partitioned.rs"
+required-features = ["partitioned-dataset"]
+
+[[bin]]
+name = "perf_inverted_index_partitioned"
+path = "src/bin/perf_inverted_index_partitioned.rs"
+required-features = ["partitioned-dataset"]
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 bincode = { version = "2.0", features = ["serde"] }
+bytemuck = "1.23"
 clap = { version = "4.5", features = ["derive"] }
+envparse = "0.1"
 rayon = "1.11"
 # TODO: f16 available in nightly, but not supported by crates: https://github.com/rust-num/num-traits/pull/333
-half = { version = "2.6", features = ["serde", "std", "num-traits"] }
+half = { version = "2.6", features = [
+    "bytemuck",
+    "serde",
+    "std",
+    "num-traits",
+] }
 # TODO: use upstream when https://gitlab.com/tspiteri/fixed/-/issues/69 is fixed
 # If it's not getting fixed, prefer using a git patch when https://github.com/rust-lang/cargo/issues/4648 is fixed
 fixed = { git = "https://gitlab.com/tinozzo123/fixed", branch = "fast_to_f32_hack", features = [

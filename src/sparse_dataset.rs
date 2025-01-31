@@ -36,7 +36,7 @@ pub trait SparseDatasetTrait: SpaceUsage {
 
     /// Iterates a document from a given ID, returning its components and values.
     #[inline]
-    fn get_iter(&self, id: usize) -> impl ExactSizeIterator<Item = (Self::Component, Self::Value)> {
+    fn get_iter(&self, id: usize) -> impl Iterator<Item = (Self::Component, Self::Value)> {
         let offset = self.offset_range(id);
         self.get_with_offset_iter(offset.start, offset.len())
     }
@@ -46,12 +46,12 @@ pub trait SparseDatasetTrait: SpaceUsage {
         &self,
         offset: usize,
         len: usize,
-    ) -> impl ExactSizeIterator<Item = (Self::Component, Self::Value)>;
+    ) -> impl Iterator<Item = (Self::Component, Self::Value)>;
 
     /// Returns a "prepared" query, which depends on the dataset type, for later use in either `dot_product_from_id` or `dot_product_from_offset`.
     fn prepare_query<D: ComponentType, W: ValueType>(
         &self,
-        query: impl ExactSizeIterator<Item = (D, W)>,
+        query: impl Iterator<Item = (D, W)>,
     ) -> Self::PreparedQuery<D, W>;
 
     /// Calculates the dot product of a prepared query (from `prepare_query`) with the specified ID of the document.
@@ -211,11 +211,11 @@ where
 
     fn prepare_query<D: ComponentType, W: ValueType>(
         &self,
-        query: impl ExactSizeIterator<Item = (D, W)>,
+        query: impl Iterator<Item = (D, W)>,
     ) -> Self::PreparedQuery<D, W> {
         const THRESHOLD_MERGE_SEARCH: usize = 10;
 
-        if query.len() > THRESHOLD_MERGE_SEARCH && self.dim < 2_usize.pow(18) {
+        if query.size_hint().0 > THRESHOLD_MERGE_SEARCH && self.dim < 2_usize.pow(18) {
             let mut vec = vec![W::zero(); self.dim];
             for (i, v) in query {
                 vec[i.as_()] = v;
@@ -569,7 +569,7 @@ where
     /// ```
     pub fn search<D: ComponentType, W: ValueType>(
         &self,
-        query: impl ExactSizeIterator<Item = (D, W)>,
+        query: impl Iterator<Item = (D, W)>,
         k: usize,
     ) -> Vec<(f32, usize)> {
         let prepared_query = self.prepare_query(query);

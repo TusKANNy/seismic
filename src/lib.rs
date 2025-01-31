@@ -2,7 +2,10 @@
 #![feature(array_windows)]
 #![feature(core_intrinsics)]
 #![feature(float_algebraic)]
+#![feature(generic_const_exprs)]
 #![feature(trait_alias)]
+#![feature(vec_into_chunks)]
+#![feature(vec_push_within_capacity)]
 #![cfg_attr(
     all(feature = "prefetch", target_arch = "aarch64"),
     feature(stdarch_aarch64_prefetch)
@@ -11,17 +14,19 @@
 
 use fixed::FixedU8;
 use fixed::FixedU16;
-use num_traits::{AsPrimitive, FromPrimitive, ToPrimitive, Zero};
+use num_traits::{AsPrimitive, FromPrimitive, ToPrimitive, Unsigned, Zero};
 
 pub mod sparse_dataset;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use num_traits::Unsigned;
+use bytemuck::Pod;
 pub use sparse_dataset::FromDatasetGenericF32;
 pub use sparse_dataset::SparseDataset;
 pub use sparse_dataset::SparseDatasetMut;
 pub use sparse_dataset::SparseDatasetTrait;
+
+pub mod partitioned_dataset;
 
 pub mod inverted_index;
 pub use inverted_index::InvertedIndex;
@@ -53,11 +58,21 @@ pub type FixedU8Q = FixedU8<U6>;
 pub type FixedU16Q = FixedU16<U8>;
 
 /// Marker for types used as values in a dataset
-pub trait ValueType =
-    SpaceUsage + Copy + ToPrimitive + Zero + Send + Sync + PartialOrd + FromPrimitive + FromF32;
+pub trait ValueType = SpaceUsage
+    + Copy
+    + ToPrimitive
+    + Zero
+    + Send
+    + Sync
+    + PartialOrd
+    + FromPrimitive
+    + FromF32
+    + Pod
+    + 'static;
 
 pub trait ComponentType = AsPrimitive<usize>
     + FromPrimitive
+    + ToPrimitive
     + Unsigned
     + SpaceUsage
     + Copy
@@ -67,7 +82,8 @@ pub trait ComponentType = AsPrimitive<usize>
     + Sync
     + Hash
     + Eq
-    + Ord;
+    + Ord
+    + Pod;
 
 #[cfg(feature = "pyo3")]
 pub mod pylib;
