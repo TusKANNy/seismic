@@ -1,10 +1,13 @@
+<h1 align="center">Seismic</h1>
 <p align="center">
-    <img width="200px" src="imgs/logo.jpg" />
-    <h1 align="center">Seismic</h1>
+    <img width="200px" src="imgs/new_logo_seismic.webp" />
+    
 </p>
 
 <p align="center">
-    <a href="-"><img src="https://badgen.net/static/paper/SIGIR 2024/green" /></a>
+    <a href="https://dl.acm.org/doi/pdf/10.1145/3626772.3657769"><img src="https://badgen.net/static/paper/SIGIR 2024/green" /></a>  
+    <a href="https://dl.acm.org/doi/pdf/10.1145/3627673.3679977"><img src="https://badgen.net/static/paper/CIKM 2024/blue" /></a>
+    <a href="https://arxiv.org/abs/2501.11628"><img src="https://badgen.net/static/paper/ECIR 2025/yellow" /></a>
     <a href="http://arxiv.org/abs/2404.18812"><img src="https://badgen.net/static/arXiv/2404.18812/red" /></a>
 </p>
 
@@ -14,34 +17,54 @@
     <a href="LICENSE.md"><img src="https://badgen.net/static/license/MIT/blue" /></a>
 </p>
 
-Seismic is designed for effective and efficient retrieval over *learned sparse embeddings*.
-Pleasantly, the design uses in a new way two familiar data structures: the inverted and the forward index.
-The approach organizes inverted lists into geometrically-cohesive blocks.
-Each block is equipped with a sketch, serving as a summary of the vectors contained in it. The summaries allow us to skip over a large number of blocks during retrieval and save substantial compute. When a summary indicates that a block must be examined, we use the forward index to retrieve exact embeddings of its documents and compute inner products.
-
-The figure below gives an overview of the overall design.
-
-<p align="center">
-  <img src="imgs/index.png" width="100%" alt="The design of Seismic.">
-</p>
-
-Experimental results show that single-threaded query processing using Seismic, reaches sub-millisecond per-query latency on various sparse embeddings of the MSMarco dataset while maintaining high recall. The results indicate that Seismic is one to two orders of magnitude faster than state-of-the-art inverted index-based solutions and further outperforms the winning (graph-based) submissions to the BigANN Challenge by a significant margin.
-
-See the paper [[1](#bib)] for more details.
+Seismic is an data structure designed for effective and efficient retrieval over *learned sparse embeddings*.
 
 
-## Experimental Results
-We report here a comparison with other state-of-the-art indexes for sparse vectors. See the paper [[1](#bib)] for more detailed experimental evaluation.
+## Installation 
+
+Seismic can be install by running
+```bash
+pip install py-seismic 
+
+```
+Detailed instructions on how to install Seismic to maximize its performance can be found in `docs/Installation.md`
 
 
-<p align="center">
-  <img src="imgs/seismic_table.png" width="100%" alt="Comparison of Seismic with sparse kANN state-of-the-art.">
-</p>
+## Quick Start 
 
-### How to Replicate the Experiments
+Given a collection as a `jsonl` file  (details [here](#data-format)), you can quickly index with
+```python
+json_input_file = "/data4/lvenuta/splade/data/docs_anserini.jsonl"
 
-To run the experiments with Seismic, we need to compile the binary executables using:
+index = SeismicIndex.build(json_input_file)
+print("Number of documents: ", index.len)
+print("Avg number of non-zero components: ", index.nnz / index.len)
+print("Dimensionality of the vectors: ", index.dim)
 
+index.print_space_usage_byte()
+```
+
+and then exploit Seismic to quickly retrieve your set of queries
+
+```python
+MAX_TOKEN_LEN = 30
+string_type  = f'U{MAX_TOKEN_LEN}'
+
+query = {"a": 3.5, "certain": 3.5, "query": 0.4}
+queries_ids = np.array([0])
+query_components = np.array(list(query.keys()), dtype=string_type)
+query_values = np.array(list(query.values()), dtype=np.float32))
+
+results = index.batch_search(
+    queries_ids=queries_ids,
+    query_components=query_components,
+    query_values=query_values,
+    k=10
+)
+```
+
+
+## Compile the Rust code
 ```bash
 RUSTFLAGS="-C target-=native" cargo build --release
 ```
@@ -104,89 +127,6 @@ The exact top-10 results of each query are written in the file `groundtruth.tsv`
 Even if multithreading is enabled here, the execution may take a considerable amount of time due to the brute-force exact query algorithm that scans the entire dataset for each query.
 
 
-### <a name="parameters">Seismic Parameters</a>
-
-The table below reports the building parameters we used for the different datasets.
- 
-| Dataset | `--n-postings` | `--centroid-fraction` |`--summary-energy` |
-|-----------------|-----------------:|-----------------:|----------------:|
-| MSMARCO-Splade  | 4000    | 0.1    | 0.4    |
-| MSMARCO-Effsplade | 4000 | 0.1 | 0.4 |
-| MSMARCO-UniCOIL-T5 | 4000 |  0.1 | 0.4 |
-| NQ-Splade | 3500 | 0.15 | 0.5 |
-
-
-The table below reports the query parameters we used for the different datasets and various levels of accuracy.
-
-Results may change slightly if you re-create the indexes, due to the random selection of the centroids of Seismic. 
-
-**Splade on MSMARCO**
-|   $hf$ |   $q_c$ |   Time \[ $\mu s$ \] |   Accuracy@10 |
-|-----------------|-----------------:|-----------------:|----------------:|
-|           0.9 |           3 |    187 |    90.49 |
-|           0.9 |           4 |    206 |    92.27 |
-|           0.9 |           4 |    206 |    92.27 |
-|           0.9 |           5 |    222 |    93.13 |
-|           0.9 |           8 |    269 |    94.07 |
-|           0.8 |           5 |    303 |    95.69 |
-|           0.8 |           6 |    348 |    96.11 |
-|           0.7 |           6 |    531 |    97.17 |
-
-
-**E-Splade on MSMARCO**
-|   $hf$ |   $q_c$ |   Time \[ $\mu s $\] |   Accuracy@10 |
-|-----------------|-----------------:|-----------------:|----------------:|
-|           1   |           3 |    222 |    90.99 |
-|           1   |           4 |    222 |    90.99 |
-|           1   |           4 |    239 |    93.26 |
-|           1   |           4 |    239 |    93.26 |
-|           1   |           6 |    256 |    94.17 |
-|           0.9 |           4 |    376 |    95.95 |
-|           0.9 |           5 |    383 |    96.53 |
-|           0.8 |           5 |    581 |    97.47 |
-
-**Unicoil-T5 on MSMARCO**
-
-|   $hf$ |   $q_c$ |   Time \[ $\mu s$ \] |   Accuracy@10 |
-|-----------------|-----------------:|-----------------:|----------------:|
-|           1   |           3 |    115 |    90.04 |
-|           1   |           4 |    123 |    91.33 |
-|           1   |           6 |    133 |    92.07 |
-|           0.9   |           3 |    168 |    94.03 |
-|           0.9   |           3 |    168 |    94.03 |
-|           0.9 |           4 |    180 |    95.13 |
-|           0.8 |           4 |    268 |    96.76 |
-|           0.8 |           5 |    280 |    97.19 |
-
-**NQ on MSMARCO**
-|   $hf$ |   $q_c$ |   Time \[ $\mu s$ \] |   Accuracy@10 |
-|-----------------|-----------------:|-----------------:|----------------:|
-|           1   |           3 |    195 |    91.25 |
-|           1   |           4 |    195 |    91.25 |
-|           1   |           6 |    211 |    92.23 |
-|           0.9   |           3 |    240 |    93.24 |
-|           0.9   |           3 |    266 |    95.17 |
-|           0.9 |           4 |    266 |    95.17    |
-|           0.8 |           4 |    286 |    96.26 |
-|           0.8 |           5 |    362 |    97.18 |
-
-
-We provide a script to explore the search parameters given a trained index; the script is `scripts/grid_search_only_accuracy.sh`. You can use it as follows:
-
-```bash
-index_path=""
-results_file_path=""
-queries_path=""
-gt_path=""
-
-bash scripts/grid_search_only_accuracy.sh $index_path $results_file_path $queries_path $gt_path
-```
-
-The script writes the result of the grid search in `results_file_path`. To get the fastest configuration at each accuracy cut, simply run
-
-```bash
-python scripts/extract_results.py --file-path $results_file_path
-```
 
 ## <a name="scripts">Python Scripts</a>
 
@@ -204,7 +144,8 @@ tar -xvzf documents.tar.gz
 
 or by using the Huggingface dataset download [tool](https://huggingface.co/docs/hub/en/datasets-downloading).
 
-### Convert the Data
+### Data Format
+
 
 Documents and queries should have the following format. Each line should be a JSON-formatted string with the following fields:
 - `id`: must represent the ID of the document as an integer.
