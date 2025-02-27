@@ -117,6 +117,8 @@ Check out our `docs` folder for more detailed guide on use to use Seismic direct
 
 ### <a name="bib">📚 Bibliography</a>
 1. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini. "*Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations*." In ACM SIGIR. 2024. 
+2. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, and Rossano Venturini. "Pairing Clustered Inverted Indexes with κ-NN Graphs for Fast Approximate Retrieval over Learned Sparse Representations."  In ACM CIKM 2024.
+3. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli,Rossano Venturini, and Leonardo Venuta. Investigating the Scalability of Approximate Sparse Retrieval Algorithms to Massive Datasets. *To Appear* In ECIR 2025.
 
 ### Citation License
 
@@ -124,6 +126,8 @@ The source code in this repository is subject to the following citation license:
 
 By downloading and using this software, you agree to cite the under-noted paper in any kind of material you produce where it was used to conduct a search or experimentation, whether be it a research paper, dissertation, article, poster, presentation, or documentation. By using this software, you have agreed to the citation license.
 
+
+SIGIR 2024
 ```bibtex
 @inproceedings{Seismic,
   author = {Sebastian Bruch and Franco Maria Nardini and Cosimo Rulli and Rossano Venturini},
@@ -131,5 +135,16 @@ By downloading and using this software, you agree to cite the under-noted paper 
   booktitle = {The 47th International ACM SIGIR Conference on Research and Development in Information Retrieval ({SIGIR})},
   publisher = {ACM},
   year = {2024}
+}
+```
+CIKM 2024
+
+```bibtex 
+@inproceedings{bruch2024pairing,
+  title={Pairing Clustered Inverted Indexes with $\kappa$-NN Graphs for Fast Approximate Retrieval over Learned Sparse Representations},
+  author={Bruch, Sebastian and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano},
+  booktitle={Proceedings of the 33rd ACM International Conference on Information and Knowledge Management},
+  pages={3642--3646},
+  year={2024}
 }
 ```
