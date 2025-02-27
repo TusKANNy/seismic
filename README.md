@@ -17,24 +17,29 @@
     <a href="LICENSE.md"><img src="https://badgen.net/static/license/MIT/blue" /></a>
 </p>
 
-Seismic is an data structure designed for effective and efficient retrieval over *learned sparse embeddings*.
+Seismic is a highly efficient data structure for fast retrieval over *learned sparse embeddings*. Designed with scalability and performance in mind, Seismic makes querying sparse representations seamless.
 
 
-## Installation 
 
-Seismic can be install by running
+
+### ⚡ Installation  
+
+
+To install Seismic, simply run:
+
+
 ```bash
 pip install py-seismic 
-
 ```
-Detailed instructions on how to install Seismic to maximize its performance can be found in `docs/Installation.md`
+For performance optimizations, check out the detailed installation guide in docs/Installation.md.
 
 
-## Quick Start 
+### 🚀 Quick Start  
 
-Given a collection as a `jsonl` file  (details [here](#data-format)), you can quickly index with
+
+Given a collection as a `jsonl` file  (details [here](#data-format)), you can quickly index it by running 
 ```python
-json_input_file = "/data4/lvenuta/splade/data/docs_anserini.jsonl"
+json_input_file = "" # Your data collection
 
 index = SeismicIndex.build(json_input_file)
 print("Number of documents: ", index.len)
@@ -53,7 +58,7 @@ string_type  = f'U{MAX_TOKEN_LEN}'
 query = {"a": 3.5, "certain": 3.5, "query": 0.4}
 queries_ids = np.array([0])
 query_components = np.array(list(query.keys()), dtype=string_type)
-query_values = np.array(list(query.values()), dtype=np.float32))
+query_values = np.array(list(query.values()), dtype=np.float32)
 
 results = index.batch_search(
     queries_ids=queries_ids,
@@ -69,11 +74,12 @@ results = index.batch_search(
 
 
 
-### Download the Datasets
+### 📥 Download the Datasets  
+
 
 The embeddings in ```jsonl```  format used in our experiments can be downloaded from this HugginFace [repository](https://huggingface.co/collections/tuskanny/seismic-datasets-6610108d39c0f2299f20fc9b), together with the queries representations. 
 
-As an example, the <span style="font-variant:small-caps;">Splade</span> embeddings for <span style="font-variant:small-caps;">MsMarco</span> can be downloaded and extracted by runnning the following commands.
+As an example, the <span style="font-variant:small-caps;">Splade</span> embeddings for <span style="font-variant:small-caps;">MsMarco</span> can be downloaded and extracted by running the following commands.
 
 ```bash
 wget https://huggingface.co/datasets/tuskanny/seismic-msmarco-splade/resolve/main/documents.tar.gz?download=true -O documents.tar.gz 
@@ -83,7 +89,7 @@ tar -xvzf documents.tar.gz
 
 or by using the Huggingface dataset download [tool](https://huggingface.co/docs/hub/en/datasets-downloading).
 
-### Data Format
+### 📄 Data Format  
 
 
 Documents and queries should have the following format. Each line should be a JSON-formatted string with the following fields:
@@ -103,12 +109,16 @@ This will generate a ```data``` directory at the ```/path/to/output``` path, wit
 If you download the NQ dataset from the HuggingFace repo, you need to specify ```--input-format nq``` as it uses a slightly different format. 
 
 
+### Resourcers
+
+Check out our `docs` folder for more detailed guide on use to use Seismic directly in Rust, replicate the results of our paper, or use Seismic with your custom collection. 
 
 
-## <a name="bib">Bibliography</a>
+
+### <a name="bib">📚 Bibliography</a>
 1. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini. "*Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations*." In ACM SIGIR. 2024. 
 
-## Citation License
+### Citation License
 
 The source code in this repository is subject to the following citation license:
 
