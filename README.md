@@ -77,9 +77,9 @@ results = index.batch_search(
 ### 📥 Download the Datasets  
 
 
-The embeddings in ```jsonl```  format used in our experiments can be downloaded from this HugginFace [repository](https://huggingface.co/collections/tuskanny/seismic-datasets-6610108d39c0f2299f20fc9b), together with the queries representations. 
+The embeddings in ```jsonl```  format for several encoders and several datasets can be downloaded from this HuggingFace [repository](https://huggingface.co/collections/tuskanny/seismic-datasets-6610108d39c0f2299f20fc9b), together with the queries representations. 
 
-As an example, the <span style="font-variant:small-caps;">Splade</span> embeddings for <span style="font-variant:small-caps;">MsMarco</span> can be downloaded and extracted by running the following commands.
+As an example, the Splade embeddings for MSMARCO can be downloaded and extracted by running the following commands.
 
 ```bash
 wget https://huggingface.co/datasets/tuskanny/seismic-msmarco-splade/resolve/main/documents.tar.gz?download=true -O documents.tar.gz 
@@ -109,7 +109,7 @@ This will generate a ```data``` directory at the ```/path/to/output``` path, wit
 If you download the NQ dataset from the HuggingFace repo, you need to specify ```--input-format nq``` as it uses a slightly different format. 
 
 
-### Resourcers
+### Resources
 
 Check out our `docs` folder for more detailed guide on use to use Seismic directly in Rust, replicate the results of our paper, or use Seismic with your custom collection. 
 
