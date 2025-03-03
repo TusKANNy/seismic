@@ -2,8 +2,9 @@ use seismic::inverted_index::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
     SummarizationStrategy, ClusteringAlgorithmClap
 };
-use seismic::{InvertedIndex, SparseDataset};
+use seismic::SeismicIndex;
 
+use half::f16;
 use std::fs;
 
 use clap::Parser;
@@ -33,7 +34,7 @@ struct Args {
     #[arg(default_value_t = 10)]
     block_size: usize,
 
-    /// Regulates the number of centroids built for each posting list. The number of centroids is at most the specified fraction of the posting list lenght.
+    /// Regulates the number of centroids built for each posting list. The number of centroids is at most the fraction of the posting list lenght.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.1)]
     centroid_fraction: f32,
@@ -41,7 +42,7 @@ struct Args {
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 0.5)]
     summary_energy: f32,
-
+    
     #[clap(long, value_parser)]
    // #[arg(default_value_t = ClusteringAlgorithmClap::default())]
     clustering_algorithm: ClusteringAlgorithmClap,
@@ -67,7 +68,7 @@ struct Args {
     /// Path to the file of precomputed neareast neighbors.
     #[clap(long, value_parser)]
     knn_path: Option<String>,
-
+    
     /// Number of documents per chunk in the batched indexing mode.
     #[clap(short, long, value_parser)]
     batched_indexing: Option<usize>,
@@ -75,18 +76,6 @@ struct Args {
 
 pub fn main() {
     let args = Args::parse();
-
-    let dataset = SparseDataset::<f32>::read_bin_file(&args.input_file.unwrap())
-        .unwrap()
-        .quantize_f16();
-
-    println!("Number of Vectors: {}", dataset.len());
-    println!("Number of Dimensions: {}", dataset.dim());
-
-    println!(
-        "Avg number of components: {:.2}",
-        dataset.nnz() as f32 / dataset.len() as f32
-    );
 
     let time = Instant::now();
 
@@ -118,20 +107,22 @@ pub fn main() {
         .summarization_strategy(SummarizationStrategy::EnergyPreserving {
             summary_energy: args.summary_energy,
         })
-        .knn(knn_config)
-        .batched_indexing(args.batched_indexing);
-    
+        .knn(knn_config);
     println!("\nBuilding the index...");
     println!("{:?}", config);
 
-    let inverted_index = InvertedIndex::build(dataset, config);
+    //    let inverted_index = InvertedIndexWrapper::new(dataset, config, None, None);
+    let collection_path = args.input_file.unwrap();
+
+    let index = SeismicIndex::<f16>::from_json(&collection_path, config, None);
 
     let elapsed = time.elapsed();
     println!(
         "Time to build {} secs (before serializing)",
         elapsed.as_secs()
     );
-    let serialized = bincode::serialize(&inverted_index).unwrap();
+
+    let serialized = bincode::serialize(&index).unwrap();
 
     let path = args.output_file.unwrap() + ".index.seismic";
 

@@ -498,6 +498,27 @@ where
         self.offsets.binary_search(&offset).unwrap()
     }
 
+    #[must_use]
+    #[inline]
+    pub fn id_to_offset(&self, id: usize) -> usize {
+        assert!(id < self.n_vecs, "The id is out of range");
+        self.offsets[id]
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn id_to_offset_len(&self, id: usize) -> (usize, usize) {
+        assert!(id < self.n_vecs, "The id is out of range");
+        (self.offsets[id], self.offsets[id + 1] - self.offsets[id])
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn id_to_encoded_offset(&self, id: usize) -> usize {
+        assert!(id < self.n_vecs, "The id is out of range");
+        self.offsets[id] / 2
+    }
+
     // The format of this binary file is the following.
     // Number of vectors n_vecs qin 4 bytes, follows n_vecs sparse vectors.
     // For each vector we encode:
@@ -689,6 +710,23 @@ where
 
         (v_components, v_values)
     }
+
+    //TODO: we need to change this into push_iterator.
+    pub fn push_pairs(&mut self, pairs: &[(u16, T)]) {
+        assert!(
+            pairs.windows(2).all(|w| w[0].0 < w[1].0),
+            "Components must be given in sorted order"
+        );
+        if pairs.last().unwrap().0 as usize >= self.d {
+            self.d = pairs.last().unwrap().0 as usize + 1;
+        }
+
+        self.components.extend(pairs.iter().map(|(c, _)| c));
+        self.values.extend(pairs.iter().map(|(_, v)| v));
+        self.offsets
+            .push(*self.offsets.last().unwrap() + pairs.len());
+    }
+
 
     /// Adds a new sparse vector to the dataset.
     ///

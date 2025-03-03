@@ -1,0 +1,64 @@
+name =          "evaluate_random_kmeans_construction"
+title =         "Evaluate construction algorithm with random Kmeans"
+description =   "Evaluate construction algorithm with random Kmeans"
+dataset =       "Splade cocondenser on MS-MARCO"
+
+[settings]
+k =             10
+n-runs =        1       # Number of runs. PLEASE think carefully how increasing 
+                        # this may influence your query time
+# NUMA =          "numactl --physcpubind='0-15' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
+build =         true    # Need to build the index or the index is already built?
+
+[folder] 
+data =          "~/sparse_datasets/msmarco/cocondenser/data"
+index =         "~/sparse_datasets/msmarco/cocondenser/indexes"
+experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
+
+[filename]
+dataset =       "documents.bin"
+queries =       "queries.bin"
+groundtruth =   "groundtruth.tsv"
+index =         "approx_kmeans"
+
+[indexing_parameters]
+n-postings =            4000
+centroid-fraction =     0.1
+summary-energy =        0.4
+knn =                   0
+clustering-algorithm =  "random-kmeans" # Possible options are "random-kmeans", "random-kmeans-inverted-index", "random-kmeans-inverted-index-approx"
+kmeans-doc-cut =        15    # needed by "random-kmeans-inverted-index" and "random-kmeans-inverted-index-approx"
+kmeans-pruning-factor = 0.005 # Only used by random-kmeans-inverted-index
+
+[query]
+    [query.recall_90]
+    query-cut =         3
+    heap-factor =       0.9
+
+    [query.recall_91]
+    query-cut =         4
+    heap-factor =       0.9
+    
+    [query.recall_92]
+    query-cut =         4
+    heap-factor =       0.9
+
+    [query.recall_93]
+    query-cut =         5
+    heap-factor =       0.9
+
+    [query.recall_94]
+    query-cut =         8
+    heap-factor =       0.9
+
+    [query.recall_95]
+    query-cut =         5
+    heap-factor =       0.8
+
+    [query.recall_96]
+    query-cut =         6
+    heap-factor =       0.8
+
+    [query.recall_97]
+    query-cut =         6
+    heap-factor =       0.7

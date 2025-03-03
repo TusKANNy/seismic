@@ -1,0 +1,44 @@
+name =          "test_grid_search"
+title =         "Script to configure a grid search"
+description =   "Script to configure a grid search"
+dataset =       "Splade cocondenser on MS-MARCO"
+# compile-command = "cargo build" # Compile in debug mode? default is release mode
+# build-command = "./target/release/build_inverted_index"
+# query-command = "./target/debug/perf_inverted_index"
+
+[settings]
+k =             10
+n-runs =        1       # Number of runs. PLEASE think carefully how increasing 
+                        # this may influence your query time
+# NUMA =        ""      # "numactl --physcpubind='0-15' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
+metric =        "RR@10"
+build =         true    # Do we need to build the index?
+
+[folder] 
+data =          "~/sparse_datasets/msmarco_v1_passage/cocondenser/data"
+index =         "~/sparse_datasets/msmarco_v1_passage/cocondenser/indexes"
+qrels_path =    "~/sparse_datasets/msmarco_v1_passage/qrels.dev.small.tsv"
+experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
+
+[filename]
+dataset =       "documents.bin"
+queries =       "queries.bin"
+groundtruth =   "groundtruth.tsv"
+doc_ids =       "doc_ids.npy"
+query_ids =     "queries_ids.npy"
+index =         "test_grid_search"
+
+[indexing_parameters]
+n-postings =            [500, 1000]
+centroid-fraction =     [0.1]
+summary-energy =        [0.4, 0.5,]
+knn =                   [0]
+clustering-algorithm =  ["random-kmeans"] # Possible options are "random-kmeans", "random-kmeans-inverted-index", "random-kmeans-inverted-index-approx"
+kmeans-doc-cut =        [15]    # needed by "random-kmeans-inverted-index" and "random-kmeans-inverted-index-approx"
+kmeans-pruning-factor = [0.005] # Only used by random-kmeans-inverted-index
+
+[querying_parameters]
+query-cut =             [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+heap-factor =           [0.7, 0.8, 0.9, 1.0]
+knn =                   [0]
+first_sorted =          [true, false]

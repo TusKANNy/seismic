@@ -1,0 +1,71 @@
+name =          "unicoil_t5_msmarco"
+title =         "Seismic on Unicoil T5 embeddings of MS MARCO"
+description =   "Seismic on Unicoil T5 embeddings of MS MARCO for the Table 1 (row 15) on SIGIR 2024 paper"
+dataset =       "Unicoil-T5 on MS-MARCO"
+# compile-command = "cargo build" # Compile in debug mode? default is release mode
+# build-command = "./target/release/build_inverted_index"
+# query-command = "./target/debug/perf_inverted_index"
+
+[settings]
+k =             10
+n-runs =        1       # Number of runs. PLEASE think carefully how increasing 
+                        # this may influence your query time
+# NUMA =        ""      # "numactl --physcpubind='0-15' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
+build =         true   # Need to build the index or the index is already built?
+metric =        "RR@10"
+
+[folder] 
+data =          "~/sparse_datasets/msmarco_v1_passage/unicoil-t5/data"
+index =         "~/sparse_datasets/msmarco_v1_passage/unicoil-t5/indexes"
+qrels_path =    "~/sparse_datasets/msmarco_v1_passage/qrels.dev.small.tsv"
+experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
+
+[filename]
+dataset =       "documents.bin"
+queries =       "queries.bin"
+groundtruth =   "groundtruth.tsv"
+doc_ids =       "doc_ids.npy"
+query_ids =     "queries_ids.npy"
+index =         "sigir_2024_unicoil"
+
+[indexing_parameters]
+n-postings =            4000
+centroid-fraction =     0.1
+summary-energy =        0.4
+knn =                   0
+clustering-algorithm =  "random-kmeans" # Possible options are "random-kmeans", "random-kmeans-inverted-index", "random-kmeans-inverted-index-approx"
+kmeans-doc-cut =        15    # needed by "random-kmeans    -inverted-index" and "random-kmeans-inverted-index-approx"
+kmeans-pruning-factor = 0.005 # Only used by random-kmeans-inverted-index
+
+[query]
+    [query.recall_90]
+    query-cut =         3
+    heap-factor =       1
+
+    [query.recall_91]
+    query-cut =         4
+    heap-factor =       1
+    
+    [query.recall_92]
+    query-cut =         6
+    heap-factor =       1
+
+    [query.recall_93]
+    query-cut =         3
+    heap-factor =       0.9
+
+    [query.recall_94]
+    query-cut =         3  
+    heap-factor =       0.9
+
+    [query.recall_95]
+    query-cut =         4
+    heap-factor =       0.9
+
+    [query.recall_96]
+    query-cut =         4
+    heap-factor =       0.8
+    
+    [query.recall_97]
+    query-cut =         5
+    heap-factor =       0.8
