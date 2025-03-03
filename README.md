@@ -130,11 +130,14 @@ By downloading and using this software, you agree to cite the under-noted paper 
 SIGIR 2024
 ```bibtex
 @inproceedings{Seismic,
-  author = {Sebastian Bruch and Franco Maria Nardini and Cosimo Rulli and Rossano Venturini},
-  title = {Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations},
-  booktitle = {The 47th International ACM SIGIR Conference on Research and Development in Information Retrieval ({SIGIR})},
-  publisher = {ACM},
-  year = {2024}
+  author    = {Sebastian Bruch and Franco Maria Nardini and Cosimo Rulli and Rossano Venturini},
+  title     = {Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations},
+  booktitle = {The 47th International {ACM} {SIGIR} {C}onference on Research and Development in Information Retrieval ({SIGIR})},
+  pages     = {152--162},
+  publisher = {{ACM}},
+  year      = {2024},
+  url       = {https://doi.org/10.1145/3626772.3657769},
+  doi       = {10.1145/3626772.3657769},
 }
 ```
 CIKM 2024
