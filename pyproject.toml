@@ -3,11 +3,38 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "test-py-seismic"
+name = "py-seismic"
+version = "0.1.0"
+description = "Seismic: A high-performance data structure for fast retrieval over learned sparse embeddings."
 requires-python = ">=3.7"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
+    "License :: OSI Approved :: MIT License",
+
 ]
-readme = "README_PY.md"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    { name = "Sebastian Bruch", email = "s.bruch@northeastern.edu"},
+    { name = "Franco Maria Nardini", email = "francomaria.nardini@isti.cnr.it" },
+    { name = "Cosimo Rulli", email = "cosimo.rulli@gmail.com"},
+    { name = "Rossano Venturini", email = "rossano.venturini@unipi.it"},
+    { name = "Leonardo Venuta", email = "l.venuta@studenti.unipi.it"}
+
+]
+keywords = ["search", "indexing", "sparse retrieval"]
+
+
+dependencies = [
+    "numpy>=1.21",
+    "pandas",
+    "ir_measures",
+    "ir_datasets",
+    "termcolor",
+    "psutil",
+    "toml",
+    "rankx",
+    "pytrec_eval",
+]

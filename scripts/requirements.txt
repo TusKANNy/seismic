@@ -4,3 +4,5 @@ ir_measures
 termcolor
 psutil
 toml
+rankx 
+pytrec_eval
