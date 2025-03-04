@@ -40,3 +40,5 @@ build/
 
 # Windows
 Thumbs.db
+
+*.ipynb_checkpoints/*
