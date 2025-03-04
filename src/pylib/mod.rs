@@ -1,5 +1,6 @@
 use crate::inverted_index::{
-    BlockingStrategy, Configuration, PruningStrategy, SummarizationStrategy, Knn, KnnConfiguration, ClusteringAlgorithm
+    BlockingStrategy, ClusteringAlgorithm, Configuration, Knn, KnnConfiguration, PruningStrategy,
+    SummarizationStrategy,
 };
 
 use crate::SeismicIndex as Index;
@@ -7,17 +8,16 @@ use half::f16;
 use half::slice::HalfFloatSliceExt;
 
 use indicatif::ParallelProgressIterator;
-use numpy::{PyReadonlyArrayDyn, PyFixedUnicode, PyArrayMethods};
+use numpy::{PyArrayMethods, PyFixedUnicode, PyReadonlyArrayDyn};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 
-use std::fs;
 use std::collections::HashMap;
+use std::fs;
 
 use crate::{InvertedIndex, SparseDataset};
 use rayon::prelude::*;
-
 
 //TODO: write SEISMIC_STRING as a function of MAX_TOKEN_LEN
 const MAX_TOKEN_LEN: usize = 30;
@@ -38,7 +38,6 @@ pub struct SeismicIndex {
 
 #[pymethods]
 impl SeismicIndex {
-
     #[getter]
     pub fn get_dim(&self) -> PyResult<usize> {
         Ok(self.index.dim())
@@ -62,8 +61,8 @@ impl SeismicIndex {
     pub fn print_space_usage_byte(&self) {
         self.index.print_space_usage_byte();
     }
- 
-    pub fn get(&self, id: usize) -> PyResult<(Vec<u16>, Vec<f32>)>  {
+
+    pub fn get(&self, id: usize) -> PyResult<(Vec<u16>, Vec<f32>)> {
         let entry = self.index.dataset().get(id);
         Ok((entry.0.to_vec(), entry.1.to_f32_vec()))
     }
@@ -76,7 +75,7 @@ impl SeismicIndex {
     pub fn load(index_path: &str) -> PyResult<SeismicIndex> {
         let serialized: Vec<u8> = fs::read(index_path).unwrap();
         let index = bincode::deserialize::<Index<f16>>(&serialized).unwrap();
-        Ok(SeismicIndex{ index })
+        Ok(SeismicIndex { index })
     }
 
     pub fn save(&self, path: &str) {
@@ -94,7 +93,12 @@ impl SeismicIndex {
     }
 
     pub fn save_knn(&self, path: &str) {
-        self.index.inverted_index().knn().unwrap().serialize(path).unwrap();
+        self.index
+            .inverted_index()
+            .knn()
+            .unwrap()
+            .serialize(path)
+            .unwrap();
     }
 
     #[pyo3(signature = (knn_path, nknn=None))]
@@ -103,12 +107,11 @@ impl SeismicIndex {
         self.index.add_knn(knn);
     }
 
-
     /*
     Order of attributes matters:
     Rust processes attributes sequentially, and attributes like #[pyo3(...)] and #[staticmethod] interact with each other. By placing:
     #[allow(clippy::too_many_arguments)] above #[staticmethod], it ensures Clippy's lint suppression happens first without interfering
-    with Pyo3's attribute processing. When #[staticmethod] comes first, it can cause unexpected behavior if the following attributes 
+    with Pyo3's attribute processing. When #[staticmethod] comes first, it can cause unexpected behavior if the following attributes
     aren't interpreted correctly.                                                                                                   */
     #[allow(clippy::too_many_arguments)]
     #[staticmethod]
@@ -126,10 +129,10 @@ impl SeismicIndex {
         num_threads: usize,
     ) -> PyResult<SeismicIndex> {
         rayon::ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .build()
-        .unwrap();
-        
+            .num_threads(num_threads)
+            .build()
+            .unwrap();
+
         let knn_config = KnnConfiguration::new(nknn, knn_path);
 
         let config = Configuration::default()
@@ -150,8 +153,9 @@ impl SeismicIndex {
 
         println!("\nBuilding the index...");
         println!("{:?}", config);
-        
-        let index = Index::from_file(&input_path.to_owned(), config, input_token_to_id_map).unwrap();
+
+        let index =
+            Index::from_file(&input_path.to_owned(), config, input_token_to_id_map).unwrap();
 
         Ok(SeismicIndex { index })
     }
@@ -166,7 +170,7 @@ impl SeismicIndex {
         query_cut: usize,
         heap_factor: f32,
         n_knn: usize,
-        sorted: bool
+        sorted: bool,
     ) -> Vec<(String, f32, String)> {
         self.index.search(
             &query_id,
@@ -203,12 +207,30 @@ impl SeismicIndex {
             .build()
             .unwrap();
 
-        let qv: Vec<Vec<f32>> = query_values.iter().map(|i| i.extract::<PyReadonlyArrayDyn<f32>>().unwrap().to_vec().unwrap()).collect();
+        let qv: Vec<Vec<f32>> = query_values
+            .iter()
+            .map(|i| {
+                i.extract::<PyReadonlyArrayDyn<f32>>()
+                    .unwrap()
+                    .to_vec()
+                    .unwrap()
+            })
+            .collect();
 
-        let qc = query_components.iter().map(|i| { 
-            let array = i.extract::<PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>>().unwrap();
-            array.to_vec().unwrap().iter().map(|s| s.to_string()).collect::<Vec<_>>()
-        } ).collect::<Vec<_>>();
+        let qc = query_components
+            .iter()
+            .map(|i| {
+                let array = i
+                    .extract::<PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>>()
+                    .unwrap();
+                array
+                    .to_vec()
+                    .unwrap()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
 
         let results: Vec<_> = queries_ids
             .to_vec()
@@ -227,11 +249,11 @@ impl SeismicIndex {
                     query_cut,
                     heap_factor,
                     n_knn,
-                    sorted
+                    sorted,
                 )
             })
             .collect();
-        
+
         results
     }
 }
@@ -243,7 +265,6 @@ pub struct SeismicIndexRaw {
 
 #[pymethods]
 impl SeismicIndexRaw {
-
     #[getter]
     pub fn get_dim(&self) -> PyResult<usize> {
         Ok(self.inverted_index.dim())
@@ -264,7 +285,6 @@ impl SeismicIndexRaw {
         Ok(self.inverted_index.knn_len())
     }
 
-
     #[getter]
     pub fn get_is_empty(&self) -> PyResult<bool> {
         Ok(self.inverted_index.is_empty())
@@ -274,7 +294,7 @@ impl SeismicIndexRaw {
         self.inverted_index.print_space_usage_byte();
     }
 
-    pub fn get(&self, id: usize) -> PyResult<(Vec<u16>, Vec<f32>)>  {
+    pub fn get(&self, id: usize) -> PyResult<(Vec<u16>, Vec<f32>)> {
         let entry = self.inverted_index.dataset().get(id);
         Ok((entry.0.to_vec(), entry.1.to_f32_vec()))
     }
@@ -282,7 +302,6 @@ impl SeismicIndexRaw {
     pub fn vector_len(&self, id: usize) -> PyResult<usize> {
         Ok(self.inverted_index.dataset().vector_len(id))
     }
-
 
     #[staticmethod]
     pub fn load(index_path: &str) -> PyResult<SeismicIndexRaw> {
@@ -415,5 +434,5 @@ impl SeismicIndexRaw {
                 )
             })
             .collect::<Vec<_>>()
-    }    
+    }
 }

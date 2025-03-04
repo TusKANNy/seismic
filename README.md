@@ -29,7 +29,7 @@ To install Seismic, simply run:
 
 
 ```bash
-pip install py-seismic 
+pip install pyseismic-lsr
 ```
 For performance optimizations, check out the detailed installation guide in docs/Installation.md.
 
