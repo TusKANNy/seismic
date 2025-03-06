@@ -69,11 +69,6 @@ results = index.batch_search(
 ```
 
 
-
-
-
-
-
 ### 📥 Download the Datasets  
 
 
@@ -118,7 +113,7 @@ Check out our `docs` folder for more detailed guide on use to use Seismic direct
 ### <a name="bib">📚 Bibliography</a>
 1. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini. "*Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations*." In ACM SIGIR. 2024. 
 2. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, and Rossano Venturini. "Pairing Clustered Inverted Indexes with κ-NN Graphs for Fast Approximate Retrieval over Learned Sparse Representations."  In ACM CIKM 2024.
-3. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli,Rossano Venturini, and Leonardo Venuta. Investigating the Scalability of Approximate Sparse Retrieval Algorithms to Massive Datasets. *To Appear* In ECIR 2025.
+3. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini, and Leonardo Venuta. Investigating the Scalability of Approximate Sparse Retrieval Algorithms to Massive Datasets. *To Appear* In ECIR 2025.
 
 ### Citation License
 
