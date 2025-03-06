@@ -17,7 +17,10 @@
     <a href="LICENSE.md"><img src="https://badgen.net/static/license/MIT/blue" /></a>
 </p>
 
-Seismic is a highly efficient data structure for fast retrieval over *learned sparse embeddings*. Designed with scalability and performance in mind, Seismic makes querying sparse representations seamless.
+Seismic is a highly efficient data structure for fast retrieval over *learned sparse embeddings* written. Designed with scalability and performance in mind, Seismic makes querying sparse representations seamless.
+
+Seismic's core engine is written in Rust 🦀. Details on using it in Rust can be found in [`docs/RustUsage.md`](docs/RustUsage.md). The instructions below explain how to use it in Python. 
+
 
 
 
