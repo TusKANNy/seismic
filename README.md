@@ -64,7 +64,9 @@ results = index.search(
     query_id=query_id,
     query_components=query_components,
     query_values=query_values,
-    k=10, query_cut=3, heap_factor=0.8,
+    k=10, 
+    query_cut=3, 
+    heap_factor=0.8,
 )
 ```
 
