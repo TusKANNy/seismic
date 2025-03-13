@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::File,
-    io::{self, BufReader, BufRead},
+    io::{self, BufRead, BufReader},
     time::Instant,
 };
 
@@ -17,8 +17,8 @@ use flate2::read::GzDecoder;
 use tar::Archive;
 
 use crate::{
-    inverted_index::Configuration, DataType, InvertedIndex, SpaceUsage, SparseDataset,
-    SparseDatasetMut, inverted_index::Knn,
+    inverted_index::Configuration, inverted_index::Knn, DataType, InvertedIndex, SpaceUsage,
+    SparseDataset, SparseDatasetMut,
 };
 
 #[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -92,14 +92,20 @@ where
         n_knn: usize,
         first_sorted: bool,
     ) -> Vec<(f32, usize)> {
-        let query_components: Vec<u16> = query_components_original
-            .iter()
-            .map(|qc| self.token_to_id_map[qc] as u16)
-            .collect();
+
+        
+        let (filtered_query_components, filtered_query_values): (Vec<_>, Vec<_>) =
+            query_components_original
+                .iter()
+                .zip(query_values)
+                .filter(|(qc, _)| self.token_to_id_map.contains_key(*qc))
+                .map(|(qc, &qv)| (self.token_to_id_map[qc] as u16, qv))
+                .unzip();
+
 
         let results = self.inverted_index.search(
-            &query_components,
-            query_values,
+            &filtered_query_components,
+            &filtered_query_values,
             k,
             query_cut,
             heap_factor,
@@ -138,19 +144,18 @@ where
         reader: BufReader<impl std::io::Read>,
         row_count: usize,
         input_token_to_id_map: Option<HashMap<String, usize>>,
-    ) -> (SparseDataset<T>, Vec<String>, HashMap<String, usize>)
-    {
+    ) -> (SparseDataset<T>, Vec<String>, HashMap<String, usize>) {
         let mut doc_id_mapping = Vec::with_capacity(row_count);
         let mut token_to_id_mapping = HashMap::<String, usize>::with_capacity(30_000);
         let mut converted_data = SparseDatasetMut::<T>::default();
-    
+
         let stream: serde_json::StreamDeserializer<_, JsonFormat> =
             Deserializer::from_reader(reader).into_iter();
-    
+
         for x in stream.into_iter().progress_count(row_count as u64) {
             let (doc_id, tokens, values) = extract_jsonl::<T>(x.unwrap());
             doc_id_mapping.push(doc_id);
-    
+
             let ids: Vec<_> = match &input_token_to_id_map {
                 None => {
                     for token in tokens.iter() {
@@ -159,39 +164,50 @@ where
                                 .insert(token.to_string(), token_to_id_mapping.len());
                         }
                     }
-                    tokens.iter().map(|t| token_to_id_mapping[t] as u16).collect()
+                    tokens
+                        .iter()
+                        .map(|t| token_to_id_mapping[t] as u16)
+                        .collect()
                 }
-                Some(valid_mapping) => {
-                    tokens.iter().map(|t| valid_mapping[t] as u16).collect()
-                }
+                Some(valid_mapping) => tokens.iter().map(|t| valid_mapping[t] as u16).collect(),
             };
-    
+
             let converted_vector: Vec<(u16, T)> = ids
                 .into_iter()
                 .zip(values)
                 .sorted_by(|(a, _), (b, _)| a.partial_cmp(&b).unwrap())
                 .collect();
-    
+
             converted_data.push_pairs(&converted_vector[..]);
         }
-    
+
         let final_data: SparseDataset<T> = SparseDataset::<T>::from(converted_data);
-    
+
         (final_data, doc_id_mapping, token_to_id_mapping)
-    }    
+    }
 
     pub fn from_file(
         file_path: &String,
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
     ) -> Result<Self, io::Error> {
-
         if file_path.ends_with(".jsonl") {
-            Ok(SeismicIndex::from_json(file_path, config, input_token_to_id_map))
+            Ok(SeismicIndex::from_json(
+                file_path,
+                config,
+                input_token_to_id_map,
+            ))
         } else if file_path.ends_with(".tar.gz") {
-            Ok(SeismicIndex::from_tar(file_path, config, input_token_to_id_map))
+            Ok(SeismicIndex::from_tar(
+                file_path,
+                config,
+                input_token_to_id_map,
+            ))
         } else {
-            Err(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported file type. Supported files: .jsonl, .tar.gz"))
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Unsupported file type. Supported files: .jsonl, .tar.gz",
+            ))
         }
     }
 
@@ -271,7 +287,7 @@ where
             "Elapsed time to read the collection {:}",
             start.elapsed().as_secs()
         );
-        
+
         Self::new(
             final_data,
             config,
@@ -311,5 +327,4 @@ where
     pub fn knn_len(&self) -> usize {
         self.inverted_index.knn_len()
     }
-
 }

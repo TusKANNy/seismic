@@ -1,10 +1,10 @@
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["maturin>=1.2.3"]
 build-backend = "maturin"
 
 [project]
 name = "pyseismic-lsr"
-version = "0.1.1"
+version = "0.1.5.2"
 description = "Seismic: A high-performance data structure for fast retrieval over learned sparse embeddings."
 requires-python = ">=3.7"
 classifiers = [
@@ -28,13 +28,12 @@ keywords = ["search", "indexing", "sparse retrieval"]
 
 
 dependencies = [
-    "numpy==1.21.0",
-    "pandas",
+    "numpy",
+#    "termcolor",
+#    "psutil",
+#    "toml",
 #    "ir_measures",
 #    "ir_datasets",
-    "termcolor",
-    "psutil",
-    "toml",
 #    "ranx",
 #    "pytrec_eval",
 ]

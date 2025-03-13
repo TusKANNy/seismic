@@ -161,6 +161,8 @@ impl SeismicIndex {
     }
 
     //PyFixedUnicode is required to handle non ascii characters in tokens
+    #[pyo3(signature = (query_id, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=true))]
+    #[allow(clippy::too_many_arguments)]
     pub fn search<'py>(
         &self,
         query_id: String,
@@ -188,7 +190,7 @@ impl SeismicIndex {
             sorted,
         )
     }
-    #[pyo3(signature = (queries_ids, query_components, query_values, k, query_cut, heap_factor, n_knn, sorted, num_threads=0))]
+    #[pyo3(signature = (queries_ids, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=true, num_threads=0))]
     #[allow(clippy::too_many_arguments)]
     pub fn batch_search<'py>(
         &self,
