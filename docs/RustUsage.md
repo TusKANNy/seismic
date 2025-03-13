@@ -2,7 +2,7 @@
 
 This guide explains how to use Seismic's Rust code independently ([standalone](#itself)) or integrate it into your own Rust project ([via Cargo](#notitsef)).
 
-### <a name="itself">Use Seismic</a>
+### <a name="itself"> Use Seismic</a>
 
 There are two main types of indices in Rust, each represented by a different data structure.
 

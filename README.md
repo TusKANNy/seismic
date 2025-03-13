@@ -30,11 +30,11 @@ To install Seismic, run:
 pip install pyseismic-lsr
 ```
 
-Check out the detailed installation guide in docs/Installation.md for performance optimizations.
+Check out the detailed installation guide in [docs/Installation.md](docs/Installation.md) for performance optimizations.
 
 
 ### 🚀 Quick Start  
-Given a collection as a `jsonl` file  (details [here](#data-format)), you can quickly index it by running 
+Given a collection as a `jsonl` file, you can quickly index it by running 
 ```python
 from seismic import SeismicIndex
 

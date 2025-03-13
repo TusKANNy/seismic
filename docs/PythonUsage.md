@@ -67,3 +67,4 @@ ir_results = [ir_measures.ScoredDoc(query_id, doc_id, score) for r in results fo
 qrels = ir_datasets.load('msmarco-passage/dev/small').qrels
 
 ir_measures.calc_aggregate([RR@10], qrels, ir_results)
+```

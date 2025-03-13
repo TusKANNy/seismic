@@ -1,5 +1,5 @@
 ## Package Installation
-We provide several options for installing `py-seimic` and `seismic` depending on what is required:
+We provide several options for installing `pyseismic-lsr` and `seismic` depending on what is required:
 
 ### Python - Maximum performance
 If you want to compile the package optimized for your CPU, you need to install the package from the Source Distribution.
@@ -20,7 +20,7 @@ If you are not interested in obtaining the maximum performance, you can install 
 If a compatible wheel exists for your platform, `pip` will download and install it directly, avoiding the compilation phase.
 If no compatible wheel exists, pip will download the source distribution and attempt to compile it using the Rust compiler (rustc).
 ```bash
-pip install py-seismic
+pip install pyseismic-lsr
 ```
 
 Prebuilt wheels are available for Linux platforms (x86_64, i686, aarch64) with different Python implementation (CPython, PyPy) for linux distros using glibc 2.17 or later.
@@ -47,7 +47,7 @@ This command produces three executables: `build_inverted_index`, `perf_inverted_
 
 
 
-The `build_inverted_index` executable is used to construct an inverted index for a dataset. Both dataset and query files are stored in an internal binary format. Refer to the [Python scripts](#scripts) section for a script to convert a dataset from JSON format. This process involves several parameters that regulate space/time trade-offs:
+The `build_inverted_index` executable is used to construct an inverted index for a dataset. Both dataset and query files are stored in an internal binary format. Refer to the Python scripts section for a script to convert a dataset from JSON format. This process involves several parameters that regulate space/time trade-offs:
 
 - `--n-postings`: Regulates the size of the posting list, representing the average number of postings stored per posting list.
 - `--summary-energy`: Controls the size of the summaries, preserving a fraction of the overall energy for each summary.
@@ -72,7 +72,7 @@ The following command exemplifies this:
 ./target/release/perf_inverted_index -i splade.bin.3500_0.4_0.1c -q splade_queries.bin -o results.tsv --query-cut 5 --heap-factor 0.7
 ```
 
-The dataset of queries is in binary internal format. Refer again to the [Python scripts](#scripts) section for a script to convert a dataset from JSON format.
+The dataset of queries is in binary internal format. Refer again to the Python scripts section for a script to convert a dataset from JSON format.
 
 The executable prints the average running time per query. Queries are executed in single-thread mode. To enable multithreading, modify the Rust code by replacing the iteration on the query from `queries.iter().take(n_queries).enumerate()` to `queries.par_iter().take(n_queries).enumerate()`.
 
