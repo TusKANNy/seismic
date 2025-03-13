@@ -1,6 +1,6 @@
 <h1 align="center">Seismic</h1>
 <p align="center">
-    <img width="200px" src="imgs/new_logo_seismic.webp" />
+    <img width="400px" src="imgs/new_logo_seismic.webp" />
     
 </p>
 
@@ -17,21 +17,21 @@
     <a href="LICENSE.md"><img src="https://badgen.net/static/license/MIT/blue" /></a>
 </p>
 
-Seismic is a highly efficient data structure for fast retrieval over *learned sparse embeddings*. Designed with scalability and performance in mind, Seismic makes querying sparse representations seamless.
+Seismic is a highly efficient data structure for fast retrieval over *learned sparse embeddings* written in Rust 🦀. Designed with scalability and performance in mind, Seismic makes querying sparse representations seamless.
 
-
-
+Seismic's core engine is written in Rust 🦀. Details on using it in Rust can be found in [`docs/RustUsage.md`](docs/RustUsage.md). The instructions below explain how to use it in Python. 
 
 ### ⚡ Installation  
 
 
-To install Seismic, simply run:
+To install Seismic, run:
 
 
 ```bash
 pip install pyseismic-lsr
 ```
-For performance optimizations, check out the detailed installation guide in docs/Installation.md.
+
+Check out the detailed installation guide in docs/Installation.md for performance optimizations.
 
 
 ### 🚀 Quick Start  
@@ -39,6 +39,8 @@ For performance optimizations, check out the detailed installation guide in docs
 
 Given a collection as a `jsonl` file  (details [here](#data-format)), you can quickly index it by running 
 ```python
+from seismic import SeismicIndex
+
 json_input_file = "" # Your data collection
 
 index = SeismicIndex.build(json_input_file)
@@ -49,29 +51,25 @@ print("Dimensionality of the vectors: ", index.dim)
 index.print_space_usage_byte()
 ```
 
-and then exploit Seismic to quickly retrieve your set of queries
+and then exploit Seismic to retrieve your set of queries quickly
 
 ```python
+import numpy as np
 MAX_TOKEN_LEN = 30
 string_type  = f'U{MAX_TOKEN_LEN}'
 
 query = {"a": 3.5, "certain": 3.5, "query": 0.4}
-queries_ids = np.array([0])
+query_id = "0"
 query_components = np.array(list(query.keys()), dtype=string_type)
 query_values = np.array(list(query.values()), dtype=np.float32)
 
-results = index.batch_search(
-    queries_ids=queries_ids,
+results = index.search(
+    query_id=query_id,
     query_components=query_components,
     query_values=query_values,
-    k=10
+    k=10, query_cut=3, heap_factor=0.8,
 )
 ```
-
-
-
-
-
 
 
 ### 📥 Download the Datasets  
@@ -118,7 +116,7 @@ Check out our `docs` folder for more detailed guide on use to use Seismic direct
 ### <a name="bib">📚 Bibliography</a>
 1. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini. "*Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations*." In ACM SIGIR. 2024. 
 2. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, and Rossano Venturini. "Pairing Clustered Inverted Indexes with κ-NN Graphs for Fast Approximate Retrieval over Learned Sparse Representations."  In ACM CIKM 2024.
-3. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli,Rossano Venturini, and Leonardo Venuta. Investigating the Scalability of Approximate Sparse Retrieval Algorithms to Massive Datasets. *To Appear* In ECIR 2025.
+3. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini, and Leonardo Venuta. Investigating the Scalability of Approximate Sparse Retrieval Algorithms to Massive Datasets. *To Appear* In ECIR 2025.
 
 ### Citation License
 
@@ -144,10 +142,10 @@ CIKM 2024
 
 ```bibtex 
 @inproceedings{bruch2024pairing,
-  title={Pairing Clustered Inverted Indexes with $\kappa$-NN Graphs for Fast Approximate Retrieval over Learned Sparse Representations},
-  author={Bruch, Sebastian and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano},
-  booktitle={Proceedings of the 33rd ACM International Conference on Information and Knowledge Management},
-  pages={3642--3646},
-  year={2024}
+  author    = {Bruch, Sebastian and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano},
+  title     = {Pairing Clustered Inverted Indexes with $\kappa$-NN Graphs for Fast Approximate Retrieval over Learned Sparse Representations},
+  booktitle = {Proceedings of the 33rd ACM International Conference on Information and Knowledge Management},
+  pages     = {3642--3646},
+  year      = {2024}
 }
 ```
