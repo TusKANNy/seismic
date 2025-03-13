@@ -928,7 +928,7 @@ impl Knn {
         const KNN_HEAP_FACTOR: f32 = 0.7;
 
         let n_vecs = index.len();
-        print!("\tComputing KNN");
+        print!("Computing kNN: ");
         let docs_search_results: Vec<_> = index
             .forward_index
             .par_iter()

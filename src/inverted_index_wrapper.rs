@@ -213,7 +213,7 @@ where
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
     ) -> Self {
-        println!("Reading the collection..");
+        println!("Reading the collection...");
         let start = Instant::now();
 
         //read the file and count rows
@@ -230,7 +230,7 @@ where
             Self::process_data(reader, row_count, input_token_to_id_map);
 
         println!(
-            "Elapsed time to read the collection:  {:} secs",
+            "Elapsed time to read the collection: {:} secs",
             start.elapsed().as_secs()
         );
 
@@ -248,7 +248,7 @@ where
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
     ) -> Self {
-        println!("Reading the collection..");
+        println!("Reading the collection...");
         let start = Instant::now();
 
         //decompress gz, extract first file (json) of the archive
@@ -261,7 +261,6 @@ where
         let row_count = reader.lines().count();
 
         println!("Number of rows: {}", row_count);
-
 
         //Deserialize json
         let tar_gz_file = File::open(tar_path).expect(&format!("Unable to open {}", tar_path));

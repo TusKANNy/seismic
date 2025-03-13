@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "pyseismic-lsr"
 version = "0.1.3"
-description = "Seismic: A high-performance data structure for fast retrieval over learned sparse embeddings."
+description = "Seismic: A high-performance data structure for fast retrieval over learned sparse representations."
 requires-python = ">=3.7"
 classifiers = [
     "Programming Language :: Rust",
@@ -17,9 +17,9 @@ classifiers = [
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
+    { name = "Cosimo Rulli", email = "cosimo.rulli@isti.cnr.it"},
     { name = "Sebastian Bruch", email = "s.bruch@northeastern.edu"},
     { name = "Franco Maria Nardini", email = "francomaria.nardini@isti.cnr.it" },
-    { name = "Cosimo Rulli", email = "cosimo.rulli@gmail.com"},
     { name = "Rossano Venturini", email = "rossano.venturini@unipi.it"},
     { name = "Leonardo Venuta", email = "l.venuta@studenti.unipi.it"}
 
