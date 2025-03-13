@@ -20,7 +20,6 @@ use std::time::Instant;
 
 use std::io::Result as IoResult;
 
-
 #[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct InvertedIndex<T>
 where
@@ -200,11 +199,11 @@ where
         // The pruning strategy is applied to partial results, for Global Threshold strategy
         // the final fixed pruning is done only when all chunks have been parsed
 
-        print!("\tDistributing and Pruning postings ");
+        print!("Distributing and pruning postings: ");
         let time = Instant::now();
 
         let mut inverted_pairs = Vec::with_capacity(dataset.dim());
-        let mut chunk_inv_pairs  = Vec::with_capacity(dataset.dim());
+        let mut chunk_inv_pairs = Vec::with_capacity(dataset.dim());
 
         for _ in 0..dataset.dim() {
             inverted_pairs.push(Vec::new());
@@ -223,8 +222,7 @@ where
             // If not batched indexing, chunk_inv_pairs already contain all the pairs
             if chunk_size == dataset.len() {
                 inverted_pairs = chunk_inv_pairs;
-            }
-            else {
+            } else {
                 // Copy the pairs of the current chunk in the partial results
                 for (c, chunk_pairs) in chunk_inv_pairs.iter().enumerate() {
                     for (score, doc_id) in chunk_pairs.iter() {
@@ -238,7 +236,7 @@ where
                 PruningStrategy::FixedSize { n_postings } => {
                     Self::fixed_pruning(&mut inverted_pairs, n_postings);
                 }
-                PruningStrategy::GlobalThreshold { n_postings, ..} => {
+                PruningStrategy::GlobalThreshold { n_postings, .. } => {
                     Self::global_threshold_pruning(&mut inverted_pairs, n_postings);
                 }
             }
@@ -248,11 +246,15 @@ where
                 chunk_inv_pairs.push(Vec::new());
             }
         }
-        
+
         // Final pruning
         match config.pruning {
-            PruningStrategy::GlobalThreshold { n_postings, max_fraction } => {
-                Self::fixed_pruning(&mut inverted_pairs,
+            PruningStrategy::GlobalThreshold {
+                n_postings,
+                max_fraction,
+            } => {
+                Self::fixed_pruning(
+                    &mut inverted_pairs,
                     (n_postings as f32 * max_fraction) as usize,
                 );
             }
@@ -262,9 +264,9 @@ where
         let elapsed = time.elapsed();
         println!("{} secs", elapsed.as_secs());
 
-        println!("\tNumber of posting lists: {}", inverted_pairs.len());
+        println!("Number of posting lists: {}", inverted_pairs.len());
 
-        print!("\tBuilding summaries ");
+        print!("Building summaries: ");
         let time = Instant::now();
         // Build summaries and blocks for each posting list
         let posting_lists: Vec<_> = inverted_pairs
@@ -287,7 +289,7 @@ where
         println!("{} secs", elapsed.as_secs());
 
         if config.knn.nknn == 0 && config.knn.knn_path.is_none() {
-        //if config.knn.nknn == 0 {
+            //if config.knn.nknn == 0 {
             return me;
         }
 
@@ -332,7 +334,7 @@ where
         let tot_postings = inverted_pairs.len() * n_postings; // overall number of postings to select
 
         const EQUALITY_THRESHOLD: usize = 10;
-        let max_eq_postings = EQUALITY_THRESHOLD*tot_postings/100;//maximium number of posting with score equal to the threshold
+        let max_eq_postings = EQUALITY_THRESHOLD * tot_postings / 100; //maximium number of posting with score equal to the threshold
 
         // for every posting we create the tuple <score, docid, id_posting_list>
         let mut postings = Vec::<(T, usize, u16)>::new();
@@ -346,9 +348,10 @@ where
         let tot_postings = tot_postings.min(postings.len() - 1);
 
         // To ensure that executions with different batch sizes provide the same result, the comparison criterion considers both the score and the doc_id
-        let (_, (t_score, _, _), leq) = postings.select_nth_unstable_by(tot_postings, |a, b| b.partial_cmp(&a).unwrap());
+        let (_, (t_score, _, _), leq) =
+            postings.select_nth_unstable_by(tot_postings, |a, b| b.partial_cmp(&a).unwrap());
         // All postings with scores equal to the threshold are added, up to max_eq_postings
-        let (eq_pairs, _): (Vec<(T, usize, u16)>, _) = leq.iter().partition(|p| p.0 == *t_score );
+        let (eq_pairs, _): (Vec<(T, usize, u16)>, _) = leq.iter().partition(|p| p.0 == *t_score);
         for (score, docid, id_postings) in eq_pairs.iter().take(max_eq_postings) {
             inverted_pairs[*id_postings as usize].push((*score, *docid));
         }
@@ -360,10 +363,9 @@ where
         for (score, docid, id_posting) in postings.into_iter().take(tot_postings) {
             inverted_pairs[id_posting as usize].push((score, docid));
         }
-
     }
 
-    /// Returns the sparse dataset 
+    /// Returns the sparse dataset
     pub fn dataset(&self) -> &SparseDataset<T> {
         &self.forward_index
     }
@@ -415,7 +417,7 @@ where
     pub fn knn_len(&self) -> usize {
         match &self.knn {
             Some(knn) => knn.d,
-            None => 0
+            None => 0,
         }
     }
 }
@@ -970,7 +972,7 @@ impl Knn {
             nbits,
         }
     }
-    
+
     pub fn new_from_serialized(path: &str, limit: Option<usize>) -> Self {
         println!("Reading KNN from file: {:}", path);
         let serialized: Vec<u8> = fs::read(path).unwrap();
@@ -978,16 +980,16 @@ impl Knn {
 
         println!("Number of vectors: {:}", knn.n_vecs);
         println!("Number of neighbors in the file: {:}", knn.d);
-        
+
         let nknn = limit.unwrap_or(knn.d);
 
         assert!(nknn <= knn.d,
             "The number of neighbors to include for each vector of the dataset can't be greater than the number of neighbours in the precomputed knn file.");
-        
+
         if nknn == knn.d {
             return knn;
         } else {
-            println!("We only take {:} neighbors per element", nknn);
+            println!("We only take {:} neighbors per element!", nknn);
         }
 
         let mut neighbours = BitVectorMut::with_capacity(knn.n_vecs * knn.nbits * nknn);
@@ -1006,10 +1008,9 @@ impl Knn {
             neighbours: BitVector::from(neighbours),
             nbits: knn.nbits,
         }
-
     }
 
-    pub fn  serialize(&self, output_file: &str) -> IoResult<()> {
+    pub fn serialize(&self, output_file: &str) -> IoResult<()> {
         let serialized = bincode::serialize(self).unwrap();
         let path = output_file.to_string() + ".knn.seismic";
         println!("Saving ... {}", path);

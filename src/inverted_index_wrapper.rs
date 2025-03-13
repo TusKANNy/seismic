@@ -92,8 +92,6 @@ where
         n_knn: usize,
         first_sorted: bool,
     ) -> Vec<(f32, usize)> {
-
-        
         let (filtered_query_components, filtered_query_values): (Vec<_>, Vec<_>) =
             query_components_original
                 .iter()
@@ -101,7 +99,6 @@ where
                 .filter(|(qc, _)| self.token_to_id_map.contains_key(*qc))
                 .map(|(qc, &qv)| (self.token_to_id_map[qc] as u16, qv))
                 .unzip();
-
 
         let results = self.inverted_index.search(
             &filtered_query_components,
@@ -225,10 +222,6 @@ where
         let row_count = reader.lines().count();
 
         println!("Number of rows: {}", row_count);
-        println!(
-            "Elapsed time to read the number of rows {:} s",
-            start.elapsed().as_secs()
-        );
 
         let f = File::open(json_path).expect(&format!("Unable to open {}", json_path));
         let reader = BufReader::new(f);
@@ -237,7 +230,7 @@ where
             Self::process_data(reader, row_count, input_token_to_id_map);
 
         println!(
-            "Elapsed time to read the collection {:}",
+            "Elapsed time to read the collection:  {:} secs",
             start.elapsed().as_secs()
         );
 
@@ -268,10 +261,7 @@ where
         let row_count = reader.lines().count();
 
         println!("Number of rows: {}", row_count);
-        println!(
-            "Elapsed time to read the number of rows {:} s",
-            start.elapsed().as_secs()
-        );
+
 
         //Deserialize json
         let tar_gz_file = File::open(tar_path).expect(&format!("Unable to open {}", tar_path));
@@ -284,7 +274,7 @@ where
             Self::process_data(reader, row_count, input_token_to_id_map);
 
         println!(
-            "Elapsed time to read the collection {:}",
+            "Elapsed time to read the collection: {:} secs",
             start.elapsed().as_secs()
         );
 
