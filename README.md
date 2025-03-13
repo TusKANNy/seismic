@@ -118,15 +118,15 @@ By downloading and using this software, you agree to cite the under-noted paper 
 
 SIGIR 2024
 ```bibtex
-@inproceedings{Seismic,
+@inproceedings{bruch2024seismic,
   author    = {Bruch, Sebastian and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano},
   title     = {Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations},
-  booktitle = {The 47th International {ACM} {SIGIR} {C}onference on Research and Development in Information Retrieval ({SIGIR})},
+  booktitle = {Proceedings of the 47th International {ACM} {SIGIR} {C}onference on Research and Development in Information Retrieval ({SIGIR})},
   pages     = {152--162},
   publisher = {{ACM}},
   year      = {2024},
   url       = {https://doi.org/10.1145/3626772.3657769},
-  doi       = {10.1145/3626772.3657769},
+  doi       = {10.1145/3626772.3657769}
 }
 ```
 
@@ -135,8 +135,11 @@ CIKM 2024
 @inproceedings{bruch2024pairing,
   author    = {Bruch, Sebastian and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano and Venuta, Leonardo},
   title     = {Pairing Clustered Inverted Indexes with $\kappa$-NN Graphs for Fast Approximate Retrieval over Learned Sparse Representations},
-  booktitle = {Proceedings of the 33rd ACM International Conference on Information and Knowledge Management},
+  booktitle = {Proceedings of the 33rd International {ACM} {C}onference on {I}nformation and {K}nowledge {M}anagement ({CIKM})},
   pages     = {3642--3646},
-  year      = {2024}
+  publisher = {{ACM}},
+  year      = {2024},
+  url       = {https://doi.org/10.1145/3627673.3679977},
+  doi       = {10.1145/3627673.3679977}
 }
 ```
