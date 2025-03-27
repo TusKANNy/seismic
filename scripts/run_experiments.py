@@ -117,14 +117,31 @@ def build_index(configs, experiment_dir):
         f"--centroid-fraction {configs['indexing_parameters']['centroid-fraction']}",
         f"--knn {configs['indexing_parameters']['knn']}",
         f"--clustering-algorithm {configs['indexing_parameters']['clustering-algorithm']}",
-        f"--kmeans-pruning-factor {configs['indexing_parameters']['kmeans-pruning-factor']}",
-        f"--kmeans-doc-cut {configs['indexing_parameters']['kmeans-doc-cut']}"
     ] 
 
     if configs["filename"].get("knn_path", None):
         knn_path = os.path.join(configs['folder']['data'], configs['filename']['knn_path'])
         knn_path_arg = f"--knn-path {knn_path}"
         command_and_params.append(knn_path_arg)
+
+    if configs['indexing_parameters'].get('kmeans-pruning-factor', None):
+        kmeans_pruning_factor = configs['indexing_parameters']['kmeans-pruning-factor']
+        command_and_params.append(f"--kmeans-pruning-factor {kmeans_pruning_factor}")
+
+    if configs['indexing_parameters'].get('kmeans-doc-cut', None):
+        kmeans_doc_cut = configs['indexing_parameters']['kmeans-doc-cut']
+        command_and_params.append(f"--kmeans-doc-cut {kmeans_doc_cut}")
+
+    if configs['indexing_parameters'].get("max-fraction", None):
+        max_fraction = configs['indexing_parameters']["max-fraction"]
+        command_and_params.append(f"--max-fraction {max_fraction}")
+
+    if configs['indexing_parameters'].get("alpha", None):
+        alpha = configs['indexing_parameters']["alpha"]
+        command_and_params.append(f"--alpha {alpha}")
+
+    pruning_strategy = configs['indexing_parameters'].get("pruning-strategy", "global-threshold")
+    command_and_params.append(f"--pruning-strategy {pruning_strategy}")
 
     command = ' '.join(command_and_params)
 

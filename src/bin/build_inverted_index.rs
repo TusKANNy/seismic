@@ -1,6 +1,6 @@
 use seismic::inverted_index::{
-    BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
-    SummarizationStrategy, ClusteringAlgorithmClap
+    BlockingStrategy, ClusteringAlgorithm, ClusteringAlgorithmClap, Configuration,
+    KnnConfiguration, PruningStrategy, PruningStrategyClap, SummarizationStrategy,
 };
 use seismic::{InvertedIndex, SparseDataset};
 
@@ -42,9 +42,13 @@ struct Args {
     #[arg(default_value_t = 0.5)]
     summary_energy: f32,
 
+    /// Selects the clustering algorithm used to cluster postings in each posting list
     #[clap(long, value_parser)]
-   // #[arg(default_value_t = ClusteringAlgorithmClap::default())]
+    // #[arg(default_value_t = ClusteringAlgorithmClap::default())]
     clustering_algorithm: ClusteringAlgorithmClap,
+
+    #[clap(long, value_parser)]
+    pruning_strategy: PruningStrategyClap,
 
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.005)]
@@ -57,6 +61,16 @@ struct Args {
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 2)]
     min_cluster_size: usize,
+
+    /// Regulates the fraction of L1 mass preserved by the COI pruning strategy.
+    #[clap(short, long, value_parser)]
+    #[arg(default_value_t = 0.15)]
+    alpha: f32,
+
+    /// Regulates the largest lenght of a posting list as a factor of n_postings parameter.
+    #[clap(short, long, value_parser)]
+    #[arg(default_value_t = 1.5)]
+    max_fraction: f32,
 
     /// Says how many neighbors to include for each vector of the dataset.
     /// These neighbors are used to improve the accuracy of the reported results.
@@ -93,23 +107,36 @@ pub fn main() {
     let knn_config = KnnConfiguration::new(args.knn, args.knn_path);
 
     let my_clustering_algorithm = match args.clustering_algorithm {
-        ClusteringAlgorithmClap::RandomKmeansInvertedIndexApprox =>
-        ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
-            doc_cut: args.kmeans_doc_cut,
-        }, 
-        ClusteringAlgorithmClap::RandomKmeansInvertedIndex =>
-        ClusteringAlgorithm::RandomKmeansInvertedIndex {
-            pruning_factor: args.kmeans_pruning_factor,
-            doc_cut: args.kmeans_doc_cut,
-        },
+        ClusteringAlgorithmClap::RandomKmeansInvertedIndexApprox => {
+            ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
+                doc_cut: args.kmeans_doc_cut,
+            }
+        }
+        ClusteringAlgorithmClap::RandomKmeansInvertedIndex => {
+            ClusteringAlgorithm::RandomKmeansInvertedIndex {
+                pruning_factor: args.kmeans_pruning_factor,
+                doc_cut: args.kmeans_doc_cut,
+            }
+        }
         ClusteringAlgorithmClap::RandomKmeans => ClusteringAlgorithm::RandomKmeans {},
     };
 
-    let config = Configuration::default()
-        .pruning_strategy(PruningStrategy::GlobalThreshold {
+    let my_pruning_strategy = match args.pruning_strategy {
+        PruningStrategyClap::FixedSize => PruningStrategy::FixedSize {
             n_postings: args.n_postings,
-            max_fraction: 1.5,
-        })
+        },
+        PruningStrategyClap::GlobalThreshold => PruningStrategy::GlobalThreshold {
+            n_postings: args.n_postings,
+            max_fraction: args.max_fraction,
+        },
+        PruningStrategyClap::CoiThreshold => PruningStrategy::CoiThreshold {
+            alpha: args.alpha,
+            n_postings: args.n_postings,
+        },
+    };
+
+    let config = Configuration::default()
+        .pruning_strategy(my_pruning_strategy)
         .blocking_strategy(BlockingStrategy::RandomKmeans {
             centroid_fraction: args.centroid_fraction,
             min_cluster_size: args.min_cluster_size,
@@ -120,7 +147,7 @@ pub fn main() {
         })
         .knn(knn_config)
         .batched_indexing(args.batched_indexing);
-    
+
     println!("\nBuilding the index...");
     println!("{:?}", config);
 
