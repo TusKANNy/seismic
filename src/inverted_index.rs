@@ -298,7 +298,9 @@ where
                 alpha: _,
                 n_postings,
             } => {
-                Self::fixed_pruning(&mut inverted_pairs, n_postings as usize);
+                if n_postings > 0 {
+                    Self::fixed_pruning(&mut inverted_pairs, n_postings as usize);
+                }
             }
             _ => {}
         }
