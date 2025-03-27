@@ -24,7 +24,7 @@ The instructions below explain how to use it by using the Python API.
 
 
 ### ⚡ Installation  
-To install Seismic, run:
+To use Seismic, install [Rust](https://www.rust-lang.org/tools/install) and then run:
 
 ```bash
 pip install pyseismic-lsr
