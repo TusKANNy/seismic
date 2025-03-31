@@ -11,10 +11,12 @@ use half::f16;
 pub mod pylib;
 
 pub mod sparse_dataset;
+pub mod sparse_dataset_wrapper;
 
 use pylib::SeismicIndexRaw;
 pub use sparse_dataset::SparseDataset;
 pub use sparse_dataset::SparseDatasetMut;
+pub use sparse_dataset_wrapper::SeismicDataset;
 
 pub mod inverted_index;
 

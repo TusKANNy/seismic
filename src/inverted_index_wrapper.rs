@@ -5,7 +5,10 @@ use std::{
     time::Instant,
 };
 
-use crate::json_utils::{extract_jsonl, JsonFormat};
+use crate::{
+    json_utils::{extract_jsonl, JsonFormat},
+    SeismicDataset,
+};
 
 use indicatif::ProgressIterator;
 use itertools::Itertools;
@@ -242,7 +245,6 @@ where
         )
     }
 
-    #[allow(unused_variables)]
     pub fn from_tar(
         tar_path: &String,
         config: Configuration,
@@ -316,4 +318,34 @@ where
     pub fn knn_len(&self) -> usize {
         self.inverted_index.knn_len()
     }
+
+    fn from_dataset(dataset: SeismicDataset<T>, config: Configuration) -> Self {
+        let dmap = dataset.document_mapping().clone();
+        let token_to_id_map = dataset.token_to_id_map().clone();
+
+        let inverted_index =
+            InvertedIndex::build(SparseDataset::from(dataset.sparse_dataset()), config);
+        Self {
+            inverted_index,
+            document_mapping: Some(dmap.into_boxed_slice()),
+            token_to_id_map: token_to_id_map,
+        }
+    }
 }
+
+// impl<T> From<SeismicDataset<T>> for SeismicIndex<T>
+// where
+//     T: DataType,
+// {
+//     fn from(dataset: SeismicDataset<T>) -> Self {
+
+//         let frozen_dataset = SparseDataset::from(*dataset.sparse_dataset());
+
+//         let inverted_index = InvertedIndex::build(frozen_dataset, dataset.config);
+//         Self {
+//             inverted_index,
+//             document_mapping: Some(dataset.document_mapping),
+//             token_to_id_map: dataset.token_to_id_map,
+//         }
+//     }
+// }

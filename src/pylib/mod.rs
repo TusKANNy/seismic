@@ -3,6 +3,7 @@ use crate::inverted_index::{
     SummarizationStrategy,
 };
 
+use crate::SeismicDataset as Dataset;
 use crate::SeismicIndex as Index;
 use half::f16;
 use half::slice::HalfFloatSliceExt;
@@ -436,5 +437,31 @@ impl SeismicIndexRaw {
                 )
             })
             .collect::<Vec<_>>()
+    }
+}
+
+#[pyclass]
+pub struct SeismicDataset {
+    dataset: Dataset<f16>,
+}
+
+#[pymethods]
+impl SeismicDataset {
+    pub fn add_document(
+        &mut self,
+        doc_id: &str,
+        tokens: PyReadonlyArrayDyn<'_, PyFixedUnicode<MAX_TOKEN_LEN>>,
+        values: PyReadonlyArrayDyn<'_, f32>,
+    ) {
+        self.dataset.add_document(
+            doc_id.to_string(),
+            &tokens
+                .to_vec()
+                .unwrap()
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<String>>(),
+            &values.to_vec().unwrap(),
+        );
     }
 }
