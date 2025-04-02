@@ -161,6 +161,51 @@ impl SeismicIndex {
         Ok(SeismicIndex { index })
     }
 
+    #[allow(clippy::too_many_arguments)]
+    #[staticmethod]
+    #[pyo3(signature = (dataset, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, nknn=0, knn_path=None, batched_indexing=None, num_threads=0))]
+    pub fn build_from_dataset(
+        dataset: SeismicDataset,
+        n_postings: usize,
+        centroid_fraction: f32,
+        min_cluster_size: usize,
+        summary_energy: f32,
+        nknn: usize,
+        knn_path: Option<String>,
+        batched_indexing: Option<usize>,
+        num_threads: usize,
+    ) -> PyResult<SeismicIndex> {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(num_threads)
+            .build()
+            .unwrap();
+
+        let knn_config = KnnConfiguration::new(nknn, knn_path);
+
+        let config = Configuration::default()
+            .pruning_strategy(PruningStrategy::GlobalThreshold {
+                n_postings,
+                max_fraction: MAX_FRACTION,
+            })
+            .blocking_strategy(BlockingStrategy::RandomKmeans {
+                centroid_fraction,
+                min_cluster_size,
+                clustering_algorithm: ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
+                    doc_cut: DOC_CUT,
+                },
+            })
+            .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
+            .knn(knn_config)
+            .batched_indexing(batched_indexing);
+
+        println!("\nBuilding the index...");
+        println!("{:?}", config);
+
+        let index = Index::from_dataset(dataset.dataset, config);
+
+        Ok(SeismicIndex { index })
+    }
+
     //PyFixedUnicode is required to handle non ascii characters in tokens
     #[pyo3(signature = (query_id, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=true))]
     #[allow(clippy::too_many_arguments)]
@@ -439,7 +484,7 @@ impl SeismicIndexRaw {
             .collect::<Vec<_>>()
     }
 }
-
+#[derive(Clone)]
 #[pyclass]
 pub struct SeismicDataset {
     dataset: Dataset<f16>,
@@ -447,6 +492,18 @@ pub struct SeismicDataset {
 
 #[pymethods]
 impl SeismicDataset {
+    #[new]
+    fn new() -> Self {
+        SeismicDataset {
+            dataset: Dataset::new(),
+        }
+    }
+
+    #[getter]
+    pub fn get_len(&self) -> PyResult<usize> {
+        Ok(self.dataset.len())
+    }
+
     pub fn add_document(
         &mut self,
         doc_id: &str,

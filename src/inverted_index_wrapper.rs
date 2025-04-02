@@ -319,7 +319,7 @@ where
         self.inverted_index.knn_len()
     }
 
-    fn from_dataset(dataset: SeismicDataset<T>, config: Configuration) -> Self {
+    pub fn from_dataset(dataset: SeismicDataset<T>, config: Configuration) -> Self {
         let dmap = dataset.document_mapping().clone();
         let token_to_id_map = dataset.token_to_id_map().clone();
 

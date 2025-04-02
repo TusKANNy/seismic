@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
+use itertools::Itertools;
+
 use crate::{DataType, SparseDatasetMut};
 
+#[derive(Debug, Clone)]
 pub struct SeismicDataset<T>
 where
     T: DataType,
@@ -27,6 +30,10 @@ where
             document_mapping: document_mapping,
             token_to_id_map,
         }
+    }
+
+    pub fn sparse_dataset_ref(&self) -> &SparseDatasetMut<T> {
+        &self.sparse_dataset
     }
 
     pub fn sparse_dataset(self) -> SparseDatasetMut<T> {
@@ -56,14 +63,18 @@ where
                     .entry(c.to_string())
                     .or_insert_with(|| next_token_id) as u16,
             );
-
-            self.sparse_dataset.push(
-                &components,
-                &values
-                    .iter()
-                    .map(|x| T::from_f32(*x).unwrap())
-                    .collect::<Vec<T>>(),
-            );
         }
+
+        let (sorted_indexes, sorted_components): (Vec<_>, Vec<_>) = components
+            .into_iter()
+            .enumerate()
+            .sorted_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unzip();
+        let sorted_values = sorted_indexes
+            .iter()
+            .map(|&i| T::from_f32(values[i]).unwrap())
+            .collect::<Vec<_>>();
+
+        self.sparse_dataset.push(&sorted_components, &sorted_values);
     }
 }

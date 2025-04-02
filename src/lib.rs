@@ -41,6 +41,7 @@ pub mod json_utils;
 pub mod topk_selectors;
 pub mod utils;
 
+use crate::pylib::SeismicDataset as PySeismicDataset;
 use crate::pylib::SeismicIndex as PySeismicIndex;
 use num_traits::{AsPrimitive, FromPrimitive, ToPrimitive, Zero};
 use pyo3::prelude::PyModule;
@@ -64,5 +65,6 @@ impl DataType for f16 {}
 fn seismic(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySeismicIndex>()?;
     m.add_class::<SeismicIndexRaw>()?;
+    m.add_class::<PySeismicDataset>()?;
     Ok(())
 }
