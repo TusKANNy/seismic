@@ -608,6 +608,9 @@ where
 /// // Create a new empty dataset
 /// let mut dataset = SparseDatasetMut::<f32>::default();
 /// ```
+///
+///
+#[derive(Debug, Clone)]
 pub struct SparseDatasetMut<T>
 where
     T: SpaceUsage + DataType,
@@ -726,7 +729,6 @@ where
         self.offsets
             .push(*self.offsets.last().unwrap() + pairs.len());
     }
-
 
     /// Adds a new sparse vector to the dataset.
     ///

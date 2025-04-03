@@ -11,12 +11,11 @@ use half::f16;
 pub mod pylib;
 
 pub mod sparse_dataset;
-pub mod sparse_dataset_wrapper;
 
 use pylib::SeismicIndexRaw;
+use pyo3::wrap_pyfunction;
 pub use sparse_dataset::SparseDataset;
 pub use sparse_dataset::SparseDatasetMut;
-pub use sparse_dataset_wrapper::SeismicDataset;
 
 pub mod inverted_index;
 
@@ -24,6 +23,7 @@ pub use inverted_index::InvertedIndex;
 
 pub mod inverted_index_wrapper;
 
+pub use inverted_index_wrapper::SeismicDataset;
 pub use inverted_index_wrapper::SeismicIndex;
 
 pub mod quantized_summary;
@@ -41,6 +41,7 @@ pub mod json_utils;
 pub mod topk_selectors;
 pub mod utils;
 
+use crate::pylib::get_seismic_string;
 use crate::pylib::SeismicDataset as PySeismicDataset;
 use crate::pylib::SeismicIndex as PySeismicIndex;
 use num_traits::{AsPrimitive, FromPrimitive, ToPrimitive, Zero};
@@ -63,6 +64,7 @@ impl DataType for f16 {}
 /// setting in the `Cargo.toml`, otherwise Python will not be able to import the module.
 #[pymodule]
 fn seismic(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(get_seismic_string, m)?)?;
     m.add_class::<PySeismicIndex>()?;
     m.add_class::<SeismicIndexRaw>()?;
     m.add_class::<PySeismicDataset>()?;
