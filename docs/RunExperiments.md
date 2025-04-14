@@ -1,11 +1,11 @@
 ## Run an Experiment with Seismic
 
-The easiest way to run an experiment with Seismic is to use the Python script [`./scripts/run_experiments.py`](scripts/run_experiments.py).  
+The easiest way to run an experiment with Seismic is to use the Python script [`scripts/run_experiments.py`](scripts/run_experiments.py).  
 This script is configurable via TOML files, which specify the parameters to build the index and execute queries on it.  
 The script measures average query time, recall with respect to the ground truth (accuracy@k), and MRR with respect to qrels.
 
 The TOML files used to replicate experiments from our published papers can be found in the [`experiments`](experiments/) folder.  
-You can easily write your own TOML file by following the instructions [here](docs/TomlInstructions.md).
+You can easily write your TOML file by following the instructions [here](docs/TomlInstructions.md).
 
 As an example, let's now run the experiments using the TOML file [`experiments/sigir2024/splade.toml`](experiments/sigir2024/splade.toml), which replicates the results of Seismic with Splade embeddings on the MS MARCO dataset.
 
