@@ -1,14 +1,52 @@
+# Python Usage
+
+##  Installation
+
+## Package Installation
+We provide two options for installing Seismic's Python binfding `pyseismic-lsr`. 
+The first option is esier but may provide suboptimal performance, while the secodn one is slighly more complicate but runs faster.
+
+### Python - Easy installation
+If you are not interested in obtaining the maximum performance, you can install the package from a prebuilt Wheel.
+If a compatible wheel exists for your platform, `pip` will download and install it directly, avoiding the compilation phase.
+If no compatible wheel exists, pip will download the source distribution and attempt to compile it using the Rust compiler (rustc).
+```bash
+pip install pyseismic-lsr
+```
+
+Prebuilt wheels are available for Linux platforms (x86_64, i686, aarch64) with different Python implementation (CPython, PyPy) for linux distros using glibc 2.17 or later.
+Wheels are also available x86_64 platforms with linux distros using musl 1.2 or later.
+
+### Python - Maximum performance
+If you want to compile the package optimized for your CPU, you need to install the package from the Source Distribution.
+
+In order to do that you need to have the Rust toolchain installed. Use the following commands:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Then, you can run the following command to compile Seismic and install its Python interface:
+
+```bash
+RUSTFLAGS="-C target-cpu=native" pip install --no-binary :all: pyseismic-lsr
+```
+
+This will compile the Rust code tailored for your machine, providing maximum performance.
+
 ## Usage Example in Python
+
+We can first import the required packages. 
+
 ```python
 from seismic import SeismicIndex
 import numpy as np
 import json
-import ir_measures
 import ir_datasets
 from ir_measures import *
 ```
 
-Build the index
+Then, we can load a jsonl file containing the embeddigns of our documents and build the Seismic index.
 
 ```python
 json_input_file = "" # your input file
@@ -21,7 +59,7 @@ print("Dimensionality of the vectors: ", index.dim)
 index.print_space_usage_byte()
 ```
 
-Load queries
+We are now ready to read the encoded queries from a input jsonl file.
 
 ```python
 queries_path = "" # your query file
@@ -45,7 +83,7 @@ for query in queries:
     query_values.append(np.array(list(vector.values()), dtype=np.float32))
 ```
 
-Perform the search
+We can now perform our queries in batch.
 
 ```python
 results = index.batch_search(
@@ -60,7 +98,8 @@ results = index.batch_search(
 )
 ```
 
-Evaluation
+The top-10 documents matching the queries are stored in `results`.
+The final step is to use `ir_measures` for the evaluation of the final results.
 
 ```python
 ir_results = [ir_measures.ScoredDoc(query_id, doc_id, score) for r in results for (query_id, score, doc_id) in r]

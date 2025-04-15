@@ -2,14 +2,15 @@
 
 The easiest way to run an experiment with Seismic is to use the Python script [`scripts/run_experiments.py`](scripts/run_experiments.py).  
 This script is configurable via TOML files, which specify the parameters to build the index and execute queries on it.  
-The script measures average query time, recall with respect to the ground truth (accuracy@k), and MRR with respect to qrels.
+The script measures average query time (in microseconds), recall with respect to the true closest vectors of the query (accuracy@k), MRR with respect to judged qrels, and index space usage (bytes).
+These results are available in the file `report.tsv` in a folder created by the script togheter with additional information (details below).
 
 The TOML files used to replicate experiments from our published papers can be found in the [`experiments`](experiments/) folder.  
 You can easily write your TOML file by following the instructions [here](docs/TomlInstructions.md).
 
 As an example, let's now run the experiments using the TOML file [`experiments/sigir2024/splade.toml`](experiments/sigir2024/splade.toml), which replicates the results of Seismic with Splade embeddings on the MS MARCO dataset.
 
-### Setting up for the Experiment
+### <a name="bin_data">Setting up for the Experiment</a>
 Let's start by creating a working directory for the data and indexes.
 
 ```bash
@@ -71,6 +72,7 @@ These parameters provide different trade-offs between query time and accuracy. I
 
 **Important**: if your machine is NUMA, you need to uncomment the NUMA setting in the TOML file and configure it according to your hardware for better performance.
 
+### Getting the Results
 The script creates a folder named `splade_cocondenser_msmarco_XXX`, where `XXX` encodes the datetime at which the script was executed. This ensures that each run creates a unique directory.
 
 Inside the folder, you can find the data collected during the experiment.
