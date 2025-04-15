@@ -3,24 +3,24 @@
 ##  Installation
 
 ## Package Installation
-We provide two options for installing Seismic's Python binfding `pyseismic-lsr`. 
-The first option is esier but may provide suboptimal performance, while the secodn one is slighly more complicate but runs faster.
+We provide two options for installing Seismic's Python binding `pyseismic-lsr`. 
+The first option is easier but may provide suboptimal performance, while the second one is slightly more complicated but runs faster.
 
 ### Python - Easy installation
-If you are not interested in obtaining the maximum performance, you can install the package from a prebuilt Wheel.
+If you are not interested in obtaining maximum performance, you can install the package from a prebuilt Wheel.
 If a compatible wheel exists for your platform, `pip` will download and install it directly, avoiding the compilation phase.
 If no compatible wheel exists, pip will download the source distribution and attempt to compile it using the Rust compiler (rustc).
 ```bash
 pip install pyseismic-lsr
 ```
 
-Prebuilt wheels are available for Linux platforms (x86_64, i686, aarch64) with different Python implementation (CPython, PyPy) for linux distros using glibc 2.17 or later.
-Wheels are also available x86_64 platforms with linux distros using musl 1.2 or later.
+Prebuilt wheels are available for Linux platforms (x86_64, i686, aarch64) with different Python implementations (CPython, PyPy) for Linux distros using glibc 2.17 or later.
+Wheels are also available on x86_64 platforms with Linux distros using MUSL 1.2 or later.
 
 ### Python - Maximum performance
-If you want to compile the package optimized for your CPU, you need to install the package from the Source Distribution.
+If you want to compile the package optimized for your CPU, install the package from the Source Distribution.
 
-In order to do that you need to have the Rust toolchain installed. Use the following commands:
+To do that you need to have the Rust toolchain installed. Use the following commands:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -46,7 +46,7 @@ import ir_datasets
 from ir_measures import *
 ```
 
-Then, we can load a jsonl file containing the embeddigns of our documents and build the Seismic index.
+Then, we can load a jsonl file containing the embeddings of our documents and build the Seismic index.
 
 ```python
 json_input_file = "" # your input file
@@ -59,7 +59,7 @@ print("Dimensionality of the vectors: ", index.dim)
 index.print_space_usage_byte()
 ```
 
-We are now ready to read the encoded queries from a input jsonl file.
+We are now ready to read the encoded queries from an input jsonl file.
 
 ```python
 queries_path = "" # your query file
