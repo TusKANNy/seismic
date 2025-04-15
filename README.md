@@ -67,7 +67,6 @@ results = index.search(
 )
 ```
 
-
 ### 📥 Download the Datasets  
 The embeddings in ```jsonl```  format for several encoders and several datasets can be downloaded from this HuggingFace [repository](https://huggingface.co/collections/tuskanny/seismic-datasets-6610108d39c0f2299f20fc9b), together with the queries representations. 
 
