@@ -25,9 +25,7 @@ The instructions below explain how to use it by using the Python API.
 
 ### ⚡ Installation  
 
-The easiest way to install Seismic is via its Python interface that can be installed via pip. Check our Python usage guide for details [docs/PythonUsage.md](docs/PythonUsage.md) 
-
-A detailed installation guide that includes deeper performance optimizations is available at [docs/Installation.md](docs/Installation.md) 
+The easiest way to install Seismic is via its Python interface that can be installed in two different ways: 1) the easiest way is via pip [docs/PythonUsage.md](docs/PythonUsage.md) or 2) via Rust compilation that allows deeper hardware optimizations [docs/PythonUsage.md](docs/PythonUsage.md).
 
 
 ### 🚀 Quick Start  
