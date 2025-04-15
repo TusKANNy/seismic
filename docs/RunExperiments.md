@@ -9,7 +9,7 @@ You can easily write your TOML file by following the instructions [here](docs/To
 
 As an example, let's now run the experiments using the TOML file [`experiments/sigir2024/splade.toml`](experiments/sigir2024/splade.toml), which replicates the results of Seismic with Splade embeddings on the MS MARCO dataset.
 
-##### Setting up for the Experiment
+### Setting up for the Experiment
 Let's start by creating a working directory for the data and indexes.
 
 ```bash
@@ -33,7 +33,7 @@ Let's uncompress the file using the following command:
 tar -xvzf msmarco_v1_passage_cocondenser_v2.tar.gz
 ```
 
-##### Running the Experiment
+### Running the Experiment
 We are now ready to run the experiment.
 
 First, clone the Seismic Git repository and compile Seismic:
@@ -69,7 +69,7 @@ You can change directory names by modifying the `[folders]` section in the TOML 
 Next, the script will query the same index with different parameters, as specified in the `[query]` section.  
 These parameters provide different trade-offs between query time and accuracy. In our TOML file, we report the expected accuracy level.
 
-**IMPORTANT**: if your machine is NUMA, you need to uncomment the NUMA setting in the TOML file and configure it according to your hardware for better performance.
+**Important**: if your machine is NUMA, you need to uncomment the NUMA setting in the TOML file and configure it according to your hardware for better performance.
 
 The script creates a folder named `splade_cocondenser_msmarco_XXX`, where `XXX` encodes the datetime at which the script was executed. This ensures that each run creates a unique directory.
 
