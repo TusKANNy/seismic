@@ -24,13 +24,8 @@ The instructions below explain how to use it by using the Python API.
 
 
 ### ⚡ Installation  
-To use Seismic, install [Rust](https://www.rust-lang.org/tools/install) and then run:
 
-```bash
-pip install pyseismic-lsr
-```
-
-Check out the detailed installation guide in [docs/Installation.md](docs/Installation.md) for performance optimizations.
+The easiest way to use Seismic is via its Python API, which can be installed in two different ways: 1) the easiest way is via pip or 2) via Rust compilation that allows deeper hardware optimizations. Check [docs/PythonUsage.md](docs/PythonUsage.md) for details.
 
 
 ### 🚀 Quick Start  
@@ -137,7 +132,7 @@ SIGIR 2024
 CIKM 2024
 ```bibtex 
 @inproceedings{bruch2024pairing,
-  author    = {Bruch, Sebastian and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano and Venuta, Leonardo},
+  author    = {Bruch, Sebastian and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano},
   title     = {Pairing Clustered Inverted Indexes with $\kappa$-NN Graphs for Fast Approximate Retrieval over Learned Sparse Representations},
   booktitle = {Proceedings of the 33rd International {ACM} {C}onference on {I}nformation and {K}nowledge {M}anagement ({CIKM})},
   pages     = {3642--3646},
@@ -145,5 +140,19 @@ CIKM 2024
   year      = {2024},
   url       = {https://doi.org/10.1145/3627673.3679977},
   doi       = {10.1145/3627673.3679977}
+}
+```
+
+ECIR 2025
+```bibtex
+@inproceedings{bruch2025investigating,
+  author    = {Bruch, Sebastian and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano and Venuta, Leonardo},
+  title     = {Investigating the Scalability of Approximate Sparse Retrieval Algorithms to Massive Datasets},
+  booktitle = {Advances in Information Retrieval},
+  pages     = {437--445},
+  publisher = {Springer Nature Switzerland},
+  year      = {2025},
+  url       = {https://doi.org/10.1007/978-3-031-88714-7_43},
+  doi       = {10.1007/978-3-031-88714-7_43}
 }
 ```
