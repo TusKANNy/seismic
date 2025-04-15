@@ -9,7 +9,7 @@ You can easily write your own TOML file by following the instructions [here](doc
 
 As an example, let's now run the experiments using the TOML file [`experiments/sigir2024/splade.toml`](experiments/sigir2024/splade.toml), which replicates the results of Seismic with Splade embeddings on the MS MARCO dataset.
 
-##### Setting up for the Experiment
+### Setting up for the Experiment
 Let's start by creating a working directory for the data and indexes.
 
 ```bash
@@ -33,7 +33,7 @@ Let's uncompress the file using the following command:
 tar -xvzf msmarco_v1_passage_cocondenser_v2.tar.gz
 ```
 
-##### Running the Experiment
+### Running the Experiment
 We are now ready to run the experiment.
 
 First, clone the Seismic Git repository and compile Seismic:

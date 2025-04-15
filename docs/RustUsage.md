@@ -34,7 +34,7 @@ The script `convert_json_to_inner_format.py` converts files in this format into 
 
 ```bash
 python scripts/convert_json_to_inner_format.py \
-    --document-path /path/to/document.jsonl \
+    --document-path /path/to/documents.jsonl \
     --queries-path /path/to/queries.jsonl \
     --output-dir /path/to/output 
 ```

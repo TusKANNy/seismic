@@ -26,7 +26,7 @@ pip install pyseismic-lsr
 Prebuilt wheels are available for Linux platforms (x86_64, i686, aarch64) with different Python implementation (CPython, PyPy) for linux distros using glibc 2.17 or later.
 Wheels are also available x86_64 platforms with linux distros using musl 1.2 or later.
 
-### Rust 
+### Rust
 
 This command allows you to compile all the Rust binaries contained in `src/bin`
 
@@ -39,13 +39,10 @@ There are two main kind of indexes in Rust, represented by two different data st
 ##### InvertedIndex.
 This data structure contains the logic of Seismic. To build an inverted index, you first need to convert the data into the inner seismic format. This data structures ignores document and query ids, using their indexes as identifier (as the well-known `faiss` library does). You can find examples on how to use it in `src/bin/build_inverted_index` and `src/bin/perf_inverted_index`.
 
-
 ##### SeismicIndex
 This is a wrapper around `InvertedIndex`. It handles document ids and query ids internally. The index is built by passing it the path to collection as `jsonl`, without the need to convert it into the inner format. You can find examples on how to use it in `src/bin/build_enhanced_inverted_index` and `src/bin/perf_enhanced_inverted_index`
 
 This command produces three executables: `build_inverted_index`, `perf_inverted_index`, and `generate_groundtruth` in the `/target/release/` directory.
-
-
 
 The `build_inverted_index` executable is used to construct an inverted index for a dataset. Both dataset and query files are stored in an internal binary format. Refer to the Python scripts section for a script to convert a dataset from JSON format. This process involves several parameters that regulate space/time trade-offs:
 
@@ -55,7 +52,7 @@ The `build_inverted_index` executable is used to construct an inverted index for
 
 For Splade on MSMarco, good choices are `--n-postings 3500`, `--summary-energy 0.4`, and `--centroid-fraction 0.1`.
 
-The following command can be used to create a Seismic index serialized in the file `splade.bin.3500.seismic`:
+The following command can be used to create a Seismic index serialized in the file `documents.bin.seismic`:
 
 ```bash
 ./target/release/build_inverted_index -i splade.bin -o splade.bin.3500_0.4_0.1 --centroid-fraction 0.1 --summary-energy 0.4 --n-postings 3500 
