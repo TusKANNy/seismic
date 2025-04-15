@@ -4,19 +4,19 @@ This guide explains how to use Seismic's Rust code independently ([standalone](#
 
 ### <a name="itself"> Using Seismic Binary Executable</a>
 
-First we have to compile the project. After executing the following command, the binary executable will be found in `./target/release`. 
+First, we have to compile the project. After executing the following command, the binary executable will be found in `./target/release`. 
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 
 #### Building the Index
-Let's now build a index on the Splade embeddings for MS MARCO v1 passage. To download the encoded vectors plase refer to [Setting up for the Experiment](RunExperiments.md#bin_data).
+Let's now build an index on the Splade embeddings for the MS MARCO v1 passage. To download the encoded vectors, please refer to [Setting up for the Experiment](RunExperiments.md#bin_data).
 
 Seismic has few parameters that control the space/time trade-offs when building the index:
 
 - `--n-postings` defines the posting list size, representing the average number of postings stored per list.
-- `--summary-energy` controls summary size, preserving a fraction of the overall energy for each summary.
+- `--summary-energy` controls the summary size, preserving a fraction of the overall energy for each summary.
 - `--centroid-fraction` determines the number of centroids per posting list, capped at a fraction of the posting list length.
 - `--clustering-algorithm` selects the algorithm to cluster postings within each posting list.
 
