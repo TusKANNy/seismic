@@ -69,7 +69,7 @@ You can change directory names by modifying the `[folders]` section in the TOML 
 Next, the script will query the same index with different parameters, as specified in the `[query]` section.  
 These parameters provide different trade-offs between query time and accuracy. In our TOML file, we report the expected accuracy level.
 
-**IMPORTANT**: if your machine is NUMA, you need to uncomment the NUMA setting in the TOML file and configure it according to your hardware.
+**IMPORTANT**: if your machine is NUMA, you need to uncomment the NUMA setting in the TOML file and configure it according to your hardware for better performance.
 
 The script creates a folder named `splade_cocondenser_msmarco_XXX`, where `XXX` encodes the datetime at which the script was executed. This ensures that each run creates a unique directory.
 
