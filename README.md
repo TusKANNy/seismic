@@ -41,9 +41,9 @@ from seismic import SeismicIndex
 json_input_file = "" # Your data collection
 
 index = SeismicIndex.build(json_input_file)
-print("Number of documents: ", index.len)
-print("Avg number of non-zero components: ", index.nnz / index.len)
-print("Dimensionality of the vectors: ", index.dim)
+print("Number of documents:", index.len)
+print("Avg number of non-zero components:", index.nnz / index.len)
+print("Dimensionality of the vectors:", index.dim)
 
 index.print_space_usage_byte()
 ```
