@@ -314,7 +314,7 @@ impl SeismicIndexRaw {
 
     pub fn save(&self, path: &str) {
         let serialized = bincode::serialize(&self.inverted_index).unwrap();
-        let path = path.to_string() + ".index.seismic";
+        let path = path.to_string() + "index.seismic";
         println!("Saving ... {}", path);
         let r = fs::write(path, serialized);
         println!("{:?}", r);
