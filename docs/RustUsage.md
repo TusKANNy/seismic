@@ -3,8 +3,14 @@ This guide explains how to use Seismic's Rust code independently ([standalone](#
 
 
 ### <a name="itself"> Using Seismic Binary Executable</a>
+First, we clone the Seismic Git repository:
 
-First, we have to compile the project. After executing the following command, the binary executable will be found in `./target/release`. 
+```bash
+git clone git@github.com:TusKANNy/seismic.git
+cd seismic
+```
+
+Then, we have to compile the project. After executing the following command, the binary executable will be found in `./target/release`. 
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release

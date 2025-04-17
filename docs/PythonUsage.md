@@ -3,8 +3,10 @@
 ##  Installation
 
 ## Package Installation
-We provide two options for installing Seismic's Python binding `pyseismic-lsr`. 
+There are two (+1) options for installing Seismic's Python binding `pyseismic-lsr`. 
 The first option is easier but may provide suboptimal performance, while the second one is slightly more complicated but runs faster.
+
+There is also a third option: install the Python ibinding for the latest version of Seismic for the Github repository. This version may be still unpublished but includes latest bugfixes.
 
 ### Python - Easy installation
 If you are not interested in obtaining maximum performance, you can install the package from a prebuilt Wheel.
@@ -33,6 +35,23 @@ RUSTFLAGS="-C target-cpu=native" pip install --no-binary :all: pyseismic-lsr
 ```
 
 This will compile the Rust code tailored for your machine, providing maximum performance.
+
+### Python - Maximum performance with latest version from Github repository
+
+First, we clone the Seismic Git repository:
+
+```bash
+git clone git@github.com:TusKANNy/seismic.git
+cd seismic
+```
+
+Then, we compile and install Seismic with `maturin`:
+
+```bash
+pip install maturin
+maturin init --bindings pyo3
+RUSTFLAGS="-C target-cpu=native" maturin develop
+```
 
 ## Usage Example in Python
 
