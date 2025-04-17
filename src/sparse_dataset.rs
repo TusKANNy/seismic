@@ -722,7 +722,6 @@ where
             .push(*self.offsets.last().unwrap() + pairs.len());
 
         if pairs.is_empty() {
-            println!("Empty vector");
             return;
         }
 
