@@ -727,7 +727,6 @@ where
             .push(*self.offsets.last().unwrap() + pairs.len());
     }
 
-
     /// Adds a new sparse vector to the dataset.
     ///
     /// The `components` parameter is assumed to be a strictly increasing sequence
@@ -766,11 +765,19 @@ where
             values.len(),
             "Vectors have different sizes"
         );
-        assert!(!components.is_empty());
+        // a vector can be empty now
+        // assert!(!components.is_empty());
         assert!(
             components.windows(2).all(|w| w[0] <= w[1]),
             "Components must be given in sorted order"
         );
+
+        self.offsets
+            .push(*self.offsets.last().unwrap() + components.len());
+
+        if components.is_empty() {
+            return;
+        }
 
         if *components.last().unwrap() as usize >= self.d {
             self.d = *components.last().unwrap() as usize + 1;
@@ -778,8 +785,6 @@ where
 
         self.components.extend(components);
         self.values.extend(values);
-        self.offsets
-            .push(*self.offsets.last().unwrap() + values.len());
     }
 
     /// Returns the length of the vector with the specified index.
@@ -1549,6 +1554,57 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Test pushing empty vectors.
+    #[test]
+    fn test_empty_vectors() {
+        let mut dataset = SparseDatasetMut::<f32>::default();
+
+        // Push a single vector
+        dataset.push(&[0, 2, 4], &[1.0, 2.0, 3.0]);
+        assert_eq!(dataset.len(), 1);
+        assert_eq!(dataset.dim(), 5);
+        assert_eq!(dataset.nnz(), 3);
+
+        // Push another vector
+        let c = Vec::new();
+        let v = Vec::new();
+
+        dataset.push(&c, &v);
+        assert_eq!(dataset.len(), 2);
+        assert_eq!(dataset.dim(), 5);
+        assert_eq!(dataset.nnz(), 3);
+
+        dataset.push(&c, &v);
+        assert_eq!(dataset.len(), 3);
+        assert_eq!(dataset.dim(), 5);
+        assert_eq!(dataset.nnz(), 3);
+
+        // Push a fourth vector
+        dataset.push(&[0, 1, 2, 3], &[1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(dataset.len(), 4);
+        assert_eq!(dataset.dim(), 5);
+        assert_eq!(dataset.nnz(), 7);
+
+        let dataset = SparseDataset::from(dataset);
+
+        // Check the contents of the dataset
+        let (components, values) = dataset.get(0);
+        assert_eq!(components, &[0, 2, 4]);
+        assert_eq!(values, &[1.0, 2.0, 3.0]);
+
+        let (components, values) = dataset.get(1);
+        assert!(components.is_empty());
+        assert!(values.is_empty());
+
+        let (components, values) = dataset.get(2);
+        assert!(components.is_empty());
+        assert!(values.is_empty());
+
+        let (components, values) = dataset.get(3);
+        assert_eq!(components, &[0, 1, 2, 3]);
+        assert_eq!(values, &[1.0, 2.0, 3.0, 4.0]);
+    }
 
     // Test iteration (forward and backward) over the vectors of a collection.
     #[test]
