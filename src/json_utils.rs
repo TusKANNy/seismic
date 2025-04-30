@@ -50,16 +50,15 @@ where
 }
 
 pub fn read_queries(input_file: &String) -> Vec<(String, Vec<String>, Vec<f32>)> {
-    let f = File::open(input_file).expect(&format!("Unable to open {}", input_file));
+    let f = File::open(input_file).unwrap_or_else(|_| panic!("Unable to open {}", input_file));
     let reader = BufReader::new(f);
     let stream: serde_json::StreamDeserializer<
         serde_json::de::IoRead<BufReader<File>>,
         JsonFormat,
     > = Deserializer::from_reader(reader).into_iter();
 
-    let values = stream
+    stream
         .into_iter()
         .map(|x| (extract_jsonl(x.unwrap())))
-        .collect();
-    values
+        .collect()
 }

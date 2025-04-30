@@ -66,22 +66,23 @@ where
     pub fn remap_doc_ids(
         &self,
         plain_results: Vec<(f32, usize)>,
-        query_id: &String,
+        query_id: &str,
     ) -> Vec<(String, f32, String)> {
         let remapped_results: Vec<(String, f32, String)> = match &self.document_mapping {
             Some(mapp) => plain_results
                 .iter()
-                .map(|(distance, doc_id)| (query_id.clone(), *distance, mapp[*doc_id].clone()))
+                .map(|(distance, doc_id)| (query_id.to_owned(), *distance, mapp[*doc_id].clone()))
                 .collect(),
             None => plain_results
                 .iter()
-                .map(|(distance, doc_id)| (query_id.clone(), *distance, doc_id.to_string()))
+                .map(|(distance, doc_id)| (query_id.to_owned(), *distance, doc_id.to_string()))
                 .collect(),
         };
 
         remapped_results
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn search_raw(
         &self,
         query_components_original: &[String],
@@ -100,7 +101,7 @@ where
                 .map(|(qc, &qv)| (self.token_to_id_map[qc] as u16, qv))
                 .unzip();
 
-        let results = self.inverted_index.search(
+        self.inverted_index.search(
             &filtered_query_components,
             &filtered_query_values,
             k,
@@ -108,14 +109,13 @@ where
             heap_factor,
             n_knn,
             first_sorted,
-        );
-
-        results
+        )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn search(
         &self,
-        query_id: &String,
+        query_id: &str,
         query_components_original: &[String],
         query_values: &[f32],
         k: usize,
@@ -172,7 +172,7 @@ where
             let converted_vector: Vec<(u16, T)> = ids
                 .into_iter()
                 .zip(values)
-                .sorted_by(|(a, _), (b, _)| a.partial_cmp(&b).unwrap())
+                .sorted_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap())
                 .collect();
 
             converted_data.push_pairs(&converted_vector[..]);
@@ -217,13 +217,13 @@ where
         let start = Instant::now();
 
         //read the file and count rows
-        let f = File::open(json_path).unwrap();
+        let f = File::open(json_path).unwrap_or_else(|_| panic!("Unable to open {}", json_path));
         let reader = io::BufReader::new(f);
         let row_count = reader.lines().count();
 
         println!("Number of rows: {}", row_count);
 
-        let f = File::open(json_path).expect(&format!("Unable to open {}", json_path));
+        let f = File::open(json_path).unwrap_or_else(|_| panic!("Unable to open {}", json_path));
         let reader = BufReader::new(f);
 
         let (final_data, doc_id_mapping, token_to_id_mapping) =
@@ -252,7 +252,8 @@ where
 
         //decompress gz, extract first file (json) of the archive
         //read the file and count rows
-        let tar_gz_file = File::open(tar_path).expect(&format!("Unable to open {}", tar_path));
+        let tar_gz_file =
+            File::open(tar_path).unwrap_or_else(|_| panic!("Unable to open {}", tar_path));
         let gz_decoder = GzDecoder::new(tar_gz_file);
         let mut archive = Archive::new(gz_decoder);
         let json_entry = archive.entries().unwrap().next().unwrap().unwrap();
@@ -262,7 +263,8 @@ where
         println!("Number of rows: {}", row_count);
 
         //Deserialize json
-        let tar_gz_file = File::open(tar_path).expect(&format!("Unable to open {}", tar_path));
+        let tar_gz_file =
+            File::open(tar_path).unwrap_or_else(|_| panic!("Unable to open {}", tar_path));
         let gz_decoder = GzDecoder::new(tar_gz_file);
         let mut archive = Archive::new(gz_decoder);
         let json_entry = archive.entries().unwrap().next().unwrap().unwrap();
@@ -300,12 +302,16 @@ where
         self.inverted_index.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.inverted_index.is_empty()
+    }
+
     pub fn inverted_index(&self) -> &InvertedIndex<T> {
         &self.inverted_index
     }
 
     pub fn dataset(&self) -> &SparseDataset<T> {
-        &self.inverted_index.dataset()
+        self.inverted_index.dataset()
     }
 
     pub fn add_knn(&mut self, knn: Knn) {
@@ -338,6 +344,15 @@ where
     token_to_id_map: HashMap<String, usize>,
 }
 
+impl<T> Default for SeismicDataset<T>
+where
+    T: PartialOrd + DataType,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> SeismicDataset<T>
 where
     T: PartialOrd + DataType,
@@ -351,7 +366,7 @@ where
         let token_to_id_map = HashMap::<String, usize>::new();
         Self {
             sparse_dataset,
-            document_mapping: document_mapping,
+            document_mapping,
             token_to_id_map,
         }
     }

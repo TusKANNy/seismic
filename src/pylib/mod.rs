@@ -43,11 +43,9 @@ pub struct SeismicIndex {
 
 #[pymethods]
 impl SeismicIndex {
-
-
     /// Get the dimensionality of the index.
     ///
-    /// This method returns the total number of unique tokens 
+    /// This method returns the total number of unique tokens
     /// present in the dataset used to build the index.
     ///
     /// Returns:
@@ -60,7 +58,6 @@ impl SeismicIndex {
     pub fn get_dim(&self) -> PyResult<usize> {
         Ok(self.index.dim())
     }
-
 
     /// Get the number of documents in the index.
     ///
@@ -109,20 +106,17 @@ impl SeismicIndex {
         Ok(self.index.knn_len())
     }
 
-
-
     /// Print the estimated memory usage of the index in bytes.
     ///
     /// This method returns no value, but logs to the console the memory
     /// footprint of the inverted index and associated data structures.
-    /// 
+    ///
     /// Example:
     ///     >>> index.print_space_usage_byte()
     ///     Total space usage: 12.3 MB
     pub fn print_space_usage_byte(&self) {
         self.index.print_space_usage_byte();
     }
-
 
     /// Get the sparse vector representation of a document by its ID.
     ///
@@ -139,7 +133,7 @@ impl SeismicIndex {
     ///     >>> tokens, values = index.get(42)
     ///     >>> print(tokens)
     ///     [3, 7, 19]
-    /// 
+    ///
     #[pyo3(signature = (id))]
     #[pyo3(text_signature = "(self, id)")]
     pub fn get(&self, id: usize) -> PyResult<(Vec<u16>, Vec<f32>)> {
@@ -167,8 +161,6 @@ impl SeismicIndex {
         Ok(self.index.dataset().vector_len(id))
     }
 
-
-
     /// Load a previously saved SeismicIndex from disk.
     ///
     /// This method returns a deserialized `SeismicIndex` from the given file path.
@@ -195,14 +187,14 @@ impl SeismicIndex {
                 index_path, e
             ))
         })?;
-    
+
         let index = bincode::deserialize::<Index<f16>>(&serialized).map_err(|e| {
             PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                 "Failed to deserialize index from '{}': {}",
                 index_path, e
             ))
         })?;
-    
+
         Ok(SeismicIndex { index })
     }
 
@@ -243,13 +235,11 @@ impl SeismicIndex {
         Ok(())
     }
 
-
-
     /// Build and attach a KNN (k-nearest neighbor) graph to the index.
     ///
     /// This method returns nothing, but internally computes the nearest neighbors
-    /// for each document in the index and stores the result. The nearest neighbors are 
-    /// identified by using the seismic index itself, so they are approximated. 
+    /// for each document in the index and stores the result. The nearest neighbors are
+    /// identified by using the seismic index itself, so they are approximated.
     ///
     /// Args:
     ///     nknn (int): The number of nearest neighbors to compute for each document.
@@ -263,8 +253,6 @@ impl SeismicIndex {
         self.index.add_knn(knn);
     }
 
-
-    
     /// Save the precomputed KNN graph to disk.
     ///
     /// This method returns nothing, but writes the KNN data to the given file path.
@@ -299,7 +287,6 @@ impl SeismicIndex {
 
         Ok(())
     }
-
 
     /// Load a precomputed KNN graph from a file and attach it to the index.
     ///
@@ -397,15 +384,13 @@ impl SeismicIndex {
             .map_err(|e| {
                 PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                     "Failed to build index from file: {}. File may not exist or be corrupted. Error: {}",
-                    input_path,     
+                    input_path,
                     e
                 ))
             })?;
 
         Ok(SeismicIndex { index })
     }
-
-
 
     /// Build a SeismicIndex from an in-memory SeismicDataset.
     ///
@@ -431,17 +416,19 @@ impl SeismicIndex {
     #[allow(clippy::too_many_arguments)]
     #[staticmethod]
     #[pyo3(signature = (
-        dataset, 
-        n_postings=3500, 
-        centroid_fraction=0.1, 
-        min_cluster_size=2, 
-        summary_energy=0.4, 
-        nknn=0, 
-        knn_path=None, 
-        batched_indexing=None, 
+        dataset,
+        n_postings=3500,
+        centroid_fraction=0.1,
+        min_cluster_size=2,
+        summary_energy=0.4,
+        nknn=0,
+        knn_path=None,
+        batched_indexing=None,
         num_threads=0
     ))]
-    #[pyo3(text_signature = "(dataset, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, nknn=0, knn_path=None, batched_indexing=None, num_threads=0)")]    
+    #[pyo3(
+        text_signature = "(dataset, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, nknn=0, knn_path=None, batched_indexing=None, num_threads=0)"
+    )]
     pub fn build_from_dataset(
         dataset: SeismicDataset,
         n_postings: usize,
@@ -484,13 +471,10 @@ impl SeismicIndex {
         Ok(SeismicIndex { index })
     }
 
-    
-    
-    
     /// Perform a nearest neighbor search over the index using a single sparse query.
     ///
     /// This method returns the top-k most similar documents to the input query based on
-    /// inner (dot) product. 
+    /// inner (dot) product.
     ///
     /// Args:
     ///     query_id (str): Identifier for the query (used for result annotation).
@@ -508,16 +492,18 @@ impl SeismicIndex {
     /// Example:
     ///     >>> index.search("q1", np.array(["token1", "token2"], dtype=seismic.get_string_type()), np.array([0.5, 0.3], dtype=np.float32), k=5, query_cut=10, heap_factor=0.8)
     #[pyo3(signature = (
-        query_id, 
-        query_components, 
-        query_values, 
-        k, 
-        query_cut, 
-        heap_factor, 
-        n_knn=0, 
+        query_id,
+        query_components,
+        query_values,
+        k,
+        query_cut,
+        heap_factor,
+        n_knn=0,
         sorted=true
     ))]
-    #[pyo3(text_signature = "(self, query_id, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True)")]
+    #[pyo3(
+        text_signature = "(self, query_id, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True)"
+    )]
     #[allow(clippy::too_many_arguments)]
     pub fn search<'py>(
         &self,
@@ -547,8 +533,6 @@ impl SeismicIndex {
         )
     }
 
-
-
     /// Perform batched nearest neighbor search using multiple sparse query vectors.
     ///
     /// This method returns the top-k most similar documents according to the inner product, for each query.
@@ -571,17 +555,19 @@ impl SeismicIndex {
     /// Example:
     ///     >>> results = index.batch_search(query_ids, query_components, query_values, k=10, query_cut=20, heap_factor=0.8)
     #[pyo3(signature = (
-        queries_ids, 
-        query_components, 
-        query_values, 
-        k, 
-        query_cut, 
-        heap_factor, 
-        n_knn=0, 
-        sorted=true, 
+        queries_ids,
+        query_components,
+        query_values,
+        k,
+        query_cut,
+        heap_factor,
+        n_knn=0,
+        sorted=true,
         num_threads=0
     ))]
-    #[pyo3(text_signature = "(self, queries_ids, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True, num_threads=0)")]
+    #[pyo3(
+        text_signature = "(self, queries_ids, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True, num_threads=0)"
+    )]
     #[allow(clippy::too_many_arguments)]
     pub fn batch_search<'py>(
         &self,
@@ -651,7 +637,6 @@ impl SeismicIndex {
     }
 }
 
-
 /// A Python wrapper around a raw Seismic inverted index.
 ///
 /// This class provides a lightweight interface to a compressed sparse index
@@ -669,7 +654,6 @@ pub struct SeismicIndexRaw {
 
 #[pymethods]
 impl SeismicIndexRaw {
-
     /// Get the dimensionality of the raw index.
     ///
     /// This method returns the total number of unique tokens (features)
@@ -686,7 +670,6 @@ impl SeismicIndexRaw {
         Ok(self.inverted_index.dim())
     }
 
-
     /// Get the number of documents in the raw index.
     ///
     /// This method returns the total number of vectors (documents)
@@ -702,7 +685,6 @@ impl SeismicIndexRaw {
     pub fn get_len(&self) -> PyResult<usize> {
         Ok(self.inverted_index.len())
     }
-    
 
     /// Get the number of non-zero entries (NNZ) in the raw index.
     ///
@@ -720,7 +702,6 @@ impl SeismicIndexRaw {
         Ok(self.inverted_index.nnz())
     }
 
-
     /// Get the number of precomputed KNN neighbors per document.
     ///
     /// This method returns the number of nearest neighbors stored
@@ -736,7 +717,6 @@ impl SeismicIndexRaw {
     pub fn knn_len(&self) -> PyResult<usize> {
         Ok(self.inverted_index.knn_len())
     }
-
 
     /// Check whether the raw index contains any documents.
     ///
@@ -766,7 +746,6 @@ impl SeismicIndexRaw {
         self.inverted_index.print_space_usage_byte();
     }
 
-
     /// Get the sparse vector representation of a document by its ID.
     ///
     /// This method returns the list of token IDs and their corresponding
@@ -788,9 +767,6 @@ impl SeismicIndexRaw {
         let entry = self.inverted_index.dataset().get(id);
         Ok((entry.0.to_vec(), entry.1.to_f32_vec()))
     }
-
-
-
 
     /// Get the number of non-zero components in a document vector.
     ///
@@ -839,16 +815,16 @@ impl SeismicIndexRaw {
             ))
         })?;
 
-        let inverted_index = bincode::deserialize::<InvertedIndex<f16>>(&serialized).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                "Failed to deserialize index from '{}': {}",
-                index_path, e
-            ))
-        })?;
+        let inverted_index =
+            bincode::deserialize::<InvertedIndex<f16>>(&serialized).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
+                    "Failed to deserialize index from '{}': {}",
+                    index_path, e
+                ))
+            })?;
 
         Ok(SeismicIndexRaw { inverted_index })
     }
-
 
     /// Save the raw SeismicIndex to disk in binary format.
     ///
@@ -887,7 +863,6 @@ impl SeismicIndexRaw {
         Ok(())
     }
 
-
     /// Build and attach a KNN (k-nearest neighbor) graph to the raw index.
     ///
     /// This method computes the `nknn` nearest neighbors for each document
@@ -921,20 +896,23 @@ impl SeismicIndexRaw {
     #[pyo3(signature = (path))]
     #[pyo3(text_signature = "(self, path)")]
     pub fn save_knn(&self, path: &str) -> PyResult<()> {
-        self.inverted_index.knn().ok_or_else(|| {
-            PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                "No KNN graph is attached to the index.",
-            )
-        })?.serialize(path).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                "Failed to save KNN to '{}': {}",
-                path, e
-            ))
-        })?;
+        self.inverted_index
+            .knn()
+            .ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "No KNN graph is attached to the index.",
+                )
+            })?
+            .serialize(path)
+            .map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
+                    "Failed to save KNN to '{}': {}",
+                    path, e
+                ))
+            })?;
 
         Ok(())
     }
-
 
     /// Load a precomputed KNN graph from disk and attach it to the raw index.
     ///
@@ -959,7 +937,7 @@ impl SeismicIndexRaw {
     ///
     /// This method constructs an inverted index from a file in Seismic inner format.
     /// It supports pruning, clustering, summarization, and optional KNN graph construction.
-    /// 
+    ///
     ///
     /// Args:
     ///     input_file (str): Path to the binary `.bin` dataset file.
@@ -979,16 +957,18 @@ impl SeismicIndexRaw {
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
-        input_file, 
-        n_postings=3500, 
-        centroid_fraction=0.1, 
-        min_cluster_size=2, 
-        summary_energy=0.4, 
-        nknn=0, 
-        knn_path=None, 
+        input_file,
+        n_postings=3500,
+        centroid_fraction=0.1,
+        min_cluster_size=2,
+        summary_energy=0.4,
+        nknn=0,
+        knn_path=None,
         batched_indexing=None
     ))]
-    #[pyo3(text_signature = "(input_file, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, nknn=0, knn_path=None, batched_indexing=None)")]
+    #[pyo3(
+        text_signature = "(input_file, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, nknn=0, knn_path=None, batched_indexing=None)"
+    )]
     pub fn build(
         input_file: &str,
         n_postings: usize,
@@ -1027,7 +1007,6 @@ impl SeismicIndexRaw {
         Ok(SeismicIndexRaw { inverted_index })
     }
 
-
     /// Perform a nearest neighbor search on a single sparse query.
     ///
     /// This method searches the raw index using the given query, returning the top-k
@@ -1048,15 +1027,18 @@ impl SeismicIndexRaw {
     /// Example:
     ///     >>> index.search(np.array([1, 5, 7]), np.array([0.5, 0.2, 0.1]), 10, 20, 0.8, 0, True)
     #[pyo3(signature = (
-        query_components, 
-        query_values, 
-        k, 
-        query_cut, 
-        heap_factor, 
-        n_knn, 
+        query_components,
+        query_values,
+        k,
+        query_cut,
+        heap_factor,
+        n_knn,
         sorted
     ))]
-    #[pyo3(text_signature = "(self, query_components, query_values, k, query_cut, heap_factor, n_knn, sorted)")]
+    #[pyo3(
+        text_signature = "(self, query_components, query_values, k, query_cut, heap_factor, n_knn, sorted)"
+    )]
+    #[allow(clippy::too_many_arguments)]
     pub fn search<'py>(
         &self,
         query_components: PyReadonlyArrayDyn<'py, i32>,
@@ -1111,9 +1093,11 @@ impl SeismicIndexRaw {
         sorted,
         num_threads=0
     ))]
-    #[pyo3(text_signature = "(self, query_path, k, query_cut, heap_factor, n_knn, sorted, num_threads=0)")]
+    #[pyo3(
+        text_signature = "(self, query_path, k, query_cut, heap_factor, n_knn, sorted, num_threads=0)"
+    )]
     #[allow(clippy::too_many_arguments)]
-    pub fn batch_search<'py>(
+    pub fn batch_search(
         &self,
         query_path: &str,
         k: usize,
@@ -1147,8 +1131,6 @@ impl SeismicIndexRaw {
     }
 }
 
-
-
 /// A Python wrapper around an in-memory sparse dataset.
 ///
 /// This class provides a way to build a dataset of sparse vectors
@@ -1165,8 +1147,6 @@ pub struct SeismicDataset {
 
 #[pymethods]
 impl SeismicDataset {
-
-
     /// Create a new, empty SeismicDataset.
     ///
     /// This method returns an empty dataset ready to be populated
@@ -1199,7 +1179,6 @@ impl SeismicDataset {
     pub fn get_len(&self) -> PyResult<usize> {
         Ok(self.dataset.len())
     }
-
 
     /// Add a sparse document to the dataset.
     ///

@@ -947,7 +947,6 @@ where
     /// # Panics
     ///
     /// Panics if the specified `vec_id` is out of bounds.
-
     pub fn iter_vector(
         &self,
         vec_id: usize,
@@ -1389,7 +1388,7 @@ where
     }
 }
 
-impl<'a, T> IndexedParallelIterator for ParSparseDatasetIter<'a, T>
+impl<T> IndexedParallelIterator for ParSparseDatasetIter<'_, T>
 where
     T: DataType,
 {
@@ -1407,7 +1406,7 @@ where
     }
 }
 
-impl<'a, T> ExactSizeIterator for SparseDatasetIter<'a, T>
+impl<T> ExactSizeIterator for SparseDatasetIter<'_, T>
 where
     T: DataType,
 {
@@ -1416,7 +1415,7 @@ where
     }
 }
 
-impl<'a, T> DoubleEndedIterator for SparseDatasetIter<'a, T>
+impl<T> DoubleEndedIterator for SparseDatasetIter<'_, T>
 where
     T: DataType,
 {

@@ -213,7 +213,7 @@ where
         let chunk_size = config.batched_indexing.unwrap_or(dataset.len());
 
         for chunk in &dataset.iter().enumerate().chunks(chunk_size) {
-            for (_, (doc_id, (components, values))) in chunk.enumerate() {
+            for (doc_id, (components, values)) in chunk {
                 for (&c, &score) in components.iter().zip(values) {
                     chunk_inv_pairs[c as usize].push((score, doc_id));
                 }
@@ -349,7 +349,7 @@ where
 
         // To ensure that executions with different batch sizes provide the same result, the comparison criterion considers both the score and the doc_id
         let (_, (t_score, _, _), leq) =
-            postings.select_nth_unstable_by(tot_postings, |a, b| b.partial_cmp(&a).unwrap());
+            postings.select_nth_unstable_by(tot_postings, |a, b| b.partial_cmp(a).unwrap());
         // All postings with scores equal to the threshold are added, up to max_eq_postings
         let (eq_pairs, _): (Vec<(T, usize, u16)>, _) = leq.iter().partition(|p| p.0 == *t_score);
         for (score, docid, id_postings) in eq_pairs.iter().take(max_eq_postings) {

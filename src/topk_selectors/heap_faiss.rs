@@ -143,6 +143,7 @@ impl OnlineTopKSelector for HeapFaiss {
     ///
     /// # Parameters
     /// - `k` (`usize`): The number of top distances to keep track of.
+    ///
     /// # Examples
     /// ```
     /// use seismic::topk_selectors::{OnlineTopKSelector, HeapFaiss};

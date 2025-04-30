@@ -22,7 +22,6 @@
 ///
 /// An online selector may be faster if a lot of distance are processed
 /// at once.
-
 pub trait OnlineTopKSelector {
     /// Creates a new empty data structure to compute top-`k` distances.
     fn new(k: usize) -> Self;

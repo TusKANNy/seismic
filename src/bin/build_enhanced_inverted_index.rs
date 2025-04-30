@@ -1,6 +1,6 @@
 use seismic::inverted_index::{
-    BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
-    SummarizationStrategy, ClusteringAlgorithmClap
+    BlockingStrategy, ClusteringAlgorithm, ClusteringAlgorithmClap, Configuration,
+    KnnConfiguration, PruningStrategy, SummarizationStrategy,
 };
 use seismic::SeismicIndex;
 
@@ -42,9 +42,9 @@ struct Args {
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 0.5)]
     summary_energy: f32,
-    
+
     #[clap(long, value_parser)]
-   // #[arg(default_value_t = ClusteringAlgorithmClap::default())]
+    // #[arg(default_value_t = ClusteringAlgorithmClap::default())]
     clustering_algorithm: ClusteringAlgorithmClap,
 
     #[clap(long, value_parser)]
@@ -68,7 +68,7 @@ struct Args {
     /// Path to the file of precomputed neareast neighbors.
     #[clap(long, value_parser)]
     knn_path: Option<String>,
-    
+
     /// Number of documents per chunk in the batched indexing mode.
     #[clap(short, long, value_parser)]
     batched_indexing: Option<usize>,
@@ -82,15 +82,17 @@ pub fn main() {
     let knn_config = KnnConfiguration::new(args.knn, args.knn_path);
 
     let my_clustering_algorithm = match args.clustering_algorithm {
-        ClusteringAlgorithmClap::RandomKmeansInvertedIndexApprox =>
-        ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
-            doc_cut: args.kmeans_doc_cut,
-        }, 
-        ClusteringAlgorithmClap::RandomKmeansInvertedIndex =>
-        ClusteringAlgorithm::RandomKmeansInvertedIndex {
-            pruning_factor: args.kmeans_pruning_factor,
-            doc_cut: args.kmeans_doc_cut,
-        },
+        ClusteringAlgorithmClap::RandomKmeansInvertedIndexApprox => {
+            ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
+                doc_cut: args.kmeans_doc_cut,
+            }
+        }
+        ClusteringAlgorithmClap::RandomKmeansInvertedIndex => {
+            ClusteringAlgorithm::RandomKmeansInvertedIndex {
+                pruning_factor: args.kmeans_pruning_factor,
+                doc_cut: args.kmeans_doc_cut,
+            }
+        }
         ClusteringAlgorithmClap::RandomKmeans => ClusteringAlgorithm::RandomKmeans {},
     };
 
