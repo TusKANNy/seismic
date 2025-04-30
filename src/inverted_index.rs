@@ -1068,3 +1068,53 @@ impl Knn {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Test pushing empty vectors.
+    #[test]
+    fn test_empty_vectors() {
+        let mut dataset = SparseDatasetMut::<f32>::default();
+
+        // Push a single vector
+        dataset.push(&[0, 2, 4], &[1.0, 2.0, 3.0]);
+        assert_eq!(dataset.len(), 1);
+        assert_eq!(dataset.dim(), 5);
+        assert_eq!(dataset.nnz(), 3);
+
+        // Push another vector
+        let c = Vec::new();
+        let v = Vec::new();
+
+        dataset.push(&c, &v);
+        assert_eq!(dataset.len(), 2);
+        assert_eq!(dataset.dim(), 5);
+        assert_eq!(dataset.nnz(), 3);
+
+        dataset.push(&c, &v);
+        assert_eq!(dataset.len(), 3);
+        assert_eq!(dataset.dim(), 5);
+        assert_eq!(dataset.nnz(), 3);
+
+        // Push a fourth vector
+        dataset.push(&[0, 1, 2, 3], &[1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(dataset.len(), 4);
+        assert_eq!(dataset.dim(), 5);
+        assert_eq!(dataset.nnz(), 7);
+
+        let dataset = SparseDataset::from(dataset);
+
+        let index = InvertedIndex::build(dataset, Configuration::default());
+        assert_eq!(index.len(), 4);
+        assert_eq!(index.dim(), 5);
+        assert_eq!(index.nnz(), 7);
+
+        let results = index.search(&[0, 1, 2, 3], &[1.0, 2.0, 3.0, 4.0], 10, 5, 0.7, 0, false);
+
+        assert_eq!(results.len(), 2); // Empty vectors are never retrieved becasue they do not belong to any posting list!
+        assert_eq!(results[0].1, 3);
+        assert_eq!(results[1].1, 0);
+    }
+}

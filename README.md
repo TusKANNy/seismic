@@ -24,13 +24,20 @@ The instructions below explain how to use it by using the Python API.
 
 
 ### ⚡ Installation  
-To install Seismic, run:
 
+The easiest way to use Seismic is via its Python API, which can be installed in two different ways: 
+
+1) the easiest way is via pip as follows:
 ```bash
 pip install pyseismic-lsr
 ```
 
-Check out the detailed installation guide in [docs/Installation.md](docs/Installation.md) for performance optimizations.
+2) via Rust compilation that allows deeper hardware optimizations as follows:
+```bash
+RUSTFLAGS="-C target-cpu=native" pip install --no-binary :all: pyseismic-lsr
+```
+
+Check [docs/PythonUsage.md](docs/PythonUsage.md) for more details.
 
 
 ### 🚀 Quick Start  
@@ -41,9 +48,9 @@ from seismic import SeismicIndex
 json_input_file = "" # Your data collection
 
 index = SeismicIndex.build(json_input_file)
-print("Number of documents: ", index.len)
-print("Avg number of non-zero components: ", index.nnz / index.len)
-print("Dimensionality of the vectors: ", index.dim)
+print("Number of documents:", index.len)
+print("Avg number of non-zero components:", index.nnz / index.len)
+print("Dimensionality of the vectors:", index.dim)
 
 index.print_space_usage_byte()
 ```
@@ -71,7 +78,6 @@ results = index.search(
     heap_factor=0.8,
 )
 ```
-
 
 ### 📥 Download the Datasets  
 The embeddings in ```jsonl```  format for several encoders and several datasets can be downloaded from this HuggingFace [repository](https://huggingface.co/collections/tuskanny/seismic-datasets-6610108d39c0f2299f20fc9b), together with the queries representations. 
@@ -137,7 +143,7 @@ SIGIR 2024
 CIKM 2024
 ```bibtex 
 @inproceedings{bruch2024pairing,
-  author    = {Bruch, Sebastian and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano and Venuta, Leonardo},
+  author    = {Bruch, Sebastian and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano},
   title     = {Pairing Clustered Inverted Indexes with $\kappa$-NN Graphs for Fast Approximate Retrieval over Learned Sparse Representations},
   booktitle = {Proceedings of the 33rd International {ACM} {C}onference on {I}nformation and {K}nowledge {M}anagement ({CIKM})},
   pages     = {3642--3646},
@@ -145,5 +151,19 @@ CIKM 2024
   year      = {2024},
   url       = {https://doi.org/10.1145/3627673.3679977},
   doi       = {10.1145/3627673.3679977}
+}
+```
+
+ECIR 2025
+```bibtex
+@inproceedings{bruch2025investigating,
+  author    = {Bruch, Sebastian and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano and Venuta, Leonardo},
+  title     = {Investigating the Scalability of Approximate Sparse Retrieval Algorithms to Massive Datasets},
+  booktitle = {Advances in Information Retrieval},
+  pages     = {437--445},
+  publisher = {Springer Nature Switzerland},
+  year      = {2025},
+  url       = {https://doi.org/10.1007/978-3-031-88714-7_43},
+  doi       = {10.1007/978-3-031-88714-7_43}
 }
 ```

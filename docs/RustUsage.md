@@ -1,87 +1,60 @@
 ## Using the Rust Code
-
 This guide explains how to use Seismic's Rust code independently ([standalone](#itself)) or integrate it into your own Rust project ([via Cargo](#notitsef)).
 
-### <a name="itself"> Use Seismic</a>
 
-There are two main types of indices in Rust, each represented by a different data structure.
-
-##### InvertedIndex
-This data structure implements the core logic of Seismic. To build an inverted index, you first need to convert the data into Seismic's internal format. This structure ignores document and query IDs, using their indices as identifiers, similar to the well-known `faiss` library.  
-
-You can find usage examples in `src/bin/build_inverted_index` and `src/bin/perf_inverted_index`.
-
-##### SeismicIndex
-This is a wrapper around `InvertedIndex`. It internally manages document and query IDs. The index is built by passing it a path to a collection in `jsonl` format, eliminating the need to manually convert it into the internal format.  
-
-Examples of usage can be found in `src/bin/build_enhanced_inverted_index` and `src/bin/perf_enhanced_inverted_index`.
-
----
-
-## **Detailed Example: InvertedIndex**
-The `build_inverted_index` executable constructs an inverted index for a dataset. Both dataset and query files are stored in Seismic's internal binary format.
-
-### **Data Format**
-
-Documents and queries should be JSON-formatted files with the following fields:
-
-- `id`: An integer representing the document ID.
-- `vector`: A dictionary where each key represents a token, and its corresponding value is the score, e.g., `{"dog": 2.45}`.
-
-This is the standard output format of several libraries for training sparse models, such as [`learned-sparse-retrieval`](https://github.com/thongnt99/learned-sparse-retrieval).
-
-The script `convert_json_to_inner_format.py` converts files in this format into Seismic's internal format.
+### <a name="itself"> Using Seismic Binary Executable</a>
+First, we clone the Seismic Git repository:
 
 ```bash
-python scripts/convert_json_to_inner_format.py \
-    --document-path /path/to/document.jsonl \
-    --queries-path /path/to/queries.jsonl \
-    --output-dir /path/to/output 
+git clone git@github.com:TusKANNy/seismic.git
+cd seismic
 ```
 
-This generates a `data` directory at `/path/to/output`, containing `documents.bin` and `queries.bin` binary files. It also saves:
-- `doc_ids.npy` and `query_ids.npy`: Containing the original document and query IDs.
-- `token_to_id_mapping.json`: Mapping from original tokens (`str`) to token IDs (`u16`).
+Then, we have to compile the project. After executing the following command, the binary executable will be found in `./target/release`. 
 
----
-
-### **Building the Index**
-Several parameters control the space/time trade-offs when building the index:
-
-- `--n-postings`: Regulates the posting list size, representing the average number of postings stored per list.
-- `--summary-energy`: Controls summary size, preserving a fraction of the overall energy for each summary.
-- `--centroid-fraction`: Determines the number of centroids per posting list, capped at a fraction of the posting list length.
-
-For **Splade on MSMarco**, good choices are:
 ```bash
---n-postings 3500 --summary-energy 0.4 --centroid-fraction 0.1
+RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 
-To create a Seismic index serialized in `splade.bin.3500.seismic`, run:
+#### Building the Index
+Let's now build an index on the Splade embeddings for the MS MARCO v1 passage. To download the encoded vectors, please refer to [Setting up for the Experiment](RunExperiments.md#bin_data).
+
+Seismic has few parameters that control the space/time trade-offs when building the index:
+
+- `--n-postings` defines the posting list size, representing the average number of postings stored per list.
+- `--summary-energy` controls the summary size, preserving a fraction of the overall energy for each summary.
+- `--centroid-fraction` determines the number of centroids per posting list, capped at a fraction of the posting list length.
+- `--clustering-algorithm` selects the algorithm to cluster postings within each posting list.
+
+For **Splade on MS MARCO **, good choices are:
+```
+--n-postings 4000 --summary-energy 0.4 --centroid-fraction 0.1 --clustering-algorithm random-kmeans-inverted-index-approx
+```
+
+To create a Seismic index serialized in the file `documents.bin.4000_0.4_0.1.index.seismic`, run:
 
 ```bash
 ./target/release/build_inverted_index \
-    -i splade.bin \
-    -o splade.bin.3500_0.4_0.1 \
+    -i ~/sparse_datasets/msmarco_v1_passage/cocondenser/data/documents.bin \
+    -o ~/sparse_datasets/msmarco_v1_passage/cocondenser/indexes/documents.bin.4000_0.4_0.1 \
     --centroid-fraction 0.1 \
     --summary-energy 0.4 \
-    --n-postings 3500
+    --n-postings 4000 \
+    --clustering-algorithm random-kmeans-inverted-index-approx
 ```
 
----
+#### Executing Queries
+To query the index we need to use the `perf_inverted_index` executable. Two parameters trade off efficiency and accuracy:
 
-### **Executing Queries**
-Use the `perf_inverted_index` executable to execute queries. Two parameters trade off efficiency and accuracy:
-
-- `--query-cut`: Limits the search algorithm to the top `query_cut` components of the query.
-- `--heap-factor`: Skips blocks whose estimated dot product exceeds `heap_factor` times the smallest dot product in the top-k results.
+- `--query-cut` limits the search algorithm to the top `query_cut` components of the query.
+- `--heap-factor` skips blocks whose estimated dot product exceeds `heap_factor` times the smallest dot product in the top-k results.
 
 Example command:
 
 ```bash
 ./target/release/perf_inverted_index \
-    -i splade.bin.3500_0.4_0.1 \
-    -q splade_queries.bin \
+    -i ~/sparse_datasets/msmarco_v1_passage/cocondenser/indexes/documents.bin.4000_0.4_0.1.index.seismic \
+    -q ~/sparse_datasets/msmarco_v1_passage/cocondenser/data/queries.bin \
     -o results.tsv \
     --query-cut 5 \
     --heap-factor 0.7
@@ -109,7 +82,7 @@ Where:
 
 ---
 
-## **<a name="notitsef">Use Seismic in Your Rust Code</a>**
+## <a name="notitsef">Use Seismic in Your Rust Code</a>
 
 To incorporate the Seismic library into your Rust project, navigate to your project directory and run:
 
@@ -117,9 +90,7 @@ To incorporate the Seismic library into your Rust project, navigate to your proj
 cargo add seismic
 ```
 
----
-
-## **Creating a Toy Dataset**
+### Creating a Toy Dataset
 Let's create a toy dataset with vectors using `f32` values. We'll then convert it to use half-precision floating points ([`half::f16`](https://docs.rs/half/latest/half/)) and check the dataset's properties.
 
 ```rust
@@ -145,9 +116,7 @@ To read a dataset in Seismic's internal binary format and quantize values to `f1
 let dataset = SparseDataset::<f32>::read_bin_file(&input_filename).unwrap().quantize_f16();
 ```
 
----
-
-## **Building and Querying an Index**
+### Building and Querying an Index
 Let's build an index using our toy dataset and search for a query.
 
 ```rust
@@ -171,13 +140,11 @@ assert_eq!(result[0].0, 8.0);
 assert_eq!(result[0].1, 1);
 ```
 
-### **Configuration Parameters**
+### Configuration Parameters
 Key parameters to experiment with:
-- **`n_postings`** (`PruningStrategy::GlobalThreshold`): Regulates posting list size.
-- **`summary_energy`** (`SummarizationStrategy::EnergyPreserving`): Controls summary size.
-- **`centroid_fraction`** (`BlockingStrategy::RandomKmeans`): Sets centroids per posting list.
-
-Refer to [Seismic parameters](#parameters) for recommended values.
+- `n_postings` (`PruningStrategy::GlobalThreshold`) defines the posting list size.
+- `summary_energy` (`SummarizationStrategy::EnergyPreserving`) controls summary size.
+- `centroid_fraction` (`BlockingStrategy::RandomKmeans`) sets centroids per posting list.
 
 For serialization/deserialization examples, see:
 - [`build_inverted_index.rs`](src/bin/build_inverted_index.rs)
