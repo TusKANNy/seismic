@@ -23,9 +23,6 @@ use rayon::prelude::*;
 const MAX_TOKEN_LEN: usize = 30;
 const SEISMIC_STRING: &str = "U30";
 
-const MAX_FRACTION: f32 = 1.5;
-const DOC_CUT: usize = 15;
-
 #[pyfunction]
 pub fn get_seismic_string() -> &'static str {
     SEISMIC_STRING
@@ -319,9 +316,11 @@ impl SeismicIndex {
     /// Parameters:
     ///     input_path (str): Path to the dataset file.
     ///     n_postings (int): Number of average postings per token (default 3500).
-    ///     centroid_fraction (float): Fraction of documents in each inverted list used to form centroids.
+    ///     centroid_fraction (float): Fraction of documents in each inverted list used to form centroids (on average).
     ///     min_cluster_size (int): Minimum number of documents per cluster.
     ///     summary_energy (float): Target energy retention for summarization.
+    ///     max_fraction (float): Maximum number of document to keep in each inverted list computed as n_postings * max_fraction.
+    ///     doc_cut (int): Thereshold for document approximation at building time.
     ///     nknn (int, optional): Number of nearest neighbors to compute.
     ///     knn_path (str, optional): Path to precomputed KNN data.
     ///     batched_indexing (int, optional): Batch size for indexing. Reducing this values reduces peak memory usage.
@@ -338,9 +337,9 @@ impl SeismicIndex {
     ///     >>> index = seismic.SeismicIndex.build("data.tar.gz", n_postings=4000)                                                                                                 
     #[allow(clippy::too_many_arguments)]
     #[staticmethod]
-    #[pyo3(signature = (input_path, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, nknn=0, knn_path=None, batched_indexing=None, input_token_to_id_map=None, num_threads=0))]
+    #[pyo3(signature = (input_path, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, input_token_to_id_map=None, num_threads=0))]
     #[pyo3(
-        text_signature = "(input_path, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, nknn=0, knn_path=None, batched_indexing=None, input_token_to_id_map=None, num_threads=0)"
+        text_signature = "(input_path, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, input_token_to_id_map=None, num_threads=0)"
     )]
     pub fn build(
         input_path: &str,
@@ -348,6 +347,8 @@ impl SeismicIndex {
         centroid_fraction: f32,
         min_cluster_size: usize,
         summary_energy: f32,
+        max_fraction: f32,
+        doc_cut: usize,
         nknn: usize,
         knn_path: Option<String>,
         batched_indexing: Option<usize>,
@@ -364,13 +365,13 @@ impl SeismicIndex {
         let config = Configuration::default()
             .pruning_strategy(PruningStrategy::GlobalThreshold {
                 n_postings,
-                max_fraction: MAX_FRACTION,
+                max_fraction: max_fraction,
             })
             .blocking_strategy(BlockingStrategy::RandomKmeans {
                 centroid_fraction,
                 min_cluster_size,
                 clustering_algorithm: ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
-                    doc_cut: DOC_CUT,
+                    doc_cut: doc_cut,
                 },
             })
             .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
@@ -403,6 +404,8 @@ impl SeismicIndex {
     ///     centroid_fraction (float, optional): Fraction of documents in each inverted list used to form centroids (default: 0.1).
     ///     min_cluster_size (int, optional): Minimum number of documents per cluster (default: 2).
     ///     summary_energy (float, optional): Target energy retention for summarization (default: 0.4).
+    ///     max_fraction (float): Maximum number of document to keep in each inverted list computed as n_postings * max_fraction.
+    ///     doc_cut (int): Thereshold for document approximation at building time.
     ///     nknn (int, optional): Number of nearest neighbors to compute (default: 0).
     ///     knn_path (str, optional): Path to a precomputed KNN file (optional).
     ///     batched_indexing (int, optional): Indexing batch size to reduce memory usage (optional).
@@ -421,13 +424,15 @@ impl SeismicIndex {
         centroid_fraction=0.1,
         min_cluster_size=2,
         summary_energy=0.4,
+        max_fraction=1.5,
+        doc_cut=15,
         nknn=0,
         knn_path=None,
         batched_indexing=None,
         num_threads=0
     ))]
     #[pyo3(
-        text_signature = "(dataset, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, nknn=0, knn_path=None, batched_indexing=None, num_threads=0)"
+        text_signature = "(dataset, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, num_threads=0)"
     )]
     pub fn build_from_dataset(
         dataset: SeismicDataset,
@@ -435,6 +440,8 @@ impl SeismicIndex {
         centroid_fraction: f32,
         min_cluster_size: usize,
         summary_energy: f32,
+        max_fraction: f32,
+        doc_cut: usize,
         nknn: usize,
         knn_path: Option<String>,
         batched_indexing: Option<usize>,
@@ -450,13 +457,13 @@ impl SeismicIndex {
         let config = Configuration::default()
             .pruning_strategy(PruningStrategy::GlobalThreshold {
                 n_postings,
-                max_fraction: MAX_FRACTION,
+                max_fraction: max_fraction,
             })
             .blocking_strategy(BlockingStrategy::RandomKmeans {
                 centroid_fraction,
                 min_cluster_size,
                 clustering_algorithm: ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
-                    doc_cut: DOC_CUT,
+                    doc_cut: doc_cut,
                 },
             })
             .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
@@ -945,6 +952,8 @@ impl SeismicIndexRaw {
     ///     centroid_fraction (float, optional): Fraction of document used to form centroids in each list (default: 0.1).
     ///     min_cluster_size (int, optional): Minimum documents per cluster (default: 2).
     ///     summary_energy (float, optional): Energy threshold for summarization (default: 0.4).
+    ///     max_fraction (float): Maximum number of document to keep in each inverted list computed as n_postings * max_fraction.
+    ///     doc_cut (int): Thereshold for document approximation at building time.
     ///     nknn (int, optional): Number of KNN neighbors to compute or load (default: 0).
     ///     knn_path (str, optional): Path to a precomputed KNN file.
     ///     batched_indexing (int, optional): Optional batch size for indexing to reduce memory usage.
@@ -962,12 +971,14 @@ impl SeismicIndexRaw {
         centroid_fraction=0.1,
         min_cluster_size=2,
         summary_energy=0.4,
+        max_fraction=1.5,
+        doc_cut=15,
         nknn=0,
         knn_path=None,
         batched_indexing=None
     ))]
     #[pyo3(
-        text_signature = "(input_file, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, nknn=0, knn_path=None, batched_indexing=None)"
+        text_signature = "(input_file, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None)"
     )]
     pub fn build(
         input_file: &str,
@@ -975,6 +986,9 @@ impl SeismicIndexRaw {
         centroid_fraction: f32,
         min_cluster_size: usize,
         summary_energy: f32,
+        max_fraction: f32,
+        doc_cut: usize,
+
         nknn: usize,
         knn_path: Option<String>,
         batched_indexing: Option<usize>,
@@ -988,13 +1002,13 @@ impl SeismicIndexRaw {
         let config = Configuration::default()
             .pruning_strategy(PruningStrategy::GlobalThreshold {
                 n_postings,
-                max_fraction: 1.5,
+                max_fraction: max_fraction,
             })
             .blocking_strategy(BlockingStrategy::RandomKmeans {
                 centroid_fraction,
                 min_cluster_size,
                 clustering_algorithm: ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
-                    doc_cut: DOC_CUT,
+                    doc_cut: doc_cut,
                 },
             })
             .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })

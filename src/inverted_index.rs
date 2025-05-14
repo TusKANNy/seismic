@@ -203,19 +203,56 @@ where
         let time = Instant::now();
 
         let mut inverted_pairs = Vec::with_capacity(dataset.dim());
-        let mut chunk_inv_pairs = Vec::with_capacity(dataset.dim());
 
         for _ in 0..dataset.dim() {
             inverted_pairs.push(Vec::new());
-            chunk_inv_pairs.push(Vec::new());
         }
 
         let chunk_size = config.batched_indexing.unwrap_or(dataset.len());
 
         for chunk in &dataset.iter().enumerate().chunks(chunk_size) {
-            for (doc_id, (components, values)) in chunk {
-                for (&c, &score) in components.iter().zip(values) {
-                    chunk_inv_pairs[c as usize].push((score, doc_id));
+            let mut chunk_inv_pairs: Vec<Vec<(T, usize)>> = Vec::with_capacity(dataset.dim());
+
+            for _ in 0..dataset.dim() {
+                chunk_inv_pairs.push(Vec::new());
+            }
+
+            if let PruningStrategy::CoiThreshold {
+                alpha,
+                n_postings: _,
+            } = config.pruning
+            {
+                for (_, (doc_id, (components, values))) in chunk.enumerate() {
+                    let l1_norm = values
+                        .iter()
+                        .map(|e| e.to_f32().unwrap())
+                        .sum::<f32>()
+                        .abs();
+
+                    let mut terms = components
+                        .iter()
+                        .zip(values)
+                        .map(|(c, v)| (*c, *v))
+                        .collect::<Vec<_>>();
+
+                    terms.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+                    let mut mass = 0_f32;
+
+                    for (c, score) in terms {
+                        mass += score.to_f32().unwrap().abs();
+                        chunk_inv_pairs[c as usize].push((score, doc_id));
+
+                        if mass >= alpha * l1_norm {
+                            break;
+                        }
+                    }
+                }
+            } else {
+                for (_, (doc_id, (components, values))) in chunk.enumerate() {
+                    for (&c, &score) in components.iter().zip(values) {
+                        chunk_inv_pairs[c as usize].push((score, doc_id));
+                    }
                 }
             }
 
@@ -239,11 +276,10 @@ where
                 PruningStrategy::GlobalThreshold { n_postings, .. } => {
                     Self::global_threshold_pruning(&mut inverted_pairs, n_postings);
                 }
-            }
-
-            chunk_inv_pairs = Vec::with_capacity(dataset.dim());
-            for _ in 0..dataset.dim() {
-                chunk_inv_pairs.push(Vec::new());
+                PruningStrategy::CoiThreshold {
+                    alpha: _,
+                    n_postings: _,
+                } => {}
             }
         }
 
@@ -257,6 +293,14 @@ where
                     &mut inverted_pairs,
                     (n_postings as f32 * max_fraction) as usize,
                 );
+            }
+            PruningStrategy::CoiThreshold {
+                alpha: _,
+                n_postings,
+            } => {
+                if n_postings > 0 {
+                    Self::fixed_pruning(&mut inverted_pairs, n_postings as usize);
+                }
             }
             _ => {}
         }
@@ -816,6 +860,7 @@ impl PostingList {
 /// There are the following possible strategies:
 /// - `Fixed  { n_postings: usize }`: Every posting list is pruned by taking its top-`n_postings`
 /// - `GlobalThreshold { n_postings: usize, max_fraction: f32 }`: We globally select a threshold and we prune all the postings with smaller score. The threshold is chosen so that every posting list has `n_postings` on average. We limit the number of postings per list to `max_fraction*n_postings`.
+/// - `CoiThreshold { alpha: f32, n_postings: usize }`: we prune each vector to preserve a fraction alpha of its L1 mass. Then, we prune the posting lists to have no more than n_postings: each. If n_postings is 0, then we skip the last step.
 pub enum PruningStrategy {
     FixedSize {
         n_postings: usize,
@@ -824,12 +869,29 @@ pub enum PruningStrategy {
         n_postings: usize,
         max_fraction: f32, // limits the length of each posting list to max_fraction*n_postings
     },
+    CoiThreshold {
+        alpha: f32,
+        n_postings: usize,
+    },
 }
 
 impl Default for PruningStrategy {
     fn default() -> Self {
-        Self::FixedSize { n_postings: 3500 }
+        Self::GlobalThreshold {
+            n_postings: 3500,
+            max_fraction: 1.5,
+        }
     }
+}
+
+// we need this because clap does not support enums with associated values
+#[derive(clap::ValueEnum, Default, Debug, Clone, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PruningStrategyClap {
+    FixedSize,
+    #[default]
+    GlobalThreshold,
+    CoiThreshold,
 }
 
 #[derive(PartialEq, Debug, Copy, Clone, Serialize, Deserialize)]
