@@ -16,7 +16,7 @@ This guide provides step-by-step instructions for building a Seismic Index on yo
 
  - `knn`. If set, defines the number of neighbors to compute for each document in the $\kappa$-NN graph. __Building the k-NN graph takes much longer than the standalone Seismic index__. If you already have a computed $\kappa$-NN graph, you can pass it with the parameters `knn-path`.
 
-##### <span style="color:orange">[The following parameters can only che changed from the Rust interface]</span>
+##### <span style="color:orange">[The following parameters can only be changed from the Rust interface]</span>
 
 - `clustering_algorithm`. Sets the clustering algorithm used to group documents within each pruned posting list. We currently have three clustering algorithms based on dot-product-based K-Means:
     - `RandomKmeans`. Randomly select a `centroid_fraction` $ \times$ `n_postings` number of  centroids per each posting list and use them as centroids. Each element in the list is assigned to the centroid maximizing the dot product with it; the dot product is computed exactly.
