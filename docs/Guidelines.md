@@ -19,7 +19,7 @@ This guide provides step-by-step instructions for building a Seismic Index on yo
 ##### <span style="color:orange">[The following parameters can only be changed from the Rust interface]</span>
 
 - `clustering_algorithm`. Sets the clustering algorithm used to group documents within each pruned posting list. We currently have three clustering algorithms based on dot-product-based K-Means:
-    - `RandomKmeans`. Randomly select a `centroid_fraction` $ \times$ `n_postings` number of  centroids per each posting list and use them as centroids. Each element in the list is assigned to the centroid maximizing the dot product with it; the dot product is computed exactly.
+    - `RandomKmeans`. Randomly select a `centroid_fraction` $\times$ `n_postings` number of  centroids per each posting list and use them as centroids. Each element in the list is assigned to the centroid maximizing the dot product with it; the dot product is computed exactly.
     - `RandomKmeansInvertedIndex` and `RandomKmeansInvertedIndexApprox`. Both these algorithms approximate `RandomKmeans` with slightly different strategies, yielding a much faster building time, especially on large collections. 
 
     We suggest using `RandomKmeansInvertedIndexApprox` with `kmeans_doc_cut`=15, __which is set as the default construction method to use when building from the Python interface__.
