@@ -622,7 +622,7 @@ where
 /// use seismic::SparseDatasetMut;
 ///
 /// // Create a new empty dataset
-/// let mut dataset = SparseDatasetMut::<C, f32>::default();
+/// let mut dataset = SparseDatasetMut::<u16, f32>::default();
 /// ```
 ///
 ///
@@ -676,7 +676,7 @@ where
     /// ```
     /// use seismic::SparseDatasetMut;
     ///
-    /// let mut dataset = SparseDatasetMut::<f32>::default();
+    /// let mut dataset = SparseDatasetMut::<u16, f32>::default();
     ///
     /// assert!(dataset.is_empty());
     /// ```
@@ -1213,7 +1213,7 @@ where
     /// ```
     /// use seismic::{SparseDatasetMut, SparseDataset};
     ///
-    /// let mut mutable_dataset = SparseDatasetMut::<f32>::new();
+    /// let mut mutable_dataset = SparseDatasetMut::<u16, f32>::new();
     /// // Populate mutable dataset...
     /// mutable_dataset.push(&[0, 2, 4],    &[1.0, 2.0, 3.0]);
     /// mutable_dataset.push(&[1, 3],       &[4.0, 5.0]);
@@ -1251,7 +1251,7 @@ where
     /// ```
     /// use seismic::{SparseDatasetMut, SparseDataset};
     ///
-    /// let mut mutable_dataset = SparseDatasetMut::<f32>::new();
+    /// let mut mutable_dataset = SparseDatasetMut::<u16, f32>::new();
     /// // Populate mutable dataset...
     /// mutable_dataset.push(&[0, 2, 4],    &[1.0, 2.0, 3.0]);
     /// mutable_dataset.push(&[1, 3],       &[4.0, 5.0]);
