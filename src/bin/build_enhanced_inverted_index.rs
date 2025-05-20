@@ -116,7 +116,7 @@ pub fn main() {
     //    let inverted_index = InvertedIndexWrapper::new(dataset, config, None, None);
     let collection_path = args.input_file.unwrap();
 
-    let index = SeismicIndex::<f16>::from_json(&collection_path, config, None);
+    let index = SeismicIndex::<u16, f16>::from_json(&collection_path, config, None);
 
     let elapsed = time.elapsed();
     println!(

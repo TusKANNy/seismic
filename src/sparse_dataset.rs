@@ -3,7 +3,7 @@
 //! A **sparse vector** in a `dim`-dimensional space consists of two sequences: components,
 //! which are distinct values in the range [0, `dim`), and their corresponding values of type `T`.
 //! The type `T` is typically expected to be a float type such as `f16`, `f32`, or `f64`.
-//! The components are of type `u16`.
+//!The components are of a generic type C which must implement the [ComponentType] trait.
 //!
 //! A dataset is a collection of sparse vectors. This module provides two representations
 //! of a sparse dataset: a mutable [`SparseDatasetMut`] and its immutable counterpart [`SparseDataset`].
@@ -12,6 +12,7 @@
 use rayon::iter::plumbing::ProducerCallback;
 use serde::{Deserialize, Serialize};
 
+use std::fmt::Debug;
 // Reading files
 use std::fs::File;
 use std::io::{BufReader, Read, Result as IoResult};
@@ -27,23 +28,24 @@ use half::f16;
 use crate::distances::dot_product_dense_sparse;
 use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
 use crate::utils::prefetch_read_NTA;
-use crate::{DataType, SpaceUsage};
+use crate::{ComponentType, DataType, SpaceUsage};
 
 // Implementation of a (immutable) sparse dataset.
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SparseDataset<T>
+pub struct SparseDataset<C, T>
 where
     T: DataType,
 {
     n_vecs: usize,
     d: usize,
     offsets: Box<[usize]>,
-    components: Box<[u16]>, // TODO: could be u16! create a trait for TermIdType
+    components: Box<[C]>,
     values: Box<[T]>,
 }
 
-impl<T> SparseDataset<T>
+impl<C, T> SparseDataset<C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
     /// Retrieves the components and values of the sparse vector at the specified index.
@@ -66,7 +68,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<f32> = data.into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
     ///
     /// let (components, values) = dataset.get(1);
     /// assert_eq!(components, &[1, 3]);
@@ -74,7 +76,7 @@ where
     /// ```
     #[must_use]
     #[inline]
-    pub fn get(&self, id: usize) -> (&[u16], &[T]) {
+    pub fn get(&self, id: usize) -> (&[C], &[T]) {
         //assert!(id < self.n_vecs, "The id is out of range"); this check is performed by range method
 
         let v_components = &self.components[Self::vector_range(&self.offsets, id)];
@@ -105,7 +107,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<f32> = data.into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
     ///
     /// let (components, values) = dataset.get_with_offset(3, 2);
     /// assert_eq!(components, &[1, 3]);
@@ -113,7 +115,7 @@ where
     /// ```
     #[must_use]
     #[inline]
-    pub fn get_with_offset(&self, offset: usize, len: usize) -> (&[u16], &[T]) {
+    pub fn get_with_offset(&self, offset: usize, len: usize) -> (&[C], &[T]) {
         assert!(
             offset + len <= self.components.len(),
             "The id is out of range"
@@ -126,11 +128,11 @@ where
     }
 
     /// Returns a dataset with values quatized to `f16`. We don't use `From` trait because
-    /// of clash with default `impl From<T> for T``, so doing any generic impl will conflict with it.
-    pub fn quantize_f16(self) -> SparseDataset<f16> {
+    /// of clash with default `impl From<T> for T`, so doing any generic impl will conflict with it.
+    pub fn quantize_f16(self) -> SparseDataset<C, f16> {
         let values: Vec<_> = self.values.iter().map(|&v| v.as_()).collect();
 
-        SparseDataset::<f16> {
+        SparseDataset::<C, f16> {
             n_vecs: self.n_vecs,
             d: self.d,
             offsets: self.offsets,
@@ -174,7 +176,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<f32> = data.into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
     ///
     /// // Prefetch components and values of vectors 0 and 1
     /// dataset.prefetch_vecs(&[0, 1]);
@@ -185,7 +187,7 @@ where
             let start = self.offsets[vec_id];
             let end = self.offsets[vec_id + 1];
 
-            for i in (start..end).step_by(512 / (std::mem::size_of::<u16>() * 8)) {
+            for i in (start..end).step_by(512 / (std::mem::size_of::<C>() * 8)) {
                 prefetch_read_NTA(&self.components, i);
             }
 
@@ -217,7 +219,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<f32> = data.into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
     ///
     /// // Prefetch components and values of the vector starting at index 1 with length 3
     /// dataset.prefetch_vec_with_offset(1, 3);
@@ -254,7 +256,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<f32> = data.into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
     ///
     /// assert_eq!(dataset.vector_offset(1), 3); // Offset of the vector with index 1
     /// ```
@@ -286,7 +288,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<f32> = data.into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
     ///
     /// assert_eq!(dataset.vector_len(1), 2); // Length of the vector with index 1
     /// ```
@@ -325,7 +327,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<f32> = data.into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
     ///
     /// let query_components = &[0, 2];
     /// let query_values = &[1.0, 1.0];
@@ -337,10 +339,12 @@ where
     /// ```
     #[must_use]
     #[inline]
-    pub fn search(&self, q_components: &[u16], q_values: &[f32], k: usize) -> Vec<(f32, usize)> {
+    pub fn search(&self, q_components: &[C], q_values: &[f32], k: usize) -> Vec<(f32, usize)> {
         let mut query = vec![0.0; self.dim()];
+
+        //FIXME: dangerous for a large number of components
         for (&i, &v) in q_components.iter().zip(q_values) {
-            query[i as usize] = v;
+            query[i.as_()] = v;
         }
 
         let distances: Vec<_> = (0..self.n_vecs)
@@ -372,14 +376,14 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<f32> = data.clone().into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.clone().into_iter().collect();
     ///
     /// for ((c0, v0), (c1,v1)) in dataset.iter().zip(data.iter()) {
     ///     assert_eq!(c0, c1);
     ///     assert_eq!(v0, v1);
     /// }
     /// ```
-    pub fn iter(&self) -> SparseDatasetIter<T> {
+    pub fn iter(&self) -> SparseDatasetIter<C, T> {
         SparseDatasetIter::new(self)
     }
 
@@ -390,7 +394,7 @@ where
     pub fn iter_vector(
         &self,
         vec_id: usize,
-    ) -> Zip<std::slice::Iter<'_, u16>, std::slice::Iter<'_, T>> {
+    ) -> Zip<std::slice::Iter<'_, C>, std::slice::Iter<'_, T>> {
         assert!(vec_id < self.n_vecs, "The id {vec_id} is out of range");
 
         let start = self.offsets[vec_id];
@@ -415,7 +419,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                ];
     ///
-    /// let dataset: SparseDataset<f32> = data.into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
     ///
     /// assert_eq!(dataset.len(), 3);
     /// ```
@@ -431,7 +435,7 @@ where
     /// ```
     /// use seismic::SparseDataset;
     ///
-    /// let mut dataset = SparseDataset::<f32>::default();
+    /// let mut dataset = SparseDataset::<u16, f32>::default();
     ///
     /// assert!(dataset.is_empty());
     /// ```
@@ -453,7 +457,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                ];
     ///
-    /// let dataset: SparseDataset<f32> = data.into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
     ///
     /// assert_eq!(dataset.dim(), 5); // Largest component ID is 4, so dim() returns 5
     /// ```
@@ -478,7 +482,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                ];
     ///
-    /// let dataset: SparseDataset<f32> = data.into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
     ///
     /// assert_eq!(dataset.nnz(), 9); // Total non-zero components across all vectors
     /// ```
@@ -546,11 +550,21 @@ where
     //         lst = sorted(list(d.items()))
     //         write_binary_sequence(lst, fout)
     // ````
-    pub fn read_bin_file(fname: &str) -> IoResult<SparseDataset<f32>> {
+    /// # Panics
+    /// Panics if a component cannot be converted to type `C`.
+    pub fn read_bin_file(fname: &str) -> IoResult<SparseDataset<C, f32>>
+    where
+        C: ComponentType,
+        //        <C as TryFrom<u32>>::Error: std::fmt::Debug,
+    {
         Self::read_bin_file_limit(fname, None)
     }
 
-    pub fn read_bin_file_limit(fname: &str, limit: Option<usize>) -> IoResult<SparseDataset<f32>> {
+    pub fn read_bin_file_limit(fname: &str, limit: Option<usize>) -> IoResult<SparseDataset<C, f32>>
+    where
+        C: ComponentType,
+        //        <C as TryFrom<u32>>::Error: std::fmt::Debug,
+    {
         let path = Path::new(fname);
         let f = File::open(path)?;
         //let f_size = f.metadata().unwrap().len() as usize;
@@ -567,7 +581,7 @@ where
             n_vecs = n.min(n_vecs);
         }
 
-        let mut data = SparseDatasetMut::<f32>::default();
+        let mut data = SparseDatasetMut::<C, f32>::default();
         for _ in 0..n_vecs {
             br.read_exact(&mut buffer_d)?;
             let n = u32::from_le_bytes(buffer_d) as usize;
@@ -577,7 +591,9 @@ where
 
             for _ in 0..n {
                 br.read_exact(&mut buffer_d)?;
-                let c = u32::from_le_bytes(buffer_d) as u16;
+                let c = C::from_u32(u32::from_le_bytes(buffer_d)).unwrap();
+                //.try_into()
+                //.expect("Failed to convert to type C (Component Type).");
                 components.push(c);
             }
             for _ in 0..n {
@@ -606,23 +622,25 @@ where
 /// use seismic::SparseDatasetMut;
 ///
 /// // Create a new empty dataset
-/// let mut dataset = SparseDatasetMut::<f32>::default();
+/// let mut dataset = SparseDatasetMut::<C, f32>::default();
 /// ```
 ///
 ///
 #[derive(Debug, Clone)]
-pub struct SparseDatasetMut<T>
+pub struct SparseDatasetMut<C, T>
 where
+    C: ComponentType,
     T: SpaceUsage + DataType,
 {
     d: usize,
     offsets: Vec<usize>,
-    components: Vec<u16>,
+    components: Vec<C>,
     values: Vec<T>,
 }
 
-impl<T> Default for SparseDatasetMut<T>
+impl<C, T> Default for SparseDatasetMut<C, T>
 where
+    C: ComponentType,
     T: SpaceUsage + DataType,
 {
     /// Constructs a new, empty mutable sparse dataset.
@@ -632,7 +650,7 @@ where
     /// ```
     /// use seismic::SparseDatasetMut;
     ///
-    /// let dataset: SparseDatasetMut<f64> = SparseDatasetMut::default();
+    /// let dataset: SparseDatasetMut<u16, f64> = SparseDatasetMut::default();
     ///
     /// assert!(dataset.is_empty());
     /// ```
@@ -646,8 +664,9 @@ where
     }
 }
 
-impl<T> SparseDatasetMut<T>
+impl<C, T> SparseDatasetMut<C, T>
 where
+    C: ComponentType,
     T: SpaceUsage + DataType,
 {
     /// Constructs a new, empty mutable sparse dataset.
@@ -697,7 +716,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDatasetMut<f32> = data.into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
     ///
     /// let (components, values) = dataset.get(1);
     /// assert_eq!(components, &[1, 3]);
@@ -705,17 +724,17 @@ where
     /// ```
     #[must_use]
     #[inline]
-    pub fn get(&self, id: usize) -> (&[u16], &[T]) {
+    pub fn get(&self, id: usize) -> (&[C], &[T]) {
         //assert!(id < self.n_vecs, "The id is out of range"); check already done by range
 
-        let v_components = &self.components[SparseDataset::<T>::vector_range(&self.offsets, id)];
-        let v_values = &self.values[SparseDataset::<T>::vector_range(&self.offsets, id)];
+        let v_components = &self.components[SparseDataset::<C, T>::vector_range(&self.offsets, id)];
+        let v_values = &self.values[SparseDataset::<C, T>::vector_range(&self.offsets, id)];
 
         (v_components, v_values)
     }
 
     //TODO: we need to change this into push_iterator.
-    pub fn push_pairs(&mut self, pairs: &[(u16, T)]) {
+    pub fn push_pairs(&mut self, pairs: &[(C, T)]) {
         assert!(
             pairs.windows(2).all(|w| w[0].0 < w[1].0),
             "Components must be given in sorted order"
@@ -728,8 +747,8 @@ where
             return;
         }
 
-        if pairs.last().unwrap().0 as usize >= self.d {
-            self.d = pairs.last().unwrap().0 as usize + 1;
+        if pairs.last().unwrap().0.as_() >= self.d {
+            self.d = pairs.last().unwrap().0.as_() + 1;
         }
 
         self.components.extend(pairs.iter().map(|(c, _)| c));
@@ -761,14 +780,14 @@ where
     /// ```
     /// use seismic::SparseDatasetMut;
     ///
-    /// let mut dataset = SparseDatasetMut::<f32>::default();
+    /// let mut dataset = SparseDatasetMut::<u16, f32>::default();
     /// dataset.push(&[0, 2, 4], &[1.0, 2.0, 3.0]);
     ///
     /// assert_eq!(dataset.len(), 1);
     /// assert_eq!(dataset.dim(), 5);
     /// assert_eq!(dataset.nnz(), 3);
     /// ```
-    pub fn push(&mut self, components: &[u16], values: &[T]) {
+    pub fn push(&mut self, components: &[C], values: &[T]) {
         assert_eq!(
             components.len(),
             values.len(),
@@ -788,8 +807,8 @@ where
             return;
         }
 
-        if *components.last().unwrap() as usize >= self.d {
-            self.d = *components.last().unwrap() as usize + 1;
+        if (*components.last().unwrap()).as_() >= self.d {
+            self.d = (*components.last().unwrap()).as_() + 1;
         }
 
         self.components.extend(components);
@@ -816,7 +835,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDatasetMut<f32> = data.into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
     ///
     /// assert_eq!(dataset.vector_len(1), 2); // Length of the vector with index 1
     /// ```
@@ -835,7 +854,7 @@ where
     /// ```
     /// use seismic::SparseDatasetMut;
     ///
-    /// let mut dataset = SparseDatasetMut::<f32>::default();
+    /// let mut dataset = SparseDatasetMut::<u16, f32>::default();
     /// dataset.push(&[0, 2, 4], &[1.0, 2.0, 3.0]);
     ///
     /// assert_eq!(dataset.len(), 1);
@@ -852,7 +871,7 @@ where
     /// ```
     /// use seismic::SparseDatasetMut;
     ///
-    /// let mut dataset = SparseDatasetMut::<f32>::default();
+    /// let mut dataset = SparseDatasetMut::<u16, f32>::default();
     /// dataset.push(&[0, 2, 4], &[1.0, 2.0, 3.0]);
     ///
     /// assert!(!dataset.is_empty());
@@ -869,7 +888,7 @@ where
     /// ```
     /// use seismic::SparseDatasetMut;
     ///
-    /// let mut dataset = SparseDatasetMut::<f32>::new();
+    /// let mut dataset = SparseDatasetMut::<u16, f32>::new();
     ///
     /// dataset.push(&[0, 2, 4], &[1.0, 2.0, 3.0]);
     ///
@@ -896,7 +915,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                ];
     ///
-    /// let dataset: SparseDatasetMut<f32> = data.into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
     ///
     /// assert_eq!(dataset.nnz(), 9); // Total non-zero components across all vectors
     /// ```
@@ -920,14 +939,14 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDatasetMut<f32> = data.clone().into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.clone().into_iter().collect();
     ///
     /// for ((c0, v0), (c1,v1)) in dataset.iter().zip(data.iter()) {
     ///     assert_eq!(c0, c1);
     ///     assert_eq!(v0, v1);
     /// }
     /// ```
-    pub fn iter(&self) -> SparseDatasetIter<T> {
+    pub fn iter(&self) -> SparseDatasetIter<C, T> {
         SparseDatasetIter::new_with_mut(self)
     }
 
@@ -950,7 +969,7 @@ where
     pub fn iter_vector(
         &self,
         vec_id: usize,
-    ) -> std::iter::Zip<std::slice::Iter<'_, u16>, std::slice::Iter<'_, T>> {
+    ) -> std::iter::Zip<std::slice::Iter<'_, C>, std::slice::Iter<'_, T>> {
         assert!(vec_id < self.len(), "The id {} is out of range", vec_id);
 
         let start = self.offsets[vec_id];
@@ -963,11 +982,12 @@ where
     }
 }
 
-impl<T> FromIterator<(Vec<u16>, Vec<T>)> for SparseDataset<T>
+impl<C, T> FromIterator<(Vec<C>, Vec<T>)> for SparseDataset<C, T>
 where
+    C: ComponentType,
     T: SpaceUsage + DataType,
 {
-    /// Constructs a `SparseDataset<T>` from an iterator over pairs of vectors.
+    /// Constructs a `SparseDataset<C, T>` from an iterator over pairs of vectors.
     ///
     /// This function consumes the provided iterator and constructs a new `SparseDataset<T>`.
     /// Each pair in the iterator represents a pair of vectors, where the first vector contains
@@ -975,11 +995,11 @@ where
     ///
     /// # Parameters
     ///
-    /// * `iter`: An iterator over pairs of vectors `(vec[u16], vec[T])`.
+    /// * `iter`: An iterator over pairs of vectors `(vec[C], vec[T])`.
     ///
     /// # Returns
     ///
-    /// A new instance of `SparseDataset<T>` populated with the pairs from the iterator.
+    /// A new instance of `SparseDataset<C, T>` populated with the pairs from the iterator.
     ///
     /// # Examples
     ///
@@ -992,13 +1012,13 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<f32> = data.into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
     ///
     /// assert_eq!(dataset.nnz(), 9); // Total non-zero components across all vectors
     /// ```
     fn from_iter<I>(iter: I) -> Self
     where
-        I: IntoIterator<Item = (Vec<u16>, Vec<T>)>,
+        I: IntoIterator<Item = (Vec<C>, Vec<T>)>,
     {
         let mut dataset = SparseDatasetMut::new();
 
@@ -1010,11 +1030,12 @@ where
     }
 }
 
-impl<T> FromIterator<(Vec<u16>, Vec<T>)> for SparseDatasetMut<T>
+impl<C, T> FromIterator<(Vec<C>, Vec<T>)> for SparseDatasetMut<C, T>
 where
+    C: ComponentType,
     T: SpaceUsage + DataType,
 {
-    /// Constructs a `SparseDatasetMut<T>` from an iterator over pairs of vectors.
+    /// Constructs a `SparseDatasetMut<C, T>` from an iterator over pairs of vectors.
     ///
     /// This function consumes the provided iterator and constructs a new `SparseDataset<T>`.
     /// Each pair in the iterator represents a pair of vectors, where the first vector contains
@@ -1022,11 +1043,11 @@ where
     ///
     /// # Parameters
     ///
-    /// * `iter`: An iterator over pairs of vectors `(vec[u16], vec[T])`.
+    /// * `iter`: An iterator over pairs of vectors `(vec[C], vec[T])`.
     ///
     /// # Returns
     ///
-    /// A new instance of `SparseDatasetMut<T>` populated with the pairs from the iterator.
+    /// A new instance of `SparseDatasetMut<C, T>` populated with the pairs from the iterator.
     ///
     /// # Examples
     ///
@@ -1039,13 +1060,13 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDatasetMut<f32> = data.into_iter().collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().collect();
     ///
     /// assert_eq!(dataset.nnz(), 9); // Total non-zero components across all vectors
     /// ```
     fn from_iter<I>(iter: I) -> Self
     where
-        I: IntoIterator<Item = (Vec<u16>, Vec<T>)>,
+        I: IntoIterator<Item = (Vec<C>, Vec<T>)>,
     {
         let mut dataset = SparseDatasetMut::new();
 
@@ -1057,11 +1078,12 @@ where
     }
 }
 
-impl<'a, T> FromIterator<(&'a [u16], &'a [T])> for SparseDataset<T>
+impl<'a, C, T> FromIterator<(&'a [C], &'a [T])> for SparseDataset<C, T>
 where
+    C: ComponentType,
     T: DataType + SpaceUsage,
 {
-    /// Constructs a `SparseDataset<T>` from an iterator over pairs of slices.
+    /// Constructs a `SparseDataset<C, T>` from an iterator over pairs of slices.
     ///
     /// This function consumes the provided iterator and constructs a new `SparseDataset<T>`.
     /// Each pair in the iterator represents a pair of slices, where the first slice contains
@@ -1069,11 +1091,11 @@ where
     ///
     /// # Parameters
     ///
-    /// * `iter`: An iterator over pairs of slices `(&[u16], &[T])`.
+    /// * `iter`: An iterator over pairs of slices `(&[C], &[T])`.
     ///
     /// # Returns
     ///
-    /// A new instance of `SparseDataset<T>` populated with the pairs from the iterator.
+    /// A new instance of `SparseDataset<C, T>` populated with the pairs from the iterator.
     ///
     /// # Examples
     ///
@@ -1081,13 +1103,13 @@ where
     /// use seismic::SparseDataset;
     ///
     /// let data = &[(vec![0, 2, 4], vec![1.0, 2.0, 3.0]), (vec![1, 3], vec![4.0, 5.0]), (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])];
-    /// let dataset: SparseDataset<f32> = data.iter().map(|(c, v)| (c.as_slice(), v.as_slice()) ).collect();
+    /// let dataset: SparseDataset<u16, f32> = data.iter().map(|(c, v)| (c.as_slice(), v.as_slice()) ).collect();
     ///
     /// assert_eq!(dataset.nnz(), 9); // Total non-zero components across all vectors
     /// ```
     fn from_iter<I>(iter: I) -> Self
     where
-        I: IntoIterator<Item = (&'a [u16], &'a [T])>,
+        I: IntoIterator<Item = (&'a [C], &'a [T])>,
     {
         let mut dataset = SparseDatasetMut::new();
 
@@ -1099,11 +1121,12 @@ where
     }
 }
 
-impl<'a, T> FromIterator<(&'a [u16], &'a [T])> for SparseDatasetMut<T>
+impl<'a, C, T> FromIterator<(&'a [C], &'a [T])> for SparseDatasetMut<C, T>
 where
+    C: ComponentType,
     T: SpaceUsage + DataType,
 {
-    /// Constructs a `SparseDatasetMut<T>` from an iterator over pairs of slices.
+    /// Constructs a `SparseDatasetMut<C, T>` from an iterator over pairs of slices.
     ///
     /// This function consumes the provided iterator and constructs a new `SparseDatasetMut<T>`.
     /// Each pair in the iterator represents a pair of slices, where the first slice contains
@@ -1111,11 +1134,11 @@ where
     ///
     /// # Parameters
     ///
-    /// * `iter`: An iterator over pairs of slices `(&[u16], &[T])`.
+    /// * `iter`: An iterator over pairs of slices `(&[C], &[T])`.
     ///
     /// # Returns
     ///
-    /// A new instance of `SparseDatasetMut<T>` populated with the pairs from the iterator.
+    /// A new instance of `SparseDatasetMut<C, T>` populated with the pairs from the iterator.
     ///
     /// # Examples
     ///
@@ -1123,15 +1146,15 @@ where
     /// use seismic::SparseDatasetMut;
     ///
     /// let data = &[(vec![0, 2, 4], vec![1.0, 2.0, 3.0]), (vec![1, 3], vec![4.0, 5.0]), (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])];
-    /// let dataset: SparseDatasetMut<f32> = data.into_iter().map(|(c, v)| (c.as_slice(), v.as_slice())).collect();
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into_iter().map(|(c, v)| (c.as_slice(), v.as_slice())).collect();
     ///
     /// assert_eq!(dataset.nnz(), 9); // Total non-zero components across all vectors
     /// ```
     fn from_iter<I>(iter: I) -> Self
     where
-        I: IntoIterator<Item = (&'a [u16], &'a [T])>,
+        I: IntoIterator<Item = (&'a [C], &'a [T])>,
     {
-        let mut dataset = SparseDatasetMut::new();
+        let mut dataset = SparseDatasetMut::<C, T>::new();
 
         for (components, values) in iter {
             dataset.push(components, values);
@@ -1141,11 +1164,14 @@ where
     }
 }
 
-impl From<SparseDataset<f32>> for SparseDataset<f16> {
-    /// Converts a `SparseDataset<f32>` into a `SparseDataset<f16>`.
+impl<C> From<SparseDataset<C, f32>> for SparseDataset<C, f16>
+where
+    C: ComponentType,
+{
+    /// Converts a `SparseDataset<C, f32>` into a `SparseDataset<C, f16>`.
     ///
-    /// This function consumes the provided `SparseDataset<f32>` and produces
-    /// a corresponding `SparseDataset<f16>` instance. The conversion is performed
+    /// This function consumes the provided `SparseDataset<C, f32>` and produces
+    /// a corresponding `SparseDataset<C, f16>` instance. The conversion is performed
     /// by converting the values of the components from `f32` to `f16`.
     ///
     /// # Examples
@@ -1160,18 +1186,19 @@ impl From<SparseDataset<f32>> for SparseDataset<f16> {
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                ];
     ///
-    /// let dataset: SparseDataset<f32> = data.into_iter().collect();
-    /// let dataset_f16: SparseDataset<f16> = dataset.into();
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
+    /// let dataset_f16: SparseDataset<u16, f16> = dataset.into();
     ///
     /// assert_eq!(dataset_f16.nnz(), 9); // Total non-zero components across all vectors
     /// ```
-    fn from(dataset: SparseDataset<f32>) -> Self {
+    fn from(dataset: SparseDataset<C, f32>) -> Self {
         dataset.quantize_f16()
     }
 }
 
-impl<T> From<SparseDatasetMut<T>> for SparseDataset<T>
+impl<C, T> From<SparseDatasetMut<C, T>> for SparseDataset<C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
     /// Converts a mutable sparse dataset into an immutable one.
@@ -1192,11 +1219,11 @@ where
     /// mutable_dataset.push(&[1, 3],       &[4.0, 5.0]);
     /// mutable_dataset.push(&[0, 1, 2, 3], &[1.0, 2.0, 3.0, 4.0]);
     ///
-    /// let immutable_dataset: SparseDataset<f32> = mutable_dataset.into();
+    /// let immutable_dataset: SparseDataset<u16, f32> = mutable_dataset.into();
     ///
     /// assert_eq!(immutable_dataset.nnz(), 9); // Total non-zero components across all vectors
     /// ```
-    fn from(dataset: SparseDatasetMut<T>) -> Self {
+    fn from(dataset: SparseDatasetMut<C, T>) -> Self {
         Self {
             n_vecs: dataset.offsets.len() - 1,
             d: dataset.d,
@@ -1207,14 +1234,15 @@ where
     }
 }
 
-impl<T> From<SparseDataset<T>> for SparseDatasetMut<T>
+impl<C, T> From<SparseDataset<C, T>> for SparseDatasetMut<C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
     /// Converts an immutable sparse dataset into a mutable one.
     ///
-    /// This function consumes the provided `SparseDataset<T>` and produces
-    /// a corresponding mutable `SparseDatasetMut<T>` instance. The conversion is performed
+    /// This function consumes the provided `SparseDataset<C, T>` and produces
+    /// a corresponding mutable `SparseDatasetMut<C, T>` instance. The conversion is performed
     /// by transferring ownership of the internal data structures from the immutable dataset
     /// to the mutable one.
     ///
@@ -1229,16 +1257,16 @@ where
     /// mutable_dataset.push(&[1, 3],       &[4.0, 5.0]);
     /// mutable_dataset.push(&[0, 1, 2, 3], &[1.0, 2.0, 3.0, 4.0]);
     ///
-    /// let immutable_dataset: SparseDataset<f32> = mutable_dataset.into();
+    /// let immutable_dataset: SparseDataset<u16, f32> = mutable_dataset.into();
     ///
     /// // Convert immutable dataset back to mutable
-    /// let mut mutable_dataset_again: SparseDatasetMut<f32> = immutable_dataset.into();
+    /// let mut mutable_dataset_again: SparseDatasetMut<u16, f32> = immutable_dataset.into();
     ///
     /// mutable_dataset_again.push(&[1, 7], &[1.0, 3.0]);
     ///
     /// assert_eq!(mutable_dataset_again.nnz(), 11); // Total non-zero components across all vectors
     /// ```
-    fn from(dataset: SparseDataset<T>) -> Self {
+    fn from(dataset: SparseDataset<C, T>) -> Self {
         Self {
             d: dataset.d,
             offsets: dataset.offsets.into(),
@@ -1248,12 +1276,13 @@ where
     }
 }
 
-impl<'a, T> IntoParallelIterator for &'a SparseDataset<T>
+impl<'a, C, T> IntoParallelIterator for &'a SparseDataset<C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
-    type Iter = ParSparseDatasetIter<'a, T>;
-    type Item = (&'a [u16], &'a [T]);
+    type Iter = ParSparseDatasetIter<'a, C, T>;
+    type Item = (&'a [C], &'a [T]);
 
     fn into_par_iter(self) -> Self::Iter {
         ParSparseDatasetIter {
@@ -1265,12 +1294,13 @@ where
     }
 }
 
-impl<'a, T> IntoParallelIterator for &'a SparseDatasetMut<T>
+impl<'a, C, T> IntoParallelIterator for &'a SparseDatasetMut<C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
-    type Iter = ParSparseDatasetIter<'a, T>;
-    type Item = (&'a [u16], &'a [T]);
+    type Iter = ParSparseDatasetIter<'a, C, T>;
+    type Item = (&'a [C], &'a [T]);
 
     fn into_par_iter(self) -> Self::Iter {
         ParSparseDatasetIter {
@@ -1284,22 +1314,24 @@ where
 
 /// A struct to iterate over a sparse dataset. It assumes the dataset can be represented as a pair of slices.
 #[derive(Clone)]
-pub struct SparseDatasetIter<'a, T>
+pub struct SparseDatasetIter<'a, C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
     last_offset: usize,
     offsets: &'a [usize],
-    components: &'a [u16],
+    components: &'a [C],
     values: &'a [T],
 }
 
-impl<'a, T> SparseDatasetIter<'a, T>
+impl<'a, C, T> SparseDatasetIter<'a, C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
     #[inline]
-    fn new(dataset: &'a SparseDataset<T>) -> Self {
+    fn new(dataset: &'a SparseDataset<C, T>) -> Self {
         Self {
             last_offset: 0,
             offsets: &dataset.offsets[1..],
@@ -1309,7 +1341,7 @@ where
     }
 
     #[inline]
-    fn new_with_mut(dataset: &'a SparseDatasetMut<T>) -> Self {
+    fn new_with_mut(dataset: &'a SparseDatasetMut<C, T>) -> Self {
         Self {
             last_offset: 0,
             offsets: &dataset.offsets[1..],
@@ -1322,13 +1354,14 @@ where
 /// A struct to iterate over a sparse dataset in parallel.
 /// It assumes the dataset can be represented as a pair of slices.
 #[derive(Clone)]
-pub struct ParSparseDatasetIter<'a, T>
+pub struct ParSparseDatasetIter<'a, C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
     last_offset: usize,
     offsets: &'a [usize],
-    components: &'a [u16],
+    components: &'a [C],
     values: &'a [T],
 }
 
@@ -1347,11 +1380,12 @@ where
 //     }
 // }
 
-impl<'a, T> Iterator for SparseDatasetIter<'a, T>
+impl<'a, C, T> Iterator for SparseDatasetIter<'a, C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
-    type Item = (&'a [u16], &'a [T]);
+    type Item = (&'a [C], &'a [T]);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -1370,15 +1404,16 @@ where
     }
 }
 
-impl<'a, T> ParallelIterator for ParSparseDatasetIter<'a, T>
+impl<'a, C, T> ParallelIterator for ParSparseDatasetIter<'a, C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
-    type Item = (&'a [u16], &'a [T]);
+    type Item = (&'a [C], &'a [T]);
 
-    fn drive_unindexed<C>(self, consumer: C) -> C::Result
+    fn drive_unindexed<CS>(self, consumer: CS) -> CS::Result
     where
-        C: UnindexedConsumer<Self::Item>,
+        CS: UnindexedConsumer<Self::Item>,
     {
         bridge(self, consumer)
     }
@@ -1388,8 +1423,9 @@ where
     }
 }
 
-impl<T> IndexedParallelIterator for ParSparseDatasetIter<'_, T>
+impl<C, T> IndexedParallelIterator for ParSparseDatasetIter<'_, C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
     fn with_producer<CB: ProducerCallback<Self::Item>>(self, callback: CB) -> CB::Output {
@@ -1397,7 +1433,7 @@ where
         callback.callback(producer)
     }
 
-    fn drive<C: Consumer<Self::Item>>(self, consumer: C) -> C::Result {
+    fn drive<CS: Consumer<Self::Item>>(self, consumer: CS) -> CS::Result {
         bridge(self, consumer)
     }
 
@@ -1406,8 +1442,9 @@ where
     }
 }
 
-impl<T> ExactSizeIterator for SparseDatasetIter<'_, T>
+impl<C, T> ExactSizeIterator for SparseDatasetIter<'_, C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
     fn len(&self) -> usize {
@@ -1415,8 +1452,9 @@ where
     }
 }
 
-impl<T> DoubleEndedIterator for SparseDatasetIter<'_, T>
+impl<C, T> DoubleEndedIterator for SparseDatasetIter<'_, C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
     /// Retrieves the next vector from the end of the iterator.
@@ -1437,7 +1475,7 @@ where
     ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
     ///                 ];
     ///
-    /// let dataset: SparseDataset<f32> = data.clone().into_iter().collect();
+    /// let dataset: SparseDataset<u16, f32> = data.clone().into_iter().collect();
     ///
     /// let data_rev: Vec<_> =  dataset.iter().rev().collect();
     ///
@@ -1463,22 +1501,24 @@ where
         Some((cur_components, cur_values))
     }
 }
-struct SparseDatasetProducer<'a, T>
+struct SparseDatasetProducer<'a, C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
     last_offset: usize,
     offsets: &'a [usize],
-    components: &'a [u16],
+    components: &'a [C],
     values: &'a [T],
 }
 
-impl<'a, T> Producer for SparseDatasetProducer<'a, T>
+impl<'a, C, T> Producer for SparseDatasetProducer<'a, C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
-    type Item = (&'a [u16], &'a [T]);
-    type IntoIter = SparseDatasetIter<'a, T>;
+    type Item = (&'a [C], &'a [T]);
+    type IntoIter = SparseDatasetIter<'a, C, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         SparseDatasetIter {
@@ -1518,11 +1558,12 @@ where
     }
 }
 
-impl<'a, T> From<ParSparseDatasetIter<'a, T>> for SparseDatasetProducer<'a, T>
+impl<'a, C, T> From<ParSparseDatasetIter<'a, C, T>> for SparseDatasetProducer<'a, C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
-    fn from(other: ParSparseDatasetIter<'a, T>) -> Self {
+    fn from(other: ParSparseDatasetIter<'a, C, T>) -> Self {
         Self {
             last_offset: other.last_offset,
             offsets: other.offsets,
@@ -1532,8 +1573,9 @@ where
     }
 }
 
-impl<T> SpaceUsage for SparseDataset<T>
+impl<C, T> SpaceUsage for SparseDataset<C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
     /// Returns the size of the dataset in bytes.
@@ -1546,8 +1588,9 @@ where
     }
 }
 
-impl<T> SpaceUsage for SparseDatasetMut<T>
+impl<C, T> SpaceUsage for SparseDatasetMut<C, T>
 where
+    C: ComponentType,
     T: DataType,
 {
     /// Returns the size of the dataset in bytes.
@@ -1566,7 +1609,7 @@ mod tests {
     // Test pushing empty vectors.
     #[test]
     fn test_empty_vectors() {
-        let mut dataset = SparseDatasetMut::<f32>::default();
+        let mut dataset = SparseDatasetMut::<u16, f32>::default();
 
         // Push a single vector
         dataset.push(&[0, 2, 4], &[1.0, 2.0, 3.0]);
@@ -1624,7 +1667,7 @@ mod tests {
 
         let components: Vec<_> = (0_u16..n as u16).collect();
         let values: Vec<_> = (0..n).map(|x| x as f32).collect();
-        let mut dataset = SparseDatasetMut::<f32>::default();
+        let mut dataset = SparseDatasetMut::<u16, f32>::default();
 
         let result: Vec<_> = components
             .chunks_exact(size)

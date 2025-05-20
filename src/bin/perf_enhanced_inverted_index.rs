@@ -75,7 +75,7 @@ pub fn main() {
 
     let serialized: Vec<u8> = fs::read(index_path.unwrap()).unwrap();
 
-    let inverted_index = bincode::deserialize::<SeismicIndex<f16>>(&serialized).unwrap();
+    let inverted_index = bincode::deserialize::<SeismicIndex<u16, f16>>(&serialized).unwrap();
 
     //let queries = SparseDataset::<f32>::read_bin_file(&query_path.unwrap()).unwrap();
     let queries = read_queries(&query_path.unwrap());

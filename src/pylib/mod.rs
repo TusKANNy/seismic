@@ -35,7 +35,7 @@ pub fn get_seismic_string() -> &'static str {
 /// dataset using `build` or `build_from_dataset`. See these methods for further details.
 #[pyclass]
 pub struct SeismicIndex {
-    index: Index<f16>,
+    index: Index<u16, f16>,
 }
 
 #[pymethods]
@@ -185,7 +185,7 @@ impl SeismicIndex {
             ))
         })?;
 
-        let index = bincode::deserialize::<Index<f16>>(&serialized).map_err(|e| {
+        let index = bincode::deserialize::<Index<u16, f16>>(&serialized).map_err(|e| {
             PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                 "Failed to deserialize index from '{}': {}",
                 index_path, e
@@ -365,13 +365,13 @@ impl SeismicIndex {
         let config = Configuration::default()
             .pruning_strategy(PruningStrategy::GlobalThreshold {
                 n_postings,
-                max_fraction: max_fraction,
+                max_fraction,
             })
             .blocking_strategy(BlockingStrategy::RandomKmeans {
                 centroid_fraction,
                 min_cluster_size,
                 clustering_algorithm: ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
-                    doc_cut: doc_cut,
+                    doc_cut,
                 },
             })
             .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
@@ -457,13 +457,13 @@ impl SeismicIndex {
         let config = Configuration::default()
             .pruning_strategy(PruningStrategy::GlobalThreshold {
                 n_postings,
-                max_fraction: max_fraction,
+                max_fraction,
             })
             .blocking_strategy(BlockingStrategy::RandomKmeans {
                 centroid_fraction,
                 min_cluster_size,
                 clustering_algorithm: ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
-                    doc_cut: doc_cut,
+                    doc_cut,
                 },
             })
             .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
@@ -656,7 +656,7 @@ impl SeismicIndex {
 ///
 #[pyclass]
 pub struct SeismicIndexRaw {
-    inverted_index: InvertedIndex<f16>,
+    inverted_index: InvertedIndex<u16, f16>,
 }
 
 #[pymethods]
@@ -823,7 +823,7 @@ impl SeismicIndexRaw {
         })?;
 
         let inverted_index =
-            bincode::deserialize::<InvertedIndex<f16>>(&serialized).map_err(|e| {
+            bincode::deserialize::<InvertedIndex<u16, f16>>(&serialized).map_err(|e| {
                 PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                     "Failed to deserialize index from '{}': {}",
                     index_path, e
@@ -993,7 +993,7 @@ impl SeismicIndexRaw {
         knn_path: Option<String>,
         batched_indexing: Option<usize>,
     ) -> PyResult<SeismicIndexRaw> {
-        let dataset = SparseDataset::<f32>::read_bin_file(input_file)
+        let dataset = SparseDataset::<u16, f32>::read_bin_file(input_file)
             .unwrap()
             .quantize_f16();
 
@@ -1002,13 +1002,13 @@ impl SeismicIndexRaw {
         let config = Configuration::default()
             .pruning_strategy(PruningStrategy::GlobalThreshold {
                 n_postings,
-                max_fraction: max_fraction,
+                max_fraction,
             })
             .blocking_strategy(BlockingStrategy::RandomKmeans {
                 centroid_fraction,
                 min_cluster_size,
                 clustering_algorithm: ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
-                    doc_cut: doc_cut,
+                    doc_cut,
                 },
             })
             .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
@@ -1126,7 +1126,7 @@ impl SeismicIndexRaw {
             .build()
             .unwrap();
 
-        let queries = SparseDataset::<f32>::read_bin_file(query_path).unwrap();
+        let queries = SparseDataset::<u16, f32>::read_bin_file(query_path).unwrap();
 
         queries
             .par_iter()
@@ -1156,7 +1156,7 @@ impl SeismicIndexRaw {
 #[derive(Clone)]
 #[pyclass]
 pub struct SeismicDataset {
-    dataset: Dataset<f16>,
+    dataset: Dataset<u16, f16>,
 }
 
 #[pymethods]

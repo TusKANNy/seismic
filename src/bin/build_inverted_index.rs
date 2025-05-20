@@ -90,7 +90,7 @@ struct Args {
 pub fn main() {
     let args = Args::parse();
 
-    let dataset = SparseDataset::<f32>::read_bin_file(&args.input_file.unwrap())
+    let dataset = SparseDataset::<u16, f32>::read_bin_file(&args.input_file.unwrap())
         .unwrap()
         .quantize_f16();
 

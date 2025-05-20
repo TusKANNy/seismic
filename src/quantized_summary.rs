@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{DataType, SpaceUsage, SparseDataset};
+use crate::{ComponentType, DataType, SpaceUsage, SparseDataset};
 
 use crate::elias_fano::EliasFano;
 
@@ -31,7 +31,10 @@ impl QuantizedSummary {
     const N_CLASSES: usize = 256; // we store quantized values in a u8. Number of classes cannot be more than 256
 
     #[must_use]
-    pub fn distances_iter(&self, query_components: &[u16], query_values: &[f32]) -> DistancesIter {
+    pub fn distances_iter<C>(&self, query_components: &[C], query_values: &[f32]) -> DistancesIter
+    where
+        C: ComponentType,
+    {
         DistancesIter::new(self, query_components, query_values)
     }
 
@@ -65,13 +68,14 @@ impl QuantizedSummary {
     }
 }
 
-impl<T> From<SparseDataset<T>> for QuantizedSummary
+impl<C, T> From<SparseDataset<C, T>> for QuantizedSummary
 where
+    C: ComponentType,
     T: DataType,
 {
     /// # Panics
     /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)
-    fn from(dataset: SparseDataset<T>) -> QuantizedSummary {
+    fn from(dataset: SparseDataset<C, T>) -> QuantizedSummary {
         assert!(
             dataset.len() <= u16::MAX as usize,
             "Number of summaries cannot be more than 2^16"
@@ -93,7 +97,7 @@ where
             quants.push(quant);
 
             for (&c, score) in components.iter().zip(current_codes) {
-                inverted_pairs[c as usize].push((score, doc_id));
+                inverted_pairs[c.as_()].push((score, doc_id));
             }
         }
 
@@ -126,15 +130,18 @@ pub struct DistancesIter {
 }
 
 impl DistancesIter {
-    fn new(summaries: &QuantizedSummary, query_components: &[u16], query_values: &[f32]) -> Self {
+    fn new<C>(summaries: &QuantizedSummary, query_components: &[C], query_values: &[f32]) -> Self
+    where
+        C: ComponentType,
+    {
         let mut accumulator = vec![0_f32; summaries.n_summaries];
 
         for (&qc, &qv) in query_components.iter().zip(query_values) {
-            if qc as usize >= summaries.d {
+            if qc.as_() >= summaries.d {
                 break;
             }
-            let current_offset = summaries.offsets.select(qc as usize).unwrap();
-            let next_offset = summaries.offsets.select((qc + 1) as usize).unwrap();
+            let current_offset = summaries.offsets.select(qc.as_()).unwrap();
+            let next_offset = summaries.offsets.select(qc.as_() + 1).unwrap();
 
             if next_offset - current_offset == 0 {
                 continue;

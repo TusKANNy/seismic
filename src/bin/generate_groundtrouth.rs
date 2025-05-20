@@ -31,8 +31,8 @@ struct Args {
 pub fn main() {
     let args = Args::parse();
 
-    let dataset = SparseDataset::<f32>::read_bin_file(&args.input_file.unwrap()).unwrap();
-    let queries = SparseDataset::<f32>::read_bin_file(&args.query_file.unwrap()).unwrap();
+    let dataset = SparseDataset::<u32, f32>::read_bin_file(&args.input_file.unwrap()).unwrap();
+    let queries = SparseDataset::<u32, f32>::read_bin_file(&args.query_file.unwrap()).unwrap();
     let k = args.k;
     let output_path = args.output_path.unwrap();
 

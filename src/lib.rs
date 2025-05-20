@@ -60,6 +60,24 @@ impl DataType for f32 {}
 
 impl DataType for f16 {}
 
+pub trait ComponentType:
+    AsPrimitive<usize>
+    + FromPrimitive
+    + SpaceUsage
+    + Copy
+    + Send
+    + Sync
+    + std::hash::Hash
+    + Eq
+    + Ord
+    + std::convert::TryFrom<usize>
+{
+}
+
+impl ComponentType for u16 {}
+
+impl ComponentType for u32 {}
+
 /// A Python module implemented in Rust. The name of this function must match the `lib.name`
 /// setting in the `Cargo.toml`, otherwise Python will not be able to import the module.
 #[pymodule]

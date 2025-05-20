@@ -4,7 +4,7 @@ use std::collections::HashSet;
 #[allow(unused_imports)]
 use rand::{rngs::StdRng, seq::IteratorRandom, thread_rng, SeedableRng};
 
-use crate::{distances::dot_product_dense_sparse, DataType, SparseDataset};
+use crate::{distances::dot_product_dense_sparse, ComponentType, DataType, SparseDataset};
 
 /// Computes the size of the intersection of two unsorted lists of integers.
 pub fn intersection<T: Eq + Hash + Clone>(s: &[T], groundtruth: &[T]) -> usize {
@@ -68,10 +68,10 @@ pub fn binary_search_branchless(data: &[u16], target: u16) -> usize {
 
 use itertools::Itertools;
 
-fn compute_centroid_assignments_approx_dot_product<T: DataType>(
+fn compute_centroid_assignments_approx_dot_product<C: ComponentType, T: DataType>(
     doc_ids: &[usize],
     inverted_index: &[Vec<(usize, T)>],
-    dataset: &SparseDataset<T>,
+    dataset: &SparseDataset<C, T>,
     centroids: &[usize],
     to_avoid: &HashSet<usize>,
     doc_cut: usize,
@@ -86,7 +86,7 @@ fn compute_centroid_assignments_approx_dot_product<T: DataType>(
             .sorted_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap())
             .take(doc_cut)
         {
-            for &(centroid_id, score) in inverted_index[component_id as usize].iter() {
+            for &(centroid_id, score) in inverted_index[component_id.as_()].iter() {
                 scores[centroid_id] += score.to_f32().unwrap() * value.to_f32().unwrap();
             }
         }
@@ -114,13 +114,17 @@ fn compute_centroid_assignments_approx_dot_product<T: DataType>(
 /// The function uses a simple pruned inverted index to speed up the computation and computes the
 /// true dot product between the document and the centroids.
 /// The paramenter `doc_cut` specifies how many components of the document vector to consider whiel computing the dot product.
-pub fn do_random_kmeans_on_docids_ii_approx_dot_product<T: DataType>(
+pub fn do_random_kmeans_on_docids_ii_approx_dot_product<C, T>(
     doc_ids: &[usize],
     n_clusters: usize,
-    dataset: &SparseDataset<T>,
+    dataset: &SparseDataset<C, T>,
     min_cluster_size: usize,
     doc_cut: usize,
-) -> Vec<(usize, usize)> {
+) -> Vec<(usize, usize)>
+where
+    C: ComponentType,
+    T: DataType,
+{
     let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
     let centroid_ids = doc_ids
@@ -136,7 +140,7 @@ pub fn do_random_kmeans_on_docids_ii_approx_dot_product<T: DataType>(
 
     for (i, &centroid_id) in centroid_ids.iter().enumerate() {
         for (&c, &score) in dataset.iter_vector(centroid_id) {
-            inverted_index[c as usize].push((i, score));
+            inverted_index[c.as_()].push((i, score));
         }
     }
 
@@ -197,14 +201,18 @@ pub fn do_random_kmeans_on_docids_ii_approx_dot_product<T: DataType>(
     final_assigments
 }
 
-fn compute_centroid_assignments_dot_product<T: DataType>(
+fn compute_centroid_assignments_dot_product<C, T>(
     doc_ids: &[usize],
     inverted_index: &[Vec<(T, usize)>],
-    dataset: &SparseDataset<T>,
+    dataset: &SparseDataset<C, T>,
     centroids: &[usize],
     to_avoid: &HashSet<usize>,
     doc_cut: usize,
-) -> Vec<(usize, usize)> {
+) -> Vec<(usize, usize)>
+where
+    C: ComponentType,
+    T: DataType,
+{
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
 
     let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
@@ -218,7 +226,7 @@ fn compute_centroid_assignments_dot_product<T: DataType>(
         // Densify the vector
         let mut dense_vector: Vec<T> = vec![T::zero(); dataset.dim()];
         for (&c, &v) in dataset.iter_vector(doc_id) {
-            dense_vector[c as usize] = v;
+            dense_vector[c.as_()] = v;
         }
 
         let mut max = 0_f32;
@@ -232,7 +240,7 @@ fn compute_centroid_assignments_dot_product<T: DataType>(
             .sorted_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap())
             .take(doc_cut)
         {
-            for &(_score, centroid_id) in inverted_index[component_id as usize].iter() {
+            for &(_score, centroid_id) in inverted_index[component_id.as_()].iter() {
                 if visited.contains(&centroid_id) {
                     continue;
                 }
@@ -261,14 +269,18 @@ fn compute_centroid_assignments_dot_product<T: DataType>(
 /// true dot product between the document and the centroids.
 /// The paramenter `pruning_factor` controls the size of the pruned inverted index.
 /// The parameter `doc_cut` specifies how many components of the document vector to consider while computing the dot product.
-pub fn do_random_kmeans_on_docids_ii_dot_product<T: DataType>(
+pub fn do_random_kmeans_on_docids_ii_dot_product<C, T>(
     doc_ids: &[usize],
     n_clusters: usize,
-    dataset: &SparseDataset<T>,
+    dataset: &SparseDataset<C, T>,
     min_cluster_size: usize,
     pruning_factor: f32,
     doc_cut: usize,
-) -> Vec<(usize, usize)> {
+) -> Vec<(usize, usize)>
+where
+    C: ComponentType,
+    T: DataType,
+{
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
     let centroid_ids = doc_ids
@@ -286,7 +298,7 @@ pub fn do_random_kmeans_on_docids_ii_dot_product<T: DataType>(
 
     for &centroid_id in centroid_ids.iter() {
         for (&c, &score) in dataset.iter_vector(centroid_id) {
-            inverted_index[c as usize].push((score, centroid_id));
+            inverted_index[c.as_()].push((score, centroid_id));
         }
     }
 
@@ -352,9 +364,9 @@ pub fn do_random_kmeans_on_docids_ii_dot_product<T: DataType>(
     final_assigments
 }
 
-fn compute_centroid_assignments<T: DataType>(
+fn compute_centroid_assignments<C: ComponentType, T: DataType>(
     doc_ids: &[usize],
-    dataset: &SparseDataset<T>,
+    dataset: &SparseDataset<C, T>,
     centroids: &[usize],
     to_avoid: &HashSet<usize>,
 ) -> Vec<(usize, usize)> {
@@ -367,10 +379,10 @@ fn compute_centroid_assignments<T: DataType>(
             centroid_assignments.push((doc_id, doc_id));
             continue;
         }
-
+        //FIXME: this is wrong
         let mut dense_vector: Vec<T> = vec![T::zero(); dataset.dim()];
         for (&i, &v) in dataset.iter_vector(doc_id) {
-            dense_vector[i as usize] = v;
+            dense_vector[i.as_()] = v;
         }
 
         let mut centroid_max = centroids[0];
@@ -389,10 +401,10 @@ fn compute_centroid_assignments<T: DataType>(
     centroid_assignments
 }
 
-pub fn do_random_kmeans_on_docids<T: DataType>(
+pub fn do_random_kmeans_on_docids<C: ComponentType, T: DataType>(
     doc_ids: &[usize],
     n_clusters: usize,
-    dataset: &SparseDataset<T>,
+    dataset: &SparseDataset<C, T>,
     min_cluster_size: usize,
 ) -> Vec<(usize, usize)> {
     let seed = 42; // You can use any u64 value as the seed

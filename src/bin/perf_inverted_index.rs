@@ -73,9 +73,9 @@ pub fn main() {
 
     let serialized: Vec<u8> = fs::read(index_path.unwrap()).unwrap();
 
-    let inverted_index = bincode::deserialize::<InvertedIndex<f16>>(&serialized).unwrap();
+    let inverted_index = bincode::deserialize::<InvertedIndex<u16, f16>>(&serialized).unwrap();
 
-    let queries = SparseDataset::<f32>::read_bin_file(&query_path.unwrap()).unwrap();
+    let queries = SparseDataset::<u16, f32>::read_bin_file(&query_path.unwrap()).unwrap();
 
     let n_queries = cmp::min(args.n_queries, queries.len());
 
