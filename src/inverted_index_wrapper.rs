@@ -162,16 +162,24 @@ where
             let ids: Vec<_> = match &input_token_to_id_map {
                 None => {
                     for token in tokens.iter() {
-                        assert!(
-                            token_to_id_mapping.len() < u16::MAX as usize,
-                            "The number of different tokens exceeds 2**16. "
-                        );
                         if !token_to_id_mapping.contains_key(token) {
                             token_to_id_mapping.insert(
                                 token.to_string(),
                                 C::from_usize(token_to_id_mapping.len()).unwrap(),
                             );
                         }
+                    }
+                    // moved outside of the loop to avoid checking every token
+                    if C::WIDTH == 16 {
+                        assert!(
+                            token_to_id_mapping.len() < u16::MAX as usize,
+                            "The number of different tokens exceeds 2**16. "
+                        );
+                    } else if C::WIDTH == 32 {
+                        assert!(
+                            token_to_id_mapping.len() < u32::MAX as usize,
+                            "The number of different tokens exceeds 2**32. "
+                        );
                     }
                     tokens.iter().map(|t| token_to_id_mapping[t]).collect()
                 }
@@ -408,16 +416,24 @@ where
         let mut components: Vec<C> = Vec::<_>::with_capacity(tokens.len());
         for c in tokens.iter() {
             let next_token_id = self.token_to_id_map.len();
-            assert!(
-                next_token_id < u16::MAX as usize,
-                "The number of different tokens exceeds 2**16. "
-            );
             components.push(
                 *self
                     .token_to_id_map
                     .entry(c.to_string())
                     .or_insert_with(|| C::from_usize(next_token_id).unwrap()),
             );
+            // moved outside of the loop to avoid checking every token
+            if C::WIDTH == 16 {
+                assert!(
+                    self.token_to_id_map.len() < u16::MAX as usize,
+                    "The number of different tokens exceeds 2**16. "
+                );
+            } else if C::WIDTH == 32 {
+                assert!(
+                    self.token_to_id_map.len() < u32::MAX as usize,
+                    "The number of different tokens exceeds 2**32. "
+                );
+            }
         }
 
         let (sorted_indexes, sorted_components): (Vec<_>, Vec<_>) = components

@@ -2,7 +2,7 @@ use crate::{utils::binary_search_branchless, ComponentType, DataType};
 
 /// Computes the dot product between a dense query and a sparse vector.
 /// Before using this function, the query must be made dense. In some cases,
-/// especially when queries have many non-zeerp components, this is faster
+/// especially when queries have many non-zero components, this is faster
 /// than computing the dot product with a "merge" style.
 ///
 /// # Arguments

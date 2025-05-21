@@ -261,9 +261,9 @@ where
         let doc_values = dataset
             .get(doc_id)
             .1
-            .iter()
-            .map(|v| v.to_f32().unwrap())
-            .collect::<Vec<_>>();
+                .iter()
+                .map(|v| v.to_f32().unwrap())
+                .collect::<Vec<_>>();
 
         let dense_vector = conditionally_densify(doc_components, &doc_values, dataset.dim());
 

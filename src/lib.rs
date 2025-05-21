@@ -44,7 +44,10 @@ pub mod utils;
 
 use crate::pylib::get_seismic_string;
 use crate::pylib::SeismicDataset as PySeismicDataset;
+use crate::pylib::SeismicDatasetLV as PySeismicDatasetLV;
+
 use crate::pylib::SeismicIndex as PySeismicIndex;
+use crate::pylib::SeismicIndexLV as PySeismicIndexLV;
 use num_traits::{AsPrimitive, FromPrimitive, ToPrimitive, Zero};
 use pyo3::prelude::PyModule;
 use pyo3::{pymodule, Bound, PyResult};
@@ -89,9 +92,12 @@ pub trait ComponentType:
     where
         Q: DataType,
         V: DataType;
+    const WIDTH: usize;
 }
 
 impl ComponentType for u16 {
+    const WIDTH: usize = 16; // Required for compile time checks.
+
     /// Computes the dot product between a sparse query and a sparse vector.
     /// There are two cases:
     /// - `dense_query` is `Some`, which means the query was densified. This usually when the query has many non-zero components but the sparse space dimension is not too large. In this case, the `dot_product_dense_sparse` function is used.
@@ -148,6 +154,8 @@ impl ComponentType for u16 {
 //impl ComponentType for u16 {}
 
 impl ComponentType for u32 {
+    const WIDTH: usize = 32; // Required for compile time checks.
+
     #[inline]
     #[must_use]
     fn compute_dot_product<Q, V>(
@@ -171,7 +179,9 @@ impl ComponentType for u32 {
 fn seismic(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_seismic_string, m)?)?;
     m.add_class::<PySeismicIndex>()?;
+    m.add_class::<PySeismicIndexLV>()?;
     m.add_class::<SeismicIndexRaw>()?;
     m.add_class::<PySeismicDataset>()?;
+    m.add_class::<PySeismicDatasetLV>()?;
     Ok(())
 }

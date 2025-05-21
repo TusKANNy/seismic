@@ -601,8 +601,8 @@ impl PostingList {
 
             if !visited.contains(&prev_offset) {
                 let (v_components, v_values) = forward_index.get_with_offset(prev_offset, prev_len);
-                //let distance = dot_product_dense_sparse(query, v_components, v_values);
 
+                // 
                 let distance = C::compute_dot_product(
                     query,
                     query_term_ids,
@@ -610,13 +610,6 @@ impl PostingList {
                     v_components,
                     v_values,
                 );
-
-                // let distance = if query_term_ids.len() < THRESHOLD_BINARY_SEARCH {
-                //         //dot_product_with_binary_search(
-                //         dot_product_with_merge(query_term_ids, query_values, v_components, v_values)
-                //     } else {
-                //         C::dot_product_dense_sparse(query, v_components, v_values)
-                //     };
 
                 visited.insert(prev_offset);
                 heap.push_with_id(-1.0 * distance, prev_offset);

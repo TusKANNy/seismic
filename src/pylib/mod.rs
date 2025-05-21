@@ -28,519 +28,519 @@ pub fn get_seismic_string() -> &'static str {
     SEISMIC_STRING
 }
 
-/// A Python wrapper around the SeismicIndex data structure.
-///
-/// This class provides methods to build, query, and manage an inverted index
-/// over a sparse dataset. Typically, it is constructed from a file or an in-memory
-/// dataset using `build` or `build_from_dataset`. See these methods for further details.
-#[pyclass]
-pub struct SeismicIndex {
-    index: Index<u16, f16>,
-}
+macro_rules! impl_seismic_index {
+    ($rust_name:ident, $py_name:literal, $Key:ty, $dataset_type:ident) => {
+        /// A Python wrapper around the SeismicIndex data structure.
+        ///
+        /// This class provides methods to build, query, and manage an inverted index
+        /// over a sparse dataset. Typically, it is constructed from a file or an in-memory
+        /// dataset using `build` or `build_from_dataset`. See these methods for further details.
+        #[pyclass(name= $py_name)]
+        pub struct $rust_name {
+            index: Index<$Key, f16>,
+        }
 
-#[pymethods]
-impl SeismicIndex {
-    /// Get the dimensionality of the index.
-    ///
-    /// This method returns the total number of unique tokens
-    /// present in the dataset used to build the index.
-    ///
-    /// Returns:
-    ///     int: The number of dimensions.
-    ///
-    /// Example:
-    ///     >>> index.dim
-    ///     128
-    #[getter]
-    pub fn get_dim(&self) -> PyResult<usize> {
-        Ok(self.index.dim())
-    }
+        #[pymethods]
+        impl $rust_name {
+            /// Get the dimensionality of the index.
+            ///
+            /// This method returns the total number of unique tokens
+            /// present in the dataset used to build the index.
+            ///
+            /// Returns:
+            ///     int: The number of dimensions.
+            ///
+            /// Example:
+            ///     >>> index.dim
+            ///     128
+            #[getter]
+            pub fn get_dim(&self) -> PyResult<usize> {
+                Ok(self.index.dim())
+            }
 
-    /// Get the number of documents in the index.
-    ///
-    /// This method returns the total number of documents (or vectors)
-    /// that were indexed.
-    ///
-    /// Returns:
-    ///     int: The number of documents in the index.
-    ///
-    /// Example:
-    ///     >>> index.len
-    ///     10000
-    #[getter]
-    pub fn get_len(&self) -> PyResult<usize> {
-        Ok(self.index.len())
-    }
+            /// Get the number of documents in the index.
+            ///
+            /// This method returns the total number of documents (or vectors)
+            /// that were indexed.
+            ///
+            /// Returns:
+            ///     int: The number of documents in the index.
+            ///
+            /// Example:
+            ///     >>> index.len
+            ///     10000
+            #[getter]
+            pub fn get_len(&self) -> PyResult<usize> {
+                Ok(self.index.len())
+            }
 
-    /// Get the number of non-zero entries (NNZ) in the index.
-    ///
-    /// This method returns the total number of token-value pairs across all documents,
-    /// i.e., the total number of sparse components stored in the index.
-    ///
-    /// Returns:
-    ///     int: The number of non-zero entries.
-    ///
-    /// Example:
-    ///     >>> index.nnz
-    ///     532000
-    #[getter]
-    pub fn get_nnz(&self) -> PyResult<usize> {
-        Ok(self.index.nnz())
-    }
+            /// Get the number of non-zero entries (NNZ) in the index.
+            ///
+            /// This method returns the total number of token-value pairs across all documents,
+            /// i.e., the total number of sparse components stored in the index.
+            ///
+            /// Returns:
+            ///     int: The number of non-zero entries.
+            ///
+            /// Example:
+            ///     >>> index.nnz
+            ///     532000
+            #[getter]
+            pub fn get_nnz(&self) -> PyResult<usize> {
+                Ok(self.index.nnz())
+            }
 
-    /// Get the number of neighbors per each document stored in the index (that would be the "k" for the k-NN graph).
-    ///
-    /// This method returns the number of precomputed k-nearest neighbor available per document.
-    ///
-    /// Returns:
-    ///     int: Number of precomputed neighbors (K) per document.
-    ///
-    /// Example:
-    ///     >>> index.knn_len
-    ///     10
-    #[getter]
-    pub fn knn_len(&self) -> PyResult<usize> {
-        Ok(self.index.knn_len())
-    }
+            /// Get the number of neighbors per each document stored in the index (that would be the "k" for the k-NN graph).
+            ///
+            /// This method returns the number of precomputed k-nearest neighbor available per document.
+            ///
+            /// Returns:
+            ///     int: Number of precomputed neighbors (K) per document.
+            ///
+            /// Example:
+            ///     >>> index.knn_len
+            ///     10
+            #[getter]
+            pub fn knn_len(&self) -> PyResult<usize> {
+                Ok(self.index.knn_len())
+            }
 
-    /// Print the estimated memory usage of the index in bytes.
-    ///
-    /// This method returns no value, but logs to the console the memory
-    /// footprint of the inverted index and associated data structures.
-    ///
-    /// Example:
-    ///     >>> index.print_space_usage_byte()
-    ///     Total space usage: 12.3 MB
-    pub fn print_space_usage_byte(&self) {
-        self.index.print_space_usage_byte();
-    }
+            /// Print the estimated memory usage of the index in bytes.
+            ///
+            /// This method returns no value, but logs to the console the memory
+            /// footprint of the inverted index and associated data structures.
+            ///
+            /// Example:
+            ///     >>> index.print_space_usage_byte()
+            ///     Total space usage: 12.3 MB
+            pub fn print_space_usage_byte(&self) {
+                self.index.print_space_usage_byte();
+            }
 
-    /// Get the sparse vector representation of a document by its ID.
-    ///
-    /// This method returns the list of token IDs and their associated values
-    /// for the specified document index.
-    ///
-    /// Args:
-    ///     id (int): The document ID.
-    ///
-    /// Returns:
-    ///        tuple[list[int], list[float]]: A pair of lists containing token IDs and corresponding values.
-    ///
-    /// Example:
-    ///     >>> tokens, values = index.get(42)
-    ///     >>> print(tokens)
-    ///     [3, 7, 19]
-    ///
-    #[pyo3(signature = (id))]
-    #[pyo3(text_signature = "(self, id)")]
-    pub fn get(&self, id: usize) -> PyResult<(Vec<u16>, Vec<f32>)> {
-        let entry = self.index.dataset().get(id);
-        Ok((entry.0.to_vec(), entry.1.to_f32_vec()))
-    }
+            /// Get the sparse vector representation of a document by its ID.
+            ///
+            /// This method returns the list of token IDs and their associated values
+            /// for the specified document index.
+            ///
+            /// Args:
+            ///     id (int): The document ID.
+            ///
+            /// Returns:
+            ///        tuple[list[int], list[float]]: A pair of lists containing token IDs and corresponding values.
+            ///
+            /// Example:
+            ///     >>> tokens, values = index.get(42)
+            ///     >>> print(tokens)
+            ///     [3, 7, 19]
+            ///
+            #[pyo3(signature = (id))]
+            #[pyo3(text_signature = "(self, id)")]
+            pub fn get(&self, id: usize) -> PyResult<(Vec<$Key>, Vec<f32>)> {
+                let entry = self.index.dataset().get(id);
+                Ok((entry.0.to_vec(), entry.1.to_f32_vec()))
+            }
+            /// Get the number of non-zero components in a specific document vector.
+            ///
+            /// This method returns the number of tokens (and values) present in the
+            /// sparse vector representation of the document with the given ID.
+            ///
+            /// Args:
+            ///     id (int): The document ID.
+            ///
+            /// Returns:
+            ///     int: The number of non-zero components in the document vector.
+            ///
+            /// Example:
+            ///     >>> index.vector_len(42)
+            ///     37
+            #[pyo3(signature = (id))]
+            #[pyo3(text_signature = "(self, id)")]
+            pub fn vector_len(&self, id: usize) -> PyResult<usize> {
+                Ok(self.index.dataset().vector_len(id))
+            }
 
-    /// Get the number of non-zero components in a specific document vector.
-    ///
-    /// This method returns the number of tokens (and values) present in the
-    /// sparse vector representation of the document with the given ID.
-    ///
-    /// Args:
-    ///     id (int): The document ID.
-    ///
-    /// Returns:
-    ///     int: The number of non-zero components in the document vector.
-    ///
-    /// Example:
-    ///     >>> index.vector_len(42)
-    ///     37
-    #[pyo3(signature = (id))]
-    #[pyo3(text_signature = "(self, id)")]
-    pub fn vector_len(&self, id: usize) -> PyResult<usize> {
-        Ok(self.index.dataset().vector_len(id))
-    }
+            /// Load a previously saved SeismicIndex from disk.
+            ///
+            /// This method returns a deserialized `SeismicIndex` from the given file path.
+            /// The file should have been created using the `.save()` method.
+            ///
+            /// Args:
+            ///     index_path (str): Path to the `.index.seismic` file.
+            ///
+            /// Returns:
+            ///     SeismicIndex: The loaded index instance.
+            ///
+            /// Raises:
+            ///     IOError: If the file cannot be found or deserialized.
+            ///
+            /// Example:
+            ///     >>> index = SeismicIndex.load("my_index.index.seismic")
+            #[staticmethod]
+            #[pyo3(signature = (index_path))]
+            #[pyo3(text_signature = "(index_path)")]
+            pub fn load(index_path: &str) -> PyResult<$rust_name> {
+                let serialized: Vec<u8> = fs::read(index_path).map_err(|e| {
+                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
+                        "Failed to read index file '{}': {}",
+                        index_path, e
+                    ))
+                })?;
 
-    /// Load a previously saved SeismicIndex from disk.
-    ///
-    /// This method returns a deserialized `SeismicIndex` from the given file path.
-    /// The file should have been created using the `.save()` method.
-    ///
-    /// Args:
-    ///     index_path (str): Path to the `.index.seismic` file.
-    ///
-    /// Returns:
-    ///     SeismicIndex: The loaded index instance.
-    ///
-    /// Raises:
-    ///     IOError: If the file cannot be found or deserialized.
-    ///
-    /// Example:
-    ///     >>> index = SeismicIndex.load("my_index.index.seismic")
-    #[staticmethod]
-    #[pyo3(signature = (index_path))]
-    #[pyo3(text_signature = "(index_path)")]
-    pub fn load(index_path: &str) -> PyResult<SeismicIndex> {
-        let serialized: Vec<u8> = fs::read(index_path).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                "Failed to read index file '{}': {}",
-                index_path, e
-            ))
-        })?;
+                let index = bincode::deserialize::<Index<$Key, f16>>(&serialized).map_err(|e| {
+                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
+                        "Failed to deserialize index from '{}': {}",
+                        index_path, e
+                    ))
+                })?;
 
-        let index = bincode::deserialize::<Index<u16, f16>>(&serialized).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                "Failed to deserialize index from '{}': {}",
-                index_path, e
-            ))
-        })?;
+                Ok($rust_name { index })
+            }
 
-        Ok(SeismicIndex { index })
-    }
+            /// Save the current SeismicIndex to disk in binary format.
+            ///
+            /// This method returns nothing, but writes a `.index.seismic` file to the specified path.
+            /// The file can later be loaded using the `SeismicIndex.load()` method.
+            ///
+            /// Args:
+            ///     path (str): Path (without extension) where the index will be saved.
+            ///
+            /// Raises:
+            ///     IOError: If serialization or writing to the file fails.
+            ///
+            /// Example:
+            ///     >>> index.save("my_index")
+            ///     # Creates a file named "my_index.index.seismic"
+            #[pyo3(signature = (path))]
+            #[pyo3(text_signature = "(self, path)")]
+            pub fn save(&self, path: &str) -> PyResult<()> {
+                let full_path = format!("{}.index.seismic", path);
+                println!("Saving ... {}", full_path);
 
-    /// Save the current SeismicIndex to disk in binary format.
-    ///
-    /// This method returns nothing, but writes a `.index.seismic` file to the specified path.
-    /// The file can later be loaded using the `SeismicIndex.load()` method.
-    ///
-    /// Args:
-    ///     path (str): Path (without extension) where the index will be saved.
-    ///
-    /// Raises:
-    ///     IOError: If serialization or writing to the file fails.
-    ///
-    /// Example:
-    ///     >>> index.save("my_index")
-    ///     # Creates a file named "my_index.index.seismic"
-    #[pyo3(signature = (path))]
-    #[pyo3(text_signature = "(self, path)")]
-    pub fn save(&self, path: &str) -> PyResult<()> {
-        let full_path = format!("{}.index.seismic", path);
-        println!("Saving ... {}", full_path);
+                let serialized = bincode::serialize(&self.index).map_err(|e| {
+                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
+                        "Failed to serialize index: {}",
+                        e
+                    ))
+                })?;
 
-        let serialized = bincode::serialize(&self.index).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                "Failed to serialize index: {}",
-                e
-            ))
-        })?;
+                fs::write(&full_path, serialized).map_err(|e| {
+                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
+                        "Failed to write index to '{}': {}",
+                        full_path, e
+                    ))
+                })?;
 
-        fs::write(&full_path, serialized).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                "Failed to write index to '{}': {}",
-                full_path, e
-            ))
-        })?;
+                Ok(())
+            }
 
-        Ok(())
-    }
+            /// Build and attach a KNN (k-nearest neighbor) graph to the index.
+            ///
+            /// This method returns nothing, but internally computes the nearest neighbors
+            /// for each document in the index and stores the result. The nearest neighbors are
+            /// identified by using the seismic index itself, so they are approximated.
+            ///
+            /// Args:
+            ///     nknn (int): The number of nearest neighbors to compute for each document.
+            ///
+            /// Example:
+            ///     >>> index.build_knn(10)
+            #[pyo3(signature = (nknn))]
+            #[pyo3(text_signature = "(self, nknn)")]
+            pub fn build_knn(&mut self, nknn: usize) {
+                let knn = Knn::new(self.index.inverted_index(), nknn);
+                self.index.add_knn(knn);
+            }
 
-    /// Build and attach a KNN (k-nearest neighbor) graph to the index.
-    ///
-    /// This method returns nothing, but internally computes the nearest neighbors
-    /// for each document in the index and stores the result. The nearest neighbors are
-    /// identified by using the seismic index itself, so they are approximated.
-    ///
-    /// Args:
-    ///     nknn (int): The number of nearest neighbors to compute for each document.
-    ///
-    /// Example:
-    ///     >>> index.build_knn(10)
-    #[pyo3(signature = (nknn))]
-    #[pyo3(text_signature = "(self, nknn)")]
-    pub fn build_knn(&mut self, nknn: usize) {
-        let knn = Knn::new(self.index.inverted_index(), nknn);
-        self.index.add_knn(knn);
-    }
+            /// Save the precomputed KNN graph to disk.
+            ///
+            /// This method returns nothing, but writes the KNN data to the given file path.
+            /// The file can later be reloaded using `load_knn()`.
+            ///
+            /// Args:
+            ///     path (str): Path where the KNN file will be saved.
+            ///
+            /// Raises:
+            ///     IOError: If serialization or writing fails.
+            ///
+            /// Example:
+            ///     >>> index.save_knn("my_index.knn")
+            #[pyo3(signature = (path))]
+            #[pyo3(text_signature = "(self, path)")]
+            pub fn save_knn(&self, path: &str) -> PyResult<()> {
+                self.index
+                    .inverted_index()
+                    .knn()
+                    .ok_or_else(|| {
+                        PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            "No KNN graph is attached to the index.",
+                        )
+                    })?
+                    .serialize(path)
+                    .map_err(|e| {
+                        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
+                            "Failed to save KNN to '{}': {}",
+                            path, e
+                        ))
+                    })?;
 
-    /// Save the precomputed KNN graph to disk.
-    ///
-    /// This method returns nothing, but writes the KNN data to the given file path.
-    /// The file can later be reloaded using `load_knn()`.
-    ///
-    /// Args:
-    ///     path (str): Path where the KNN file will be saved.
-    ///
-    /// Raises:
-    ///     IOError: If serialization or writing fails.
-    ///
-    /// Example:
-    ///     >>> index.save_knn("my_index.knn")
-    #[pyo3(signature = (path))]
-    #[pyo3(text_signature = "(self, path)")]
-    pub fn save_knn(&self, path: &str) -> PyResult<()> {
-        self.index
-            .inverted_index()
-            .knn()
-            .ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                    "No KNN graph is attached to the index.",
-                )
-            })?
-            .serialize(path)
-            .map_err(|e| {
-                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                    "Failed to save KNN to '{}': {}",
-                    path, e
-                ))
-            })?;
+                Ok(())
+            }
 
-        Ok(())
-    }
+            /// Load a precomputed KNN graph from a file and attach it to the index.
+            ///
+            /// This method reads a serialized KNN structure and attaches it to the existing index.
+            ///
+            /// Args:
+            ///     knn_path (str): Path to the KNN file.
+            ///     nknn (int, optional): Number of neighbors to read (You may have x neighbors per document in your k-NN, but add only y<x in your file).
+            ///
+            /// Example:
+            ///     >>> index.load_knn("my_index.knn")
+            #[pyo3(signature = (knn_path, nknn=None))]
+            #[pyo3(text_signature = "(self, knn_path, nknn=None)")]
+            pub fn load_knn(&mut self, knn_path: &str, nknn: Option<usize>) {
+                let knn = Knn::new_from_serialized(knn_path, nknn);
+                self.index.add_knn(knn);
+            }
 
-    /// Load a precomputed KNN graph from a file and attach it to the index.
-    ///
-    /// This method reads a serialized KNN structure and attaches it to the existing index.
-    ///
-    /// Args:
-    ///     knn_path (str): Path to the KNN file.
-    ///     nknn (int, optional): Number of neighbors to read (You may have x neighbors per document in your k-NN, but add only y<x in your file).
-    ///
-    /// Example:
-    ///     >>> index.load_knn("my_index.knn")
-    #[pyo3(signature = (knn_path, nknn=None))]
-    #[pyo3(text_signature = "(self, knn_path, nknn=None)")]
-    pub fn load_knn(&mut self, knn_path: &str, nknn: Option<usize>) {
-        let knn = Knn::new_from_serialized(knn_path, nknn);
-        self.index.add_knn(knn);
-    }
+             /*
+        Order of attributes matters:
+        Rust processes attributes sequentially, and attributes like #[pyo3(...)] and #[staticmethod] interact with each other. By placing:
+        #[allow(clippy::too_many_arguments)] above #[staticmethod], it ensures Clippy's lint suppression happens first without interfering
+        with Pyo3's attribute processing. When #[staticmethod] comes first, it can cause unexpected behavior if the following attributes
+        aren't interpreted correctly. */
 
-    /*
-    Order of attributes matters:
-    Rust processes attributes sequentially, and attributes like #[pyo3(...)] and #[staticmethod] interact with each other. By placing:
-    #[allow(clippy::too_many_arguments)] above #[staticmethod], it ensures Clippy's lint suppression happens first without interfering
-    with Pyo3's attribute processing. When #[staticmethod] comes first, it can cause unexpected behavior if the following attributes
-    aren't interpreted correctly. */
+        /// Build a new SeismicIndex from a `.jsonl` or `.tar.gz` dataset file.
+        ///
+        /// This method processes the input dataset and builds a Seimic inverted index.
+        ///
+        /// Parameters:
+        ///     input_path (str): Path to the dataset file.
+        ///     n_postings (int): Number of average postings per token (default 3500).
+        ///     centroid_fraction (float): Fraction of documents in each inverted list used to form centroids (on average).
+        ///     min_cluster_size (int): Minimum number of documents per cluster.
+        ///     summary_energy (float): Target energy retention for summarization.
+        ///     max_fraction (float): Maximum number of document to keep in each inverted list computed as n_postings * max_fraction.
+        ///     doc_cut (int): Thereshold for document approximation at building time.
+        ///     nknn (int, optional): Number of nearest neighbors to compute.
+        ///     knn_path (str, optional): Path to precomputed KNN data.
+        ///     batched_indexing (int, optional): Batch size for indexing. Reducing this values reduces peak memory usage.
+        ///     input_token_to_id_map (dict, optional): Predefined token-to-ID mapping. If None, the index will build its own mapping.
+        ///     num_threads (int, optional): Number of threads to use (default: use Rayon default).
+        ///
+        /// Returns:
+        ///     SeismicIndex: A fully constructed inverted index.
+        ///
+        /// Raises:
+        ///     IOError: If the file cannot be read or parsed.
+        ///
+        /// Example:
+        ///     >>> index = seismic.SeismicIndex.build("data.tar.gz", n_postings=4000)
+        #[allow(clippy::too_many_arguments)]
+        #[staticmethod]
+        #[pyo3(signature = (input_path, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, input_token_to_id_map=None, num_threads=0))]
+        #[pyo3(
+            text_signature = "(input_path, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, input_token_to_id_map=None, num_threads=0)"
+        )]
+        pub fn build(
+            input_path: &str,
+            n_postings: usize,
+            centroid_fraction: f32,
+            min_cluster_size: usize,
+            summary_energy: f32,
+            max_fraction: f32,
+            doc_cut: usize,
+            nknn: usize,
+            knn_path: Option<String>,
+            batched_indexing: Option<usize>,
+            input_token_to_id_map: Option<HashMap<String, usize>>,
+            num_threads: usize,
+        ) -> PyResult<$rust_name> {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(num_threads)
+                .build()
+                .unwrap();
 
-    /// Build a new SeismicIndex from a `.jsonl` or `.tar.gz` dataset file.
-    ///
-    /// This method processes the input dataset and builds a Seimic inverted index.
-    ///
-    /// Parameters:
-    ///     input_path (str): Path to the dataset file.
-    ///     n_postings (int): Number of average postings per token (default 3500).
-    ///     centroid_fraction (float): Fraction of documents in each inverted list used to form centroids (on average).
-    ///     min_cluster_size (int): Minimum number of documents per cluster.
-    ///     summary_energy (float): Target energy retention for summarization.
-    ///     max_fraction (float): Maximum number of document to keep in each inverted list computed as n_postings * max_fraction.
-    ///     doc_cut (int): Thereshold for document approximation at building time.
-    ///     nknn (int, optional): Number of nearest neighbors to compute.
-    ///     knn_path (str, optional): Path to precomputed KNN data.
-    ///     batched_indexing (int, optional): Batch size for indexing. Reducing this values reduces peak memory usage.
-    ///     input_token_to_id_map (dict, optional): Predefined token-to-ID mapping. If None, the index will build its own mapping.
-    ///     num_threads (int, optional): Number of threads to use (default: use Rayon default).
-    ///
-    /// Returns:
-    ///     SeismicIndex: A fully constructed inverted index.
-    ///
-    /// Raises:
-    ///     IOError: If the file cannot be read or parsed.
-    ///
-    /// Example:
-    ///     >>> index = seismic.SeismicIndex.build("data.tar.gz", n_postings=4000)                                                                                                 
-    #[allow(clippy::too_many_arguments)]
-    #[staticmethod]
-    #[pyo3(signature = (input_path, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, input_token_to_id_map=None, num_threads=0))]
-    #[pyo3(
-        text_signature = "(input_path, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, input_token_to_id_map=None, num_threads=0)"
-    )]
-    pub fn build(
-        input_path: &str,
-        n_postings: usize,
-        centroid_fraction: f32,
-        min_cluster_size: usize,
-        summary_energy: f32,
-        max_fraction: f32,
-        doc_cut: usize,
-        nknn: usize,
-        knn_path: Option<String>,
-        batched_indexing: Option<usize>,
-        input_token_to_id_map: Option<HashMap<String, usize>>,
-        num_threads: usize,
-    ) -> PyResult<SeismicIndex> {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(num_threads)
-            .build()
-            .unwrap();
+            let knn_config = KnnConfiguration::new(nknn, knn_path);
 
-        let knn_config = KnnConfiguration::new(nknn, knn_path);
+            let config = Configuration::default()
+                .pruning_strategy(PruningStrategy::GlobalThreshold {
+                    n_postings,
+                    max_fraction,
+                })
+                .blocking_strategy(BlockingStrategy::RandomKmeans {
+                    centroid_fraction,
+                    min_cluster_size,
+                    clustering_algorithm: ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
+                        doc_cut,
+                    },
+                })
+                .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
+                .knn(knn_config)
+                .batched_indexing(batched_indexing);
 
-        let config = Configuration::default()
-            .pruning_strategy(PruningStrategy::GlobalThreshold {
-                n_postings,
-                max_fraction,
-            })
-            .blocking_strategy(BlockingStrategy::RandomKmeans {
-                centroid_fraction,
-                min_cluster_size,
-                clustering_algorithm: ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
-                    doc_cut,
-                },
-            })
-            .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
-            .knn(knn_config)
-            .batched_indexing(batched_indexing);
+            println!("\nBuilding the index...");
+            println!("{:?}", config);
 
-        println!("\nBuilding the index...");
-        println!("{:?}", config);
+            let index = Index::from_file(&input_path.to_owned(), config, input_token_to_id_map)
+                .map_err(|e| {
+                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
+                        "Failed to build index from file: {}. File may not exist or be corrupted. Error: {}",
+                        input_path,
+                        e
+                    ))
+                })?;
 
-        let index = Index::from_file(&input_path.to_owned(), config, input_token_to_id_map)
-            .map_err(|e| {
-                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                    "Failed to build index from file: {}. File may not exist or be corrupted. Error: {}",
-                    input_path,
-                    e
-                ))
-            })?;
+            Ok($rust_name { index })
+        }
+        /// Build a SeismicIndex from an in-memory SeismicDataset.
+        ///
+        /// This method returns a new index by processing the provided dataset with the given configuration.
+        /// It supports pruning, clustering, summarization, and optional KNN graph construction.
+        ///
+        /// Args:
+        ///     dataset (SeismicDataset): The dataset to index.
+        ///     n_postings (int, optional): Max number of postings per token (default: 3500).
+        ///     centroid_fraction (float, optional): Fraction of documents in each inverted list used to form centroids (default: 0.1).
+        ///     min_cluster_size (int, optional): Minimum number of documents per cluster (default: 2).
+        ///     summary_energy (float, optional): Target energy retention for summarization (default: 0.4).
+        ///     max_fraction (float): Maximum number of document to keep in each inverted list computed as n_postings * max_fraction.
+        ///     doc_cut (int): Thereshold for document approximation at building time.
+        ///     nknn (int, optional): Number of nearest neighbors to compute (default: 0).
+        ///     knn_path (str, optional): Path to a precomputed KNN file (optional).
+        ///     batched_indexing (int, optional): Indexing batch size to reduce memory usage (optional).
+        ///     num_threads (int, optional): Number of threads to use (default: Rayon default).
+        ///
+        /// Returns:
+        ///     SeismicIndex: The constructed inverted index.
+        ///
+        /// Example:
+        ///     >>> index = SeismicIndex.build_from_dataset(dataset, n_postings=5000)
+        #[allow(clippy::too_many_arguments)]
+        #[staticmethod]
+        #[pyo3(signature = (
+            dataset,
+            n_postings=3500,
+            centroid_fraction=0.1,
+            min_cluster_size=2,
+            summary_energy=0.4,
+            max_fraction=1.5,
+            doc_cut=15,
+            nknn=0,
+            knn_path=None,
+            batched_indexing=None,
+            num_threads=0
+        ))]
+        #[pyo3(
+            text_signature = "(dataset, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, num_threads=0)"
+        )]
+        pub fn build_from_dataset(
+            dataset: $dataset_type,
+            n_postings: usize,
+            centroid_fraction: f32,
+            min_cluster_size: usize,
+            summary_energy: f32,
+            max_fraction: f32,
+            doc_cut: usize,
+            nknn: usize,
+            knn_path: Option<String>,
+            batched_indexing: Option<usize>,
+            num_threads: usize,
+        ) -> PyResult<$rust_name> {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(num_threads)
+                .build()
+                .unwrap();
 
-        Ok(SeismicIndex { index })
-    }
+            let knn_config = KnnConfiguration::new(nknn, knn_path);
 
-    /// Build a SeismicIndex from an in-memory SeismicDataset.
-    ///
-    /// This method returns a new index by processing the provided dataset with the given configuration.
-    /// It supports pruning, clustering, summarization, and optional KNN graph construction.
-    ///
-    /// Args:
-    ///     dataset (SeismicDataset): The dataset to index.
-    ///     n_postings (int, optional): Max number of postings per token (default: 3500).
-    ///     centroid_fraction (float, optional): Fraction of documents in each inverted list used to form centroids (default: 0.1).
-    ///     min_cluster_size (int, optional): Minimum number of documents per cluster (default: 2).
-    ///     summary_energy (float, optional): Target energy retention for summarization (default: 0.4).
-    ///     max_fraction (float): Maximum number of document to keep in each inverted list computed as n_postings * max_fraction.
-    ///     doc_cut (int): Thereshold for document approximation at building time.
-    ///     nknn (int, optional): Number of nearest neighbors to compute (default: 0).
-    ///     knn_path (str, optional): Path to a precomputed KNN file (optional).
-    ///     batched_indexing (int, optional): Indexing batch size to reduce memory usage (optional).
-    ///     num_threads (int, optional): Number of threads to use (default: Rayon default).
-    ///
-    /// Returns:
-    ///     SeismicIndex: The constructed inverted index.
-    ///
-    /// Example:
-    ///     >>> index = SeismicIndex.build_from_dataset(dataset, n_postings=5000)
-    #[allow(clippy::too_many_arguments)]
-    #[staticmethod]
-    #[pyo3(signature = (
-        dataset,
-        n_postings=3500,
-        centroid_fraction=0.1,
-        min_cluster_size=2,
-        summary_energy=0.4,
-        max_fraction=1.5,
-        doc_cut=15,
-        nknn=0,
-        knn_path=None,
-        batched_indexing=None,
-        num_threads=0
-    ))]
-    #[pyo3(
-        text_signature = "(dataset, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, num_threads=0)"
-    )]
-    pub fn build_from_dataset(
-        dataset: SeismicDataset,
-        n_postings: usize,
-        centroid_fraction: f32,
-        min_cluster_size: usize,
-        summary_energy: f32,
-        max_fraction: f32,
-        doc_cut: usize,
-        nknn: usize,
-        knn_path: Option<String>,
-        batched_indexing: Option<usize>,
-        num_threads: usize,
-    ) -> PyResult<SeismicIndex> {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(num_threads)
-            .build()
-            .unwrap();
+            let config = Configuration::default()
+                .pruning_strategy(PruningStrategy::GlobalThreshold {
+                    n_postings,
+                    max_fraction,
+                })
+                .blocking_strategy(BlockingStrategy::RandomKmeans {
+                    centroid_fraction,
+                    min_cluster_size,
+                    clustering_algorithm: ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
+                        doc_cut,
+                    },
+                })
+                .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
+                .knn(knn_config)
+                .batched_indexing(batched_indexing);
 
-        let knn_config = KnnConfiguration::new(nknn, knn_path);
+            println!("\nBuilding the index...");
+            println!("{:?}", config);
 
-        let config = Configuration::default()
-            .pruning_strategy(PruningStrategy::GlobalThreshold {
-                n_postings,
-                max_fraction,
-            })
-            .blocking_strategy(BlockingStrategy::RandomKmeans {
-                centroid_fraction,
-                min_cluster_size,
-                clustering_algorithm: ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
-                    doc_cut,
-                },
-            })
-            .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
-            .knn(knn_config)
-            .batched_indexing(batched_indexing);
+            let index = Index::from_dataset(dataset.dataset, config);
 
-        println!("\nBuilding the index...");
-        println!("{:?}", config);
+            Ok($rust_name { index })
+        }
 
-        let index = Index::from_dataset(dataset.dataset, config);
-
-        Ok(SeismicIndex { index })
-    }
-
-    /// Perform a nearest neighbor search over the index using a single sparse query.
-    ///
-    /// This method returns the top-k most similar documents to the input query based on
-    /// inner (dot) product.
-    ///
-    /// Args:
-    ///     query_id (str): Identifier for the query (used for result annotation).
-    ///     query_components (ndarray[str]): List of tokens (components) in the query.
-    ///     query_values (ndarray[float32]): Corresponding values for each token.
-    ///     k (int): Number of results to return.
-    ///     query_cut (int): Maximum number of tokens considered from the query.
-    ///     heap_factor (float): Heap factor used during search.
-    ///     n_knn (int, optional): Number of KNN neighbors to scan for result refinement. Requires the index to have a k-NN graph (default: 0).
-    ///     sorted (bool, optional): Whether to scan the summaries in each posting lists starting from the most similar (default: True).
-    ///
-    /// Returns:
-    ///     list[tuple[str, float, str]]: A list of (query_id, distance, document_id) tuples.
-    ///
-    /// Example:
-    ///     >>> index.search("q1", np.array(["token1", "token2"], dtype=seismic.get_string_type()), np.array([0.5, 0.3], dtype=np.float32), k=5, query_cut=10, heap_factor=0.8)
-    #[pyo3(signature = (
-        query_id,
-        query_components,
-        query_values,
-        k,
-        query_cut,
-        heap_factor,
-        n_knn=0,
-        sorted=true
-    ))]
-    #[pyo3(
-        text_signature = "(self, query_id, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True)"
-    )]
-    #[allow(clippy::too_many_arguments)]
-    pub fn search<'py>(
-        &self,
-        query_id: String,
-        query_components: PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>,
-        query_values: PyReadonlyArrayDyn<'py, f32>,
-        k: usize,
-        query_cut: usize,
-        heap_factor: f32,
-        n_knn: usize,
-        sorted: bool,
-    ) -> Vec<(String, f32, String)> {
-        self.index.search(
-            &query_id,
-            &query_components
-                .to_vec()
-                .unwrap()
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>(),
-            &query_values.to_vec().unwrap(),
+        /// Perform a nearest neighbor search over the index using a single sparse query.
+        ///
+        /// This method returns the top-k most similar documents to the input query based on
+        /// inner (dot) product.
+        ///
+        /// Args:
+        ///     query_id (str): Identifier for the query (used for result annotation).
+        ///     query_components (ndarray[str]): List of tokens (components) in the query.
+        ///     query_values (ndarray[float32]): Corresponding values for each token.
+        ///     k (int): Number of results to return.
+        ///     query_cut (int): Maximum number of tokens considered from the query.
+        ///     heap_factor (float): Heap factor used during search.
+        ///     n_knn (int, optional): Number of KNN neighbors to scan for result refinement. Requires the index to have a k-NN graph (default: 0).
+        ///     sorted (bool, optional): Whether to scan the summaries in each posting lists starting from the most similar (default: True).
+        ///
+        /// Returns:
+        ///     list[tuple[str, float, str]]: A list of (query_id, distance, document_id) tuples.
+        ///
+        /// Example:
+        ///     >>> index.search("q1", np.array(["token1", "token2"], dtype=seismic.get_string_type()), np.array([0.5, 0.3], dtype=np.float32), k=5, query_cut=10, heap_factor=0.8)
+        #[pyo3(signature = (
+            query_id,
+            query_components,
+            query_values,
             k,
             query_cut,
             heap_factor,
-            n_knn,
-            sorted,
-        )
-    }
+            n_knn=0,
+            sorted=true
+        ))]
+        #[pyo3(
+            text_signature = "(self, query_id, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True)"
+        )]
+        #[allow(clippy::too_many_arguments)]
+        pub fn search<'py>(
+            &self,
+            query_id: String,
+            query_components: PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>,
+            query_values: PyReadonlyArrayDyn<'py, f32>,
+            k: usize,
+            query_cut: usize,
+            heap_factor: f32,
+            n_knn: usize,
+            sorted: bool,
+        ) -> Vec<(String, f32, String)> {
+            self.index.search(
+                &query_id,
+                &query_components
+                    .to_vec()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>(),
+                &query_values.to_vec().unwrap(),
+                k,
+                query_cut,
+                heap_factor,
+                n_knn,
+                sorted,
+            )
+        }
 
-    /// Perform batched nearest neighbor search using multiple sparse query vectors.
+        /// Perform batched nearest neighbor search using multiple sparse query vectors.
     ///
     /// This method returns the top-k most similar documents according to the inner product, for each query.
     /// It supports parallel search, see `num_threads` for more details.
@@ -642,6 +642,11 @@ impl SeismicIndex {
 
         results
     }
+
+
+
+    }
+    };
 }
 
 /// A Python wrapper around a raw Seismic inverted index.
@@ -1145,86 +1150,11 @@ impl SeismicIndexRaw {
     }
 }
 
-/// A Python wrapper around an in-memory sparse dataset.
-///
-/// This class provides a way to build a dataset of sparse vectors
-/// (documents) in memory before indexing them with `SeismicIndex`.
-///
-/// Each document is represented as a set of (token, value) pairs, where
-/// tokens are strings and values are float32.
-///
-#[derive(Clone)]
-#[pyclass]
-pub struct SeismicDataset {
-    dataset: Dataset<u16, f16>,
-}
+#[macro_use]
+mod dataset; // -> import macro from pylib/dataset.rs
 
-#[pymethods]
-impl SeismicDataset {
-    /// Create a new, empty SeismicDataset.
-    ///
-    /// This method returns an empty dataset ready to be populated
-    /// with documents using `add_document()`.
-    ///
-    /// Returns:
-    ///     SeismicDataset: A new, empty dataset instance.
-    ///
-    /// Example:
-    ///     >>> dataset = seismic.SeismicDataset()
-    #[new]
-    fn new() -> Self {
-        SeismicDataset {
-            dataset: Dataset::new(),
-        }
-    }
+impl_seismic_dataset!(SeismicDataset, "SeismicDataset", u16);
+impl_seismic_dataset!(SeismicDatasetLV, "SeismicDatasetLV", u32);
 
-    /// Get the number of documents currently stored in the dataset.
-    ///
-    /// This method returns the total number of documents (sparse vectors)
-    /// that have been added so far using `add_document()`.
-    ///
-    /// Returns:
-    ///     int: The number of documents in the dataset.
-    ///
-    /// Example:
-    ///     >>> dataset.len
-    ///     3
-    #[getter]
-    pub fn get_len(&self) -> PyResult<usize> {
-        Ok(self.dataset.len())
-    }
-
-    /// Add a sparse document to the dataset.
-    ///
-    /// This method adds a document identified by `doc_id`, using a list of
-    /// tokens and their corresponding values. Each document is stored as a
-    /// sparse vector of (token, value) pairs.
-    ///
-    /// Args:
-    ///     doc_id (str): A unique identifier for the document.
-    ///     tokens (ndarray[str]): Array of tokens (as strings).
-    ///     values (ndarray[float32]): Array of corresponding values (same length as tokens).
-    ///
-    /// Example:
-    ///     >>> string_type = seismic.get_seismic_string()
-    ///     >>> dataset.add_document("doc42", np.array(["a", "b"], dtype=string_type), np.array([0.5, 1.0]))
-    #[pyo3(signature = (doc_id, tokens, values))]
-    #[pyo3(text_signature = "(self, doc_id, tokens, values)")]
-    pub fn add_document(
-        &mut self,
-        doc_id: &str,
-        tokens: PyReadonlyArrayDyn<'_, PyFixedUnicode<MAX_TOKEN_LEN>>,
-        values: PyReadonlyArrayDyn<'_, f32>,
-    ) {
-        self.dataset.add_document(
-            doc_id.to_string(),
-            &tokens
-                .to_vec()
-                .unwrap()
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<String>>(),
-            &values.to_vec().unwrap(),
-        );
-    }
-}
+impl_seismic_index!(SeismicIndex, "SeismicIndex", u16, SeismicDataset);
+impl_seismic_index!(SeismicIndexLV, "SeismicIndexLV", u32, SeismicDatasetLV);
