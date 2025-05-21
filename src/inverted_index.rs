@@ -1,7 +1,6 @@
-use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
 use crate::sparse_dataset::{SparseDatasetIter, SparseDatasetMut};
 use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
-use crate::utils::prefetch_read_NTA;
+use crate::utils::{conditionally_densify, prefetch_read_NTA};
 use crate::{ComponentType, DataType, QuantizedSummary, SpaceUsage, SparseDataset};
 
 use indicatif::ParallelProgressIterator;
@@ -111,8 +110,6 @@ impl Configuration {
     }
 }
 
-const THRESHOLD_BINARY_SEARCH: usize = 10;
-
 impl<C, T> InvertedIndex<C, T>
 where
     C: ComponentType,
@@ -154,12 +151,8 @@ where
         n_knn: usize,
         first_sorted: bool,
     ) -> Vec<(f32, usize)> {
-        let mut query = vec![0.0; self.dim()];
+        let dense_query = conditionally_densify(query_components, query_values, self.dim());
 
-        //FIXME: dangerous when a large number of componets exists
-        for (&i, &v) in query_components.iter().zip(query_values) {
-            query[i.as_()] = v;
-        }
         let mut heap = HeapFaiss::new(k);
         let mut visited = HashSet::with_capacity(query_cut * 5000); // 5000 should be n_postings
 
@@ -172,7 +165,7 @@ where
             .enumerate()
         {
             self.posting_lists[component_id.as_()].search(
-                &query,
+                dense_query.as_deref(),
                 query_components,
                 query_values,
                 k,
@@ -185,7 +178,15 @@ where
         }
         if let Some(knn) = self.knn.as_ref() {
             if n_knn > 0 {
-                knn.refine(&query, &mut heap, &mut visited, &self.forward_index, n_knn);
+                knn.refine(
+                    dense_query.as_deref(),
+                    query_components,
+                    query_values,
+                    &mut heap,
+                    &mut visited,
+                    &self.forward_index,
+                    n_knn,
+                );
             }
         }
 
@@ -508,7 +509,7 @@ impl PostingList {
     #[inline]
     pub fn search<C, T>(
         &self,
-        query: &[f32],
+        dense_query: Option<&[f32]>,
         query_components: &[C],
         query_values: &[f32],
         k: usize,
@@ -545,7 +546,7 @@ impl PostingList {
             if blocks_to_evaluate.len() == 1 {
                 for cur_packed_posting in blocks_to_evaluate.iter() {
                     self.evaluate_posting_block(
-                        query,
+                        dense_query,
                         query_components,
                         query_values,
                         cur_packed_posting,
@@ -566,7 +567,7 @@ impl PostingList {
 
         for cur_packed_posting in blocks_to_evaluate.iter() {
             self.evaluate_posting_block(
-                query,
+                dense_query,
                 query_components,
                 query_values,
                 cur_packed_posting,
@@ -581,7 +582,7 @@ impl PostingList {
     #[inline]
     fn evaluate_posting_block<C, T>(
         &self,
-        query: &[f32],
+        query: Option<&[f32]>,
         query_term_ids: &[C],
         query_values: &[f32],
         packed_posting_block: &[u64],
@@ -601,12 +602,21 @@ impl PostingList {
             if !visited.contains(&prev_offset) {
                 let (v_components, v_values) = forward_index.get_with_offset(prev_offset, prev_len);
                 //let distance = dot_product_dense_sparse(query, v_components, v_values);
-                let distance = if query_term_ids.len() < THRESHOLD_BINARY_SEARCH {
-                    //dot_product_with_binary_search(
-                    dot_product_with_merge(query_term_ids, query_values, v_components, v_values)
-                } else {
-                    dot_product_dense_sparse(query, v_components, v_values)
-                };
+
+                let distance = C::compute_dot_product(
+                    query,
+                    query_term_ids,
+                    query_values,
+                    v_components,
+                    v_values,
+                );
+
+                // let distance = if query_term_ids.len() < THRESHOLD_BINARY_SEARCH {
+                //         //dot_product_with_binary_search(
+                //         dot_product_with_merge(query_term_ids, query_values, v_components, v_values)
+                //     } else {
+                //         C::dot_product_dense_sparse(query, v_components, v_values)
+                //     };
 
                 visited.insert(prev_offset);
                 heap.push_with_id(-1.0 * distance, prev_offset);
@@ -621,12 +631,8 @@ impl PostingList {
         }
 
         let (v_components, v_values) = forward_index.get_with_offset(prev_offset, prev_len);
-        let distance = if query_term_ids.len() < THRESHOLD_BINARY_SEARCH {
-            //dot_product_with_binary_search(
-            dot_product_with_merge(query_term_ids, query_values, v_components, v_values)
-        } else {
-            dot_product_dense_sparse(query, v_components, v_values)
-        };
+        let distance =
+            C::compute_dot_product(query, query_term_ids, query_values, v_components, v_values);
 
         visited.insert(prev_offset);
         heap.push_with_id(-1.0 * distance, prev_offset);
@@ -1112,9 +1118,12 @@ impl Knn {
     }
 
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub fn refine<C, T>(
         &self,
-        query: &[f32],
+        query: Option<&[f32]>,
+        query_term_ids: &[C],
+        query_values: &[f32],
         heap: &mut HeapFaiss,
         visited: &mut HashSet<usize>,
         forward_index: &SparseDataset<C, T>,
@@ -1140,7 +1149,13 @@ impl Knn {
 
                 if !visited.contains(&offset) {
                     let (v_components, v_values) = forward_index.get_with_offset(offset, len);
-                    let distance = dot_product_dense_sparse(query, v_components, v_values);
+                    let distance = C::compute_dot_product(
+                        query,
+                        query_term_ids,
+                        query_values,
+                        v_components,
+                        v_values,
+                    );
                     visited.insert(offset);
                     heap.push_with_id(-1.0 * distance, offset);
                 }

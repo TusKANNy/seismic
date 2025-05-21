@@ -25,9 +25,8 @@ use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIter
 
 use half::f16;
 
-use crate::distances::dot_product_dense_sparse;
 use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
-use crate::utils::prefetch_read_NTA;
+use crate::utils::{conditionally_densify, prefetch_read_NTA};
 use crate::{ComponentType, DataType, SpaceUsage};
 
 // Implementation of a (immutable) sparse dataset.
@@ -340,18 +339,18 @@ where
     #[must_use]
     #[inline]
     pub fn search(&self, q_components: &[C], q_values: &[f32], k: usize) -> Vec<(f32, usize)> {
-        let mut query = vec![0.0; self.dim()];
-
-        //FIXME: dangerous for a large number of components
-        for (&i, &v) in q_components.iter().zip(q_values) {
-            query[i.as_()] = v;
-        }
-
+        let dense_query = conditionally_densify(q_components, q_values, self.dim());
         let distances: Vec<_> = (0..self.n_vecs)
             .map(|id| {
                 let v_components = &self.components[Self::vector_range(&self.offsets, id)];
                 let v_values = &self.values[Self::vector_range(&self.offsets, id)];
-                -1.0 * dot_product_dense_sparse(&query, v_components, v_values)
+                -1.0 * C::compute_dot_product(
+                    dense_query.as_deref(),
+                    q_components,
+                    q_values,
+                    v_components,
+                    v_values,
+                )
             })
             .collect();
 

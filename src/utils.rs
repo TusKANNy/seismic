@@ -4,7 +4,7 @@ use std::collections::HashSet;
 #[allow(unused_imports)]
 use rand::{rngs::StdRng, seq::IteratorRandom, thread_rng, SeedableRng};
 
-use crate::{distances::dot_product_dense_sparse, ComponentType, DataType, SparseDataset};
+use crate::{ComponentType, DataType, SparseDataset};
 
 /// Computes the size of the intersection of two unsorted lists of integers.
 pub fn intersection<T: Eq + Hash + Clone>(s: &[T], groundtruth: &[T]) -> usize {
@@ -16,6 +16,32 @@ pub fn intersection<T: Eq + Hash + Clone>(s: &[T], groundtruth: &[T]) -> usize {
         }
     }
     size
+}
+
+const THRESHOLD_BINARY_SEARCH: usize = 10;
+
+#[inline]
+#[must_use]
+pub fn conditionally_densify<C>(
+    query_components: &[C],
+    query_values: &[f32],
+    query_dim: usize,
+) -> Option<Vec<f32>>
+where
+    C: ComponentType,
+{
+    let dense_query: Option<Vec<f32>> = if query_components.len() > THRESHOLD_BINARY_SEARCH
+        && query_components.len() < 2_usize.pow(16)
+    {
+        let mut vec = vec![0.0; query_dim];
+        for (&i, &v) in query_components.iter().zip(query_values) {
+            vec[i.as_()] = v;
+        }
+        Some(vec)
+    } else {
+        None
+    };
+    dense_query
 }
 
 #[allow(non_snake_case)]
@@ -229,6 +255,18 @@ where
             dense_vector[c.as_()] = v;
         }
 
+        let doc_components = dataset.get(doc_id).0;
+        //FIXME: avoiding this copy requires to parameterize the dot_product computation w.r.t. to the
+        // values type. Not sure if this is worth it.
+        let doc_values = dataset
+            .get(doc_id)
+            .1
+            .iter()
+            .map(|v| v.to_f32().unwrap())
+            .collect::<Vec<_>>();
+
+        let dense_vector = conditionally_densify(doc_components, &doc_values, dataset.dim());
+
         let mut max = 0_f32;
         let mut max_centroid_id = centroids[0];
 
@@ -247,7 +285,14 @@ where
                 visited.insert(centroid_id);
 
                 let (v_components, v_values) = dataset.get(centroid_id);
-                let dot = dot_product_dense_sparse(&dense_vector, v_components, v_values);
+                let dot = C::compute_dot_product(
+                    dense_vector.as_deref(),
+                    doc_components,
+                    &doc_values,
+                    v_components,
+                    v_values,
+                );
+                //                let dot = C::dot_product_dense_sparse(&dense_vector, v_components, v_values);
                 if dot > max {
                     max = dot;
                     max_centroid_id = centroid_id;
@@ -379,17 +424,30 @@ fn compute_centroid_assignments<C: ComponentType, T: DataType>(
             centroid_assignments.push((doc_id, doc_id));
             continue;
         }
-        //FIXME: this is wrong
-        let mut dense_vector: Vec<T> = vec![T::zero(); dataset.dim()];
-        for (&i, &v) in dataset.iter_vector(doc_id) {
-            dense_vector[i.as_()] = v;
-        }
+
+        let doc_components = dataset.get(doc_id).0;
+        //FIXME: avoiding this copy requires to parameterize the dot_product computation w.r.t. to the
+        // values type. Not sure if this is worth it.
+        let doc_values = dataset
+            .get(doc_id)
+            .1
+            .iter()
+            .map(|v| v.to_f32().unwrap())
+            .collect::<Vec<_>>();
+
+        let dense_vector = conditionally_densify(doc_components, &doc_values, dataset.dim());
 
         let mut centroid_max = centroids[0];
         let mut max = 0_f32;
         for &centroid_id in centroids.iter() {
             let (v_components, v_values) = dataset.get(centroid_id);
-            let dot = dot_product_dense_sparse(&dense_vector, v_components, v_values);
+            let dot = C::compute_dot_product(
+                dense_vector.as_deref(),
+                doc_components,
+                &doc_values,
+                v_components,
+                v_values,
+            );
             if dot > max {
                 max = dot;
                 centroid_max = centroid_id;

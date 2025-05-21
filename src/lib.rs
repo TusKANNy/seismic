@@ -4,6 +4,7 @@
     feature(stdarch_aarch64_prefetch)
 )]
 #![doc = include_str!("../README.md")]
+use distances::{dot_product_dense_sparse, dot_product_with_merge};
 use pyo3::types::PyModuleMethods;
 
 use half::f16;
@@ -72,11 +73,97 @@ pub trait ComponentType:
     + Ord
     + std::convert::TryFrom<usize>
 {
+    /// Computes the dot product between a sparse query and a sparse vector.
+    /// We need to explicitly specify the type of the query and the vector components
+    /// for efficiency reasons. Relying on a generic ComponentType C entails
+    /// the usage of the `as_()` method to cast components into `usize` in
+    /// sparse-dense variant of the dot procuct computation. This has shown
+    /// a performance degradation up to 10%.
+    fn compute_dot_product<Q, V>(
+        query: Option<&[Q]>,
+        query_terms_ids: &[Self],
+        query_values: &[Q],
+        v_components: &[Self],
+        v_values: &[V],
+    ) -> f32
+    where
+        Q: DataType,
+        V: DataType;
 }
 
-impl ComponentType for u16 {}
+impl ComponentType for u16 {
+    /// Computes the dot product between a sparse query and a sparse vector.
+    /// There are two cases:
+    /// - `dense_query` is `Some`, which means the query was densified. This usually when the query has many non-zero components but the sparse space dimension is not too large. In this case, the `dot_product_dense_sparse` function is used.
+    /// - `dense_query` is `None`, then a standard merge-based function is used to compute the dot product.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - The dense query vector.
+    /// * `query_terms_ids` - The indices of the non-zero components in the query.
+    /// * `query_values` - The values of the non-zero components in the query.
+    /// * `v_components` - The indices of the non-zero components in the vector.
+    /// * `v_values` - The values of the non-zero components in the vector.
+    ///
+    /// # Returns
+    ///
+    /// The dot product between the query and the vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use seismic::distances::dot_product_dense_sparse;
+    ///
+    /// let query = [1.0, 2.0, 3.0, 0.0];
+    /// let query_terms_ids = [0_u16, 1, 2];
+    /// let query_values = [1.0, 2.0, 3.0];
+    /// let v_components = [0_u32, 2, 3];
+    /// let v_values = [1.0, 1.0, 1.5];
+    ///
+    /// let result = dot_product_dense_sparse(&query, &v_components, &v_values);
+    /// assert_eq!(result, 4.0);
+    /// ```
+    #[inline]
+    #[must_use]
+    fn compute_dot_product<Q, V>(
+        dense_query: Option<&[Q]>,
+        query_terms_ids: &[u16],
+        query_values: &[Q],
+        v_components: &[u16],
+        v_values: &[V],
+    ) -> f32
+    where
+        Q: DataType,
+        V: DataType,
+    {
+        if let Some(query) = dense_query {
+            // This is the case when we have a dense query
+            dot_product_dense_sparse(query, v_components, v_values)
+        } else {
+            dot_product_with_merge(query_terms_ids, query_values, v_components, v_values)
+        }
+    }
+}
 
-impl ComponentType for u32 {}
+//impl ComponentType for u16 {}
+
+impl ComponentType for u32 {
+    #[inline]
+    #[must_use]
+    fn compute_dot_product<Q, V>(
+        _query: Option<&[Q]>,
+        query_terms_ids: &[u32],
+        query_values: &[Q],
+        v_components: &[u32],
+        v_values: &[V],
+    ) -> f32
+    where
+        Q: DataType,
+        V: DataType,
+    {
+        dot_product_with_merge(query_terms_ids, query_values, v_components, v_values)
+    }
+}
 
 /// A Python module implemented in Rust. The name of this function must match the `lib.name`
 /// setting in the `Cargo.toml`, otherwise Python will not be able to import the module.

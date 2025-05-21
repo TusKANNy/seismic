@@ -1,7 +1,8 @@
 use crate::{utils::binary_search_branchless, ComponentType, DataType};
 
 /// Computes the dot product between a dense query and a sparse vector.
-/// Before using this function, the query must be made dense. This is much faster
+/// Before using this function, the query must be made dense. In some cases,
+/// especially when queries have many non-zeerp components, this is faster
 /// than computing the dot product with a "merge" style.
 ///
 /// # Arguments
@@ -28,9 +29,8 @@ use crate::{utils::binary_search_branchless, ComponentType, DataType};
 /// ```
 #[inline]
 #[must_use]
-pub fn dot_product_dense_sparse<C, Q, V>(query: &[Q], v_components: &[C], v_values: &[V]) -> f32
+pub fn dot_product_dense_sparse<Q, V>(query: &[Q], v_components: &[u16], v_values: &[V]) -> f32
 where
-    C: ComponentType,
     Q: DataType,
     V: DataType,
 {
@@ -40,10 +40,13 @@ where
     let chunk_iter = v_components.iter().zip(v_values).array_chunks::<N_LANES>();
 
     for chunk in chunk_iter {
-        result[0] += query[(*chunk[0].0).as_()].to_f32().unwrap() * (chunk[0].1.to_f32().unwrap());
-        result[2] += query[(*chunk[2].0).as_()].to_f32().unwrap() * chunk[2].1.to_f32().unwrap();
-        result[1] += query[(*chunk[1].0).as_()].to_f32().unwrap() * chunk[1].1.to_f32().unwrap();
-        result[3] += query[(*chunk[3].0).as_()].to_f32().unwrap() * chunk[3].1.to_f32().unwrap();
+        //for i in 0..N_LANES { // Slightly faster withour this for.
+        result[0] += query[*chunk[0].0 as usize].to_f32().unwrap() * (chunk[0].1.to_f32().unwrap());
+        result[1] += query[*chunk[1].0 as usize].to_f32().unwrap() * chunk[1].1.to_f32().unwrap();
+        result[2] += query[*chunk[2].0 as usize].to_f32().unwrap() * chunk[2].1.to_f32().unwrap();
+        result[3] += query[*chunk[3].0 as usize].to_f32().unwrap() * chunk[3].1.to_f32().unwrap();
+        //result[3] += unsafe { *query.get_unchecked(*chunk[3].0 as usize) } * *chunk[3].1;
+        //}
     }
 
     let l = v_components.len();
@@ -51,7 +54,7 @@ where
 
     if rem > 0 {
         for (&i, &v) in v_components[l - rem..].iter().zip(&v_values[l - rem..]) {
-            result[0] += query[i.as_()].to_f32().unwrap() * v.to_f32().unwrap();
+            result[0] += query[i as usize].to_f32().unwrap() * v.to_f32().unwrap();
         }
     }
 
