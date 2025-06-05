@@ -151,6 +151,12 @@ where
         n_knn: usize,
         first_sorted: bool,
     ) -> Vec<(f32, usize)> {
+        // Assert that query components are sorted in case of using a mergsort like strategy for the dot product
+        assert!(
+            query_components.windows(2).all(|w| w[0] <= w[1]),
+            "Query components must be sorted in ascending order."
+        );
+
         let dense_query = conditionally_densify(query_components, query_values, self.dim());
 
         let mut heap = HeapFaiss::new(k);
@@ -386,10 +392,10 @@ where
         let max_eq_postings = EQUALITY_THRESHOLD * tot_postings / 100; //maximium number of posting with score equal to the threshold
 
         // for every posting we create the tuple <score, docid, id_posting_list>
-        let mut postings = Vec::<(T, usize, u16)>::new();
+        let mut postings = Vec::<(T, usize, usize)>::new();
         for (id, posting_list) in inverted_pairs.iter_mut().enumerate() {
             for (score, docid) in posting_list.iter() {
-                postings.push((*score, *docid, id as u16));
+                postings.push((*score, *docid, id));
             }
             posting_list.clear();
         }
@@ -400,9 +406,9 @@ where
         let (_, (t_score, _, _), leq) =
             postings.select_nth_unstable_by(tot_postings, |a, b| b.partial_cmp(a).unwrap());
         // All postings with scores equal to the threshold are added, up to max_eq_postings
-        let (eq_pairs, _): (Vec<(T, usize, u16)>, _) = leq.iter().partition(|p| p.0 == *t_score);
+        let (eq_pairs, _): (Vec<(T, usize, usize)>, _) = leq.iter().partition(|p| p.0 == *t_score);
         for (score, docid, id_postings) in eq_pairs.iter().take(max_eq_postings) {
-            inverted_pairs[*id_postings as usize].push((*score, *docid));
+            inverted_pairs[*id_postings].push((*score, *docid));
         }
 
         if eq_pairs.len() > max_eq_postings {
@@ -410,7 +416,7 @@ where
         }
 
         for (score, docid, id_posting) in postings.into_iter().take(tot_postings) {
-            inverted_pairs[id_posting as usize].push((score, docid));
+            inverted_pairs[id_posting].push((score, docid));
         }
     }
 
@@ -602,7 +608,7 @@ impl PostingList {
             if !visited.contains(&prev_offset) {
                 let (v_components, v_values) = forward_index.get_with_offset(prev_offset, prev_len);
 
-                // 
+                //
                 let distance = C::compute_dot_product(
                     query,
                     query_term_ids,

@@ -105,6 +105,7 @@ where
                 .zip(query_values)
                 .filter(|(qc, _)| self.token_to_id_map.contains_key(*qc))
                 .map(|(qc, &qv)| (self.token_to_id_map[qc], qv))
+                .sorted_by(|(a, _), (b, _)| a.cmp(b))
                 .unzip();
 
         self.inverted_index.search(
