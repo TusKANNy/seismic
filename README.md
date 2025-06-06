@@ -104,7 +104,7 @@ This is the standard output format of several libraries to train sparse models, 
 The script ```convert_json_to_inner_format.py``` allows converting files formatted accordingly into the ```seismic``` inner format.
 
 ```bash
-python scripts/convert_json_to_inner_format.py --document-path /path/to/document.jsonl --queries-path /path/to/queries.jsonl --output-dir /path/to/output 
+python scripts/convert_json_to_inner_format.py --document-path /path/to/document.jsonl --query-path /path/to/queries.jsonl --output-dir /path/to/output 
 ```
 This will generate a ```data``` directory at the ```/path/to/output``` path, with ```documents.bin``` and ```queries.bin``` binary files inside.
 
