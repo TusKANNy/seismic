@@ -85,4 +85,3 @@ macro_rules! impl_seismic_dataset {
         }
     };
 }
-
