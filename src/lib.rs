@@ -14,6 +14,7 @@ pub mod pylib;
 pub mod sparse_dataset;
 
 use pylib::SeismicIndexRaw;
+use pylib::SeismicIndexRawLV;
 use pyo3::wrap_pyfunction;
 pub use sparse_dataset::SparseDataset;
 pub use sparse_dataset::SparseDatasetMut;
@@ -48,6 +49,7 @@ use crate::pylib::SeismicDatasetLV as PySeismicDatasetLV;
 
 use crate::pylib::SeismicIndex as PySeismicIndex;
 use crate::pylib::SeismicIndexLV as PySeismicIndexLV;
+
 use num_traits::{AsPrimitive, FromPrimitive, ToPrimitive, Zero};
 use pyo3::prelude::PyModule;
 use pyo3::{pymodule, Bound, PyResult};
@@ -181,6 +183,7 @@ fn seismic(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySeismicIndex>()?;
     m.add_class::<PySeismicIndexLV>()?;
     m.add_class::<SeismicIndexRaw>()?;
+    m.add_class::<SeismicIndexRawLV>()?;
     m.add_class::<PySeismicDataset>()?;
     m.add_class::<PySeismicDatasetLV>()?;
     Ok(())
