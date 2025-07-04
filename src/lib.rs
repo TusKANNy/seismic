@@ -132,7 +132,6 @@ impl ComponentType for u16 {
     /// assert_eq!(result, 4.0);
     /// ```
     #[inline]
-    #[must_use]
     fn compute_dot_product<Q, V>(
         dense_query: Option<&[Q]>,
         query_terms_ids: &[u16],
@@ -159,7 +158,6 @@ impl ComponentType for u32 {
     const WIDTH: usize = 32; // Required for compile time checks.
 
     #[inline]
-    #[must_use]
     fn compute_dot_product<Q, V>(
         _query: Option<&[Q]>,
         query_terms_ids: &[u32],
