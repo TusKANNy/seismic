@@ -62,13 +62,6 @@ impl EliasFano {
             .windows(2)
             .fold(1, |acc, w| if w[0] != w[1] { acc + 1 } else { acc });
 
-        println!(
-            "Distinct elements: {}, Number of values: {}, Universe size: {}",
-            distinct_vals,
-            data.len(),
-            1 + data.last().unwrap()
-        );
-
         let mut efb = EliasFanoBuilder::new(1 + data.last().unwrap(), distinct_vals, data.len());
 
         efb.extend(data.to_vec());
