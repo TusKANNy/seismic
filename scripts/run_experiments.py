@@ -140,6 +140,10 @@ def build_index(configs, experiment_dir):
         alpha = configs['indexing_parameters']["alpha"]
         command_and_params.append(f"--alpha {alpha}")
 
+    if configs['settings'].get("component-type", None):
+        component_type = configs['settings']["component-type"]
+        command_and_params.append(f"--component-type {component_type}")
+
     pruning_strategy = configs['indexing_parameters'].get("pruning-strategy", "global-threshold")
     command_and_params.append(f"--pruning-strategy {pruning_strategy}")
 
@@ -176,6 +180,13 @@ def build_index(configs, experiment_dir):
     return building_time
 
 def compute_metric(configs, output_file, gt_file, metric):    
+    qrels_path = configs['folder']['qrels_path']
+    
+    # Skip metric computation if qrels_path is empty or doesn't exist
+    if not qrels_path or qrels_path.strip() == "" or not os.path.exists(qrels_path):
+        print(f"Skipping metric computation: qrels_path is empty or file doesn't exist: '{qrels_path}'")
+        return 0.0
+    
     column_names = ["query_id", "doc_id", "rank", "score"]
     gt_pd = pd.read_csv(gt_file, sep='\t', names=column_names)
     res_pd = pd.read_csv(output_file, sep='\t', names=column_names)
@@ -191,8 +202,6 @@ def compute_metric(configs, output_file, gt_file, metric):
     
     gt_pd['doc_id'] = gt_pd['doc_id'].apply(lambda x: doc_ids[x])
     res_pd['doc_id'] = res_pd['doc_id'].apply(lambda x: doc_ids[x])
-    
-    qrels_path = configs['folder']['qrels_path']
     
     df_qrels = pd.read_csv(qrels_path, sep="\t", names=["query_id", "useless", "doc_id", "relevance"])
     #if "nq" in configs['name']: # the order of the fields in nq is different. 
@@ -265,6 +274,10 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
     
     if "first-sorted" in query_config:
         command_and_params.append("--first-sorted")
+
+    if configs['settings'].get("component-type", None):
+        component_type = configs['settings']["component-type"]
+        command_and_params.append(f"--component-type {component_type}")
 
     command = " ".join(command_and_params)
 

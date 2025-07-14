@@ -5,7 +5,7 @@ use std::io::Write;
 use std::time::Instant;
 
 use half::f16;
-use seismic::{InvertedIndex, SparseDataset};
+use seismic::{ComponentType, InvertedIndex, SparseDataset};
 
 use clap::Parser;
 
@@ -58,11 +58,20 @@ struct Args {
     #[clap(short, long, action)]
     #[arg(default_value_t = false)]
     first_sorted: bool,
+
+    #[clap(long, value_parser)]
+    query_energy: Option<f32>,
+
+    /// Component type: u16 (for component IDs up to 65535) or u32 (for larger component IDs)
+    #[clap(long, value_parser)]
+    #[arg(default_value = "u16")]
+    component_type: String,
 }
 
-pub fn main() {
-    let args = Args::parse();
-
+fn run_performance_test<C>(args: Args)
+where
+    C: ComponentType + serde::Serialize + for<'de> serde::Deserialize<'de>,
+{
     let index_path = args.index_file;
     let query_path = args.query_file;
     let query_cut = args.query_cut;
@@ -73,9 +82,9 @@ pub fn main() {
 
     let serialized: Vec<u8> = fs::read(index_path.unwrap()).unwrap();
 
-    let inverted_index = bincode::deserialize::<InvertedIndex<u16, f16>>(&serialized).unwrap();
+    let inverted_index = bincode::deserialize::<InvertedIndex<C, f16>>(&serialized).unwrap();
 
-    let queries = SparseDataset::<u16, f32>::read_bin_file(&query_path.unwrap()).unwrap();
+    let queries = SparseDataset::<C, f32>::read_bin_file(&query_path.unwrap()).unwrap();
 
     let n_queries = cmp::min(args.n_queries, queries.len());
 
@@ -93,6 +102,7 @@ pub fn main() {
     );
 
     let mut results = Vec::with_capacity(n_queries);
+
     let time = Instant::now();
     for _ in 0..n_runs {
         results.clear();
@@ -139,6 +149,25 @@ pub fn main() {
                 idx + 1,
             )
             .unwrap();
+        }
+    }
+}
+
+pub fn main() {
+    let args = Args::parse();
+
+    match args.component_type.as_str() {
+        "u16" => {
+            println!("Using u16 component type");
+            run_performance_test::<u16>(args);
+        }
+        "u32" => {
+            println!("Using u32 component type");
+            run_performance_test::<u32>(args);
+        }
+        _ => {
+            eprintln!("Error: component-type must be either 'u16' or 'u32'");
+            std::process::exit(1);
         }
     }
 }
