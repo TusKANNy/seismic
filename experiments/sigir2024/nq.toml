@@ -16,7 +16,7 @@ metric =        "NDCG@10"
 
 [folder] 
 data =          "~/sparse_datasets/nq/cocondenser/data/"
-index =         "~/sparse_datasets/nq/cocondenser/indexes/"
+index =         "~/sparse_indexes/nq/cocondenser/indexes/"
 qrels_path =    "~/sparse_datasets/nq/qrels.nq.tsv"
 experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
 

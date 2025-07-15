@@ -16,7 +16,7 @@ metric =        "RR@10"
 
 [folder] 
 data =          "~/knn_datasets/sparse_datasets/msmarco_v1_passage/cocondenser/data"
-index =         "~/knn_indexes/sparse_datasets/msmarco_v1_passage/cocondenser/indexes"
+index =         "~/knn_indexes/sparse_indexes/msmarco_v1_passage/cocondenser/indexes"
 qrels_path =    "~/knn_datasets/sparse_datasets/msmarco_v1_passage/qrels.dev.small.tsv"
 experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
 

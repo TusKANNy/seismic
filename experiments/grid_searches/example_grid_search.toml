@@ -16,7 +16,7 @@ build =         true    # Do we need to build the index?
 
 [folder] 
 data =          "~/sparse_datasets/msmarco_v1_passage/cocondenser/data"
-index =         "~/sparse_datasets/msmarco_v1_passage/cocondenser/indexes"
+index =         "~/sparse_indexes/msmarco_v1_passage/cocondenser/indexes"
 qrels_path =    "~/sparse_datasets/msmarco_v1_passage/qrels.dev.small.tsv"
 experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
 
