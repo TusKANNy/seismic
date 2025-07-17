@@ -128,8 +128,9 @@ where
             } else {
                 // Dense offset strategy stores all components.
                 // So, we need to fill the gaps on the offsets for non existing components.
+                let last_offset = *offsets.last().unwrap();
                 for _ in prev_component..c.as_() {
-                    offsets.push(summaries_ids.len());
+                    offsets.push(last_offset);
                 }
                 offsets.push(summaries_ids.len());
                 prev_component = c.as_() + 1;
