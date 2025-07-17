@@ -39,6 +39,31 @@ impl<C: ComponentType> SpaceUsage for QuantizedSummary<C> {
 impl<C: ComponentType> QuantizedSummary<C> {
     const N_CLASSES: usize = 256; // we store quantized values in a u8. Number of classes cannot be more than 256
 
+    /// Calculate space usage for sparse offset strategy (with component_ids)
+    fn estimate_sparse_space(num_components: usize, max_offset: usize) -> usize {
+        // Space for component_ids: number of components * size of component type C in bits
+        let component_ids_space = num_components * std::mem::size_of::<C>() * 8;
+        
+        // Space for Elias-Fano offsets using the correct formula
+        let ef_space = if num_components > 0 && max_offset > 0 {
+            EliasFano::estimate_space_bits(max_offset + 1, num_components, num_components + 1)
+        } else {
+            0
+        };
+        
+        component_ids_space + ef_space
+    }
+    
+    /// Calculate space usage for dense offset strategy (without component_ids)
+    fn estimate_dense_space(d: usize, max_offset: usize) -> usize {
+        // Space for Elias-Fano offsets with full dimension d
+        if d > 0 && max_offset > 0 {
+            EliasFano::estimate_space_bits(max_offset + 1, d, d + 1)
+        } else {
+            0
+        }
+    }
+
     #[must_use]
     pub fn distances_iter(&self, query_components: &[C], query_values: &[f32]) -> DistancesIter {
         DistancesIter::new(self, query_components, query_values)
@@ -108,8 +133,29 @@ where
         let mut inverted_pairs: Vec<(C, Vec<(u8, usize)>)> = inverted_pairs.into_iter().collect();
         inverted_pairs.sort_by_key(|(component, _)| *component);
 
-        // TODO: decide based on EF space usage
-        let mut component_ids: Option<Vec<C>> = if false { Some(Vec::new()) } else { None };
+        // Calculate spaces for both strategies to choose the most efficient one
+        let num_non_empty_components = inverted_pairs.len();
+        let total_postings = inverted_pairs.iter().map(|(_, list)| list.len()).sum::<usize>();
+        
+        let sparse_space = Self::estimate_sparse_space(num_non_empty_components, total_postings);
+        let dense_space = Self::estimate_dense_space(dataset.dim(), total_postings);
+        
+        // Choose sparse strategy if it uses less space
+        let use_sparse_strategy = sparse_space < dense_space;
+        
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "QuantizedSummary space analysis: sparse={} bits, dense={} bits, choosing {} strategy",
+            sparse_space, 
+            dense_space, 
+            if use_sparse_strategy { "sparse" } else { "dense" }
+        );
+        
+        let mut component_ids: Option<Vec<C>> = if use_sparse_strategy { 
+            Some(Vec::new()) 
+        } else { 
+            None 
+        };
 
         let mut offsets: Vec<usize> = Vec::with_capacity(dataset.len());
         let mut summaries_ids: Vec<u16> = Vec::with_capacity(dataset.nnz());

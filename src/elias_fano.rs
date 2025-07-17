@@ -35,6 +35,21 @@ pub struct EliasFano {
 }
 
 impl EliasFano {
+    /// Calculates the space usage in bits for an Elias-Fano structure
+    /// given the universe size, number of distinct values, and total number of values.
+    pub fn estimate_space_bits(universe: usize, distinct_vals: usize, num_vals: usize) -> usize {
+        if num_vals == 0 || distinct_vals == 0 {
+            return 0;
+        }
+        
+        let low_len = msb(universe / distinct_vals) as usize;
+        
+        // Total space = low_bits + high_bits
+        // low_bits: low_len * num_vals
+        // high_bits: (num_vals + 1) + (universe >> low_len) + 1
+        low_len * num_vals + (num_vals + 1) + (universe >> low_len) + 1
+    }
+
     /// Builds a Elias-Fano sequence from a slice of values.
     ///
     /// # Panic
