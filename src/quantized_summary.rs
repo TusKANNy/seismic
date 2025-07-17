@@ -43,17 +43,17 @@ impl<C: ComponentType> QuantizedSummary<C> {
     fn estimate_sparse_space(num_components: usize, max_offset: usize) -> usize {
         // Space for component_ids: number of components * size of component type C in bits
         let component_ids_space = num_components * std::mem::size_of::<C>() * 8;
-        
+
         // Space for Elias-Fano offsets using the correct formula
         let ef_space = if num_components > 0 && max_offset > 0 {
             EliasFano::estimate_space_bits(max_offset + 1, num_components, num_components + 1)
         } else {
             0
         };
-        
+
         component_ids_space + ef_space
     }
-    
+
     /// Calculate space usage for dense offset strategy (without component_ids)
     fn estimate_dense_space(d: usize, max_offset: usize) -> usize {
         // Space for Elias-Fano offsets with full dimension d
@@ -135,26 +135,21 @@ where
 
         // Calculate spaces for both strategies to choose the most efficient one
         let num_non_empty_components = inverted_pairs.len();
-        let total_postings = inverted_pairs.iter().map(|(_, list)| list.len()).sum::<usize>();
-        
+        let total_postings = inverted_pairs
+            .iter()
+            .map(|(_, list)| list.len())
+            .sum::<usize>();
+
         let sparse_space = Self::estimate_sparse_space(num_non_empty_components, total_postings);
         let dense_space = Self::estimate_dense_space(dataset.dim(), total_postings);
-        
+
         // Choose sparse strategy if it uses less space
         let use_sparse_strategy = sparse_space < dense_space;
-        
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "QuantizedSummary space analysis: sparse={} bits, dense={} bits, choosing {} strategy",
-            sparse_space, 
-            dense_space, 
-            if use_sparse_strategy { "sparse" } else { "dense" }
-        );
-        
-        let mut component_ids: Option<Vec<C>> = if use_sparse_strategy { 
-            Some(Vec::new()) 
-        } else { 
-            None 
+
+        let mut component_ids: Option<Vec<C>> = if use_sparse_strategy {
+            Some(Vec::new())
+        } else {
+            None
         };
 
         let mut offsets: Vec<usize> = Vec::with_capacity(dataset.len());

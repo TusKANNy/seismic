@@ -41,9 +41,9 @@ impl EliasFano {
         if num_vals == 0 || distinct_vals == 0 {
             return 0;
         }
-        
+
         let low_len = msb(universe / distinct_vals) as usize;
-        
+
         // Total space = low_bits + high_bits
         // low_bits: low_len * num_vals
         // high_bits: (num_vals + 1) + (universe >> low_len) + 1
