@@ -3,12 +3,13 @@ use serde::{Deserialize, Serialize};
 use crate::{ComponentType, DataType, SpaceUsage, SparseDataset};
 
 use crate::elias_fano::EliasFano;
+use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-pub struct QuantizedSummary {
+pub struct QuantizedSummary<C: ComponentType> {
     n_summaries: usize,
     d: usize,
-    component_ids: Option<Box<[u32]>>, // TOOD: fix C::ComponentType
+    component_ids: Option<Box<[C]>>,
     offsets: EliasFano,
     summaries_ids: Box<[u16]>, // There cannot be more than 2^16 summaries
     values: Box<[u8]>,
@@ -16,7 +17,7 @@ pub struct QuantizedSummary {
     quants: Box<[f32]>,
 }
 
-impl SpaceUsage for QuantizedSummary {
+impl<C: ComponentType> SpaceUsage for QuantizedSummary<C> {
     fn space_usage_byte(&self) -> usize {
         let component_ids_size = if let Some(ref component_ids) = self.component_ids {
             SpaceUsage::space_usage_byte(component_ids)
@@ -35,14 +36,11 @@ impl SpaceUsage for QuantizedSummary {
     }
 }
 
-impl QuantizedSummary {
+impl<C: ComponentType> QuantizedSummary<C> {
     const N_CLASSES: usize = 256; // we store quantized values in a u8. Number of classes cannot be more than 256
 
     #[must_use]
-    pub fn distances_iter<C>(&self, query_components: &[C], query_values: &[f32]) -> DistancesIter
-    where
-        C: ComponentType,
-    {
+    pub fn distances_iter(&self, query_components: &[C], query_values: &[f32]) -> DistancesIter {
         DistancesIter::new(self, query_components, query_values)
     }
 
@@ -76,24 +74,21 @@ impl QuantizedSummary {
     }
 }
 
-impl<C, T> From<SparseDataset<C, T>> for QuantizedSummary
+impl<C, T> From<SparseDataset<C, T>> for QuantizedSummary<C>
 where
     C: ComponentType,
     T: DataType,
 {
     /// # Panics
     /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)
-    fn from(dataset: SparseDataset<C, T>) -> QuantizedSummary {
+    fn from(dataset: SparseDataset<C, T>) -> QuantizedSummary<C> {
         assert!(
             dataset.len() <= u16::MAX as usize,
             "Number of summaries cannot be more than 2^16"
         );
 
-        // TODO: if dim is big it may be better to use a HashMap to map the components to the summaries
-        let mut inverted_pairs = Vec::with_capacity(dataset.dim());
-        for _ in 0..dataset.dim() {
-            inverted_pairs.push(Vec::new());
-        }
+        let mut inverted_pairs: FxHashMap<C, Vec<(u8, usize)>> =
+            FxHashMap::with_capacity_and_hasher(1 << 16, Default::default());
 
         let mut minimums = Vec::with_capacity(inverted_pairs.len());
         let mut quants = Vec::with_capacity(inverted_pairs.len());
@@ -105,30 +100,39 @@ where
             quants.push(quant);
 
             for (&c, score) in components.iter().zip(current_codes) {
-                inverted_pairs[c.as_()].push((score, doc_id));
+                inverted_pairs.entry(c).or_default().push((score, doc_id));
             }
         }
 
+        // Sort inverted pairs by component id
+        let mut inverted_pairs: Vec<(C, Vec<(u8, usize)>)> = inverted_pairs.into_iter().collect();
+        inverted_pairs.sort_by_key(|(component, _)| *component);
+
         // TODO: decide based on EF space usage
-        let mut component_ids = if true { Some(Vec::new()) } else { None };
+        let mut component_ids: Option<Vec<C>> = if false { Some(Vec::new()) } else { None };
 
         let mut offsets: Vec<usize> = Vec::with_capacity(dataset.len());
         let mut summaries_ids: Vec<u16> = Vec::with_capacity(dataset.nnz());
         let mut codes = Vec::with_capacity(dataset.nnz());
 
         offsets.push(0);
-        for (c, ip) in inverted_pairs.iter().enumerate() {
+        let mut prev_component = 0_usize;
+
+        for (c, ip) in inverted_pairs.iter() {
             codes.extend(ip.iter().map(|(s, _)| *s));
             summaries_ids.extend(ip.iter().map(|(_, id)| *id as u16));
             if let Some(ref mut component_ids) = component_ids {
                 // Sparse offset strategy: Store only occuring components
-                if !ip.is_empty() {
-                    component_ids.push(c as u32);
+                component_ids.push(C::from_usize(c.as_()).unwrap());
+                offsets.push(summaries_ids.len());
+            } else {
+                // Dense offset strategy stores all components.
+                // So, we need to fill the gaps on the offsets for non existing components.
+                for _ in prev_component..c.as_() {
                     offsets.push(summaries_ids.len());
                 }
-            } else {
-                // Dense offset strategy stores all components
                 offsets.push(summaries_ids.len());
+                prev_component = c.as_() + 1;
             }
         }
 
@@ -155,7 +159,7 @@ pub struct DistancesIter {
 }
 
 impl DistancesIter {
-    fn new<C>(summaries: &QuantizedSummary, query_components: &[C], query_values: &[f32]) -> Self
+    fn new<C>(summaries: &QuantizedSummary<C>, query_components: &[C], query_values: &[f32]) -> Self
     where
         C: ComponentType,
     {
@@ -167,7 +171,7 @@ impl DistancesIter {
 
             while i < component_ids.len() && j < query_components.len() {
                 // TODO: dont do casting here once both are of type C::ComponentType
-                let comp_id = component_ids[i] as usize;
+                let comp_id = component_ids[i].as_();
                 let query_comp = query_components[j].as_();
 
                 if comp_id == query_comp {

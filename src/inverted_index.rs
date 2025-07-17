@@ -26,7 +26,7 @@ where
     T: DataType,
 {
     forward_index: SparseDataset<C, T>,
-    posting_lists: Box<[PostingList]>,
+    posting_lists: Box<[PostingList<C>]>,
     config: Configuration,
     knn: Option<Knn>,
 }
@@ -463,25 +463,21 @@ where
 // forward index. The values of each doc are packed into a single u64 in `packed_postings`. We use 48 bits for the offset and 16 bits for the lenght. This choice limits the size of the dataset to be 1<<48-1.
 // We use the forward index to convert the offsets of the top-k back to the id of the corresponding documents.
 #[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
-struct PostingList {
-    // postings: Box<[usize]>,
+struct PostingList<C: ComponentType> {
     packed_postings: Box<[u64]>,
     block_offsets: Box<[usize]>,
-    // summaries: SparseDataset<f16>,
-    summaries: QuantizedSummary,
+    summaries: QuantizedSummary<C>,
 }
 
-impl SpaceUsage for PostingList {
+impl<C: ComponentType> SpaceUsage for PostingList<C> {
     fn space_usage_byte(&self) -> usize {
-        SpaceUsage::space_usage_byte(&self.packed_postings) +
-        //self.packed_postings.space_usage_byte()
-        SpaceUsage::space_usage_byte(&self.block_offsets)
-        //    + self.block_offsets.space_usage_byte()
+        SpaceUsage::space_usage_byte(&self.packed_postings)
+            + SpaceUsage::space_usage_byte(&self.block_offsets)
             + self.summaries.space_usage_byte()
     }
 }
 
-impl PostingList {
+impl<C: ComponentType> PostingList<C> {
     #[inline]
     pub fn pack_offset_len(offset: usize, len: usize) -> u64 {
         ((offset as u64) << 16) | (len as u64)
@@ -494,7 +490,7 @@ impl PostingList {
 
     #[allow(clippy::too_many_arguments)]
     #[inline]
-    pub fn search<C, T>(
+    pub fn search<T>(
         &self,
         dense_query: Option<&[f32]>,
         query_components: &[C],
@@ -506,7 +502,6 @@ impl PostingList {
         forward_index: &SparseDataset<C, T>,
         sort_summaries: bool,
     ) where
-        C: ComponentType,
         T: DataType,
     {
         let mut blocks_to_evaluate: Vec<&[u64]> = Vec::new();
@@ -567,7 +562,7 @@ impl PostingList {
 
     #[allow(clippy::too_many_arguments)]
     #[inline]
-    fn evaluate_posting_block<C, T>(
+    fn evaluate_posting_block<T>(
         &self,
         query: Option<&[f32]>,
         query_term_ids: &[C],
@@ -621,7 +616,7 @@ impl PostingList {
     /// Gets a posting list already pruned and represents it by using a blocking
     /// strategy to partition postings into block and a summarization strategy to
     /// represents the summary of each block.
-    pub fn build<C, T>(
+    pub fn build<T>(
         dataset: &SparseDataset<C, T>,
         postings: &[(T, usize)],
         config: &Configuration,
@@ -700,7 +695,7 @@ impl PostingList {
     }
 
     // Panics if the number of centroids is greater than u16::MAX.
-    fn blocking_with_random_kmeans<C, T>(
+    fn blocking_with_random_kmeans<T>(
         posting_list: &mut [usize],
         centroid_fraction: f32,
         min_cluster_size: usize,
@@ -772,7 +767,7 @@ impl PostingList {
 
     // ** Summarization strategies **
 
-    fn fixed_size_summary<C, T>(
+    fn fixed_size_summary<T>(
         dataset: &SparseDataset<C, T>,
         block: &[usize],
         n_components: usize,
@@ -810,7 +805,7 @@ impl PostingList {
         (components, values)
     }
 
-    fn energy_preserving_summary<C, T>(
+    fn energy_preserving_summary<T>(
         dataset: &SparseDataset<C, T>,
         block: &[usize],
         fraction: f32,
