@@ -8,6 +8,7 @@ use crate::elias_fano::EliasFano;
 pub struct QuantizedSummary {
     n_summaries: usize,
     d: usize,
+    component_ids: Option<Box<[u32]>>, // TOOD: fix C::ComponentType
     offsets: EliasFano,
     summaries_ids: Box<[u16]>, // There cannot be more than 2^16 summaries
     values: Box<[u8]>,
@@ -17,7 +18,14 @@ pub struct QuantizedSummary {
 
 impl SpaceUsage for QuantizedSummary {
     fn space_usage_byte(&self) -> usize {
-        SpaceUsage::space_usage_byte(&self.n_summaries)
+        let component_ids_size = if let Some(ref component_ids) = self.component_ids {
+            SpaceUsage::space_usage_byte(component_ids)
+        } else {
+            0_usize
+        };
+
+        component_ids_size
+            + SpaceUsage::space_usage_byte(&self.n_summaries)
             + SpaceUsage::space_usage_byte(&self.d)
             + SpaceUsage::space_usage_byte(&self.offsets)
             + SpaceUsage::space_usage_byte(&self.summaries_ids)
@@ -101,20 +109,37 @@ where
             }
         }
 
+        // TODO: decide based on EF space usage
+        let mut component_ids = if true { Some(Vec::new()) } else { None };
+
         let mut offsets: Vec<usize> = Vec::with_capacity(dataset.len());
         let mut summaries_ids: Vec<u16> = Vec::with_capacity(dataset.nnz());
         let mut codes = Vec::with_capacity(dataset.nnz());
 
         offsets.push(0);
-        for ip in inverted_pairs.iter() {
+        for (c, ip) in inverted_pairs.iter().enumerate() {
             codes.extend(ip.iter().map(|(s, _)| *s));
             summaries_ids.extend(ip.iter().map(|(_, id)| *id as u16));
-            offsets.push(summaries_ids.len())
+            if let Some(ref mut component_ids) = component_ids {
+                // Sparse offset strategy: Store only occuring components
+                if !ip.is_empty() {
+                    component_ids.push(c as u32);
+                    offsets.push(summaries_ids.len());
+                }
+            } else {
+                // Dense offset strategy stores all components
+                offsets.push(summaries_ids.len());
+            }
         }
 
         Self {
             n_summaries: dataset.len(),
             d: dataset.dim(),
+            component_ids: if let Some(component_ids) = component_ids {
+                Some(component_ids.into_boxed_slice())
+            } else {
+                None
+            },
             offsets: EliasFano::from(&offsets),
             summaries_ids: summaries_ids.into_boxed_slice(),
             values: codes.into_boxed_slice(),
@@ -135,6 +160,47 @@ impl DistancesIter {
         C: ComponentType,
     {
         let mut accumulator = vec![0_f32; summaries.n_summaries];
+
+        if let Some(component_ids) = &summaries.component_ids {
+            let mut i = 0; // index for component_ids
+            let mut j = 0; // index for query_components
+
+            while i < component_ids.len() && j < query_components.len() {
+                // TODO: dont do casting here once both are of type C::ComponentType
+                let comp_id = component_ids[i] as usize;
+                let query_comp = query_components[j].as_();
+
+                if comp_id == query_comp {
+                    // Found matching component, process it
+                    let qv = query_values[j];
+                    let current_offset = summaries.offsets.select(i).unwrap();
+                    let next_offset = summaries.offsets.select(i + 1).unwrap();
+
+                    let current_summaries_ids =
+                        &summaries.summaries_ids[current_offset..next_offset];
+                    let current_values = &summaries.values[current_offset..next_offset];
+
+                    for (&s_id, &v) in current_summaries_ids.iter().zip(current_values) {
+                        let val = v as f32 * summaries.quants[s_id as usize]
+                            + summaries.minimums[s_id as usize];
+                        accumulator[s_id as usize] += val * qv;
+                    }
+
+                    i += 1;
+                    j += 1;
+                } else if comp_id < query_comp {
+                    i += 1;
+                } else {
+                    j += 1;
+                }
+            }
+            return Self {
+                current: 0,
+                distances: accumulator,
+            };
+        }
+        // If there are no component_ids, we use the query_components directly
+        // This is the case when we have a dense offset vector
 
         for (&qc, &qv) in query_components.iter().zip(query_values) {
             if qc.as_() >= summaries.d {
