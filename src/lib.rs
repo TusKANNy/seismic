@@ -7,6 +7,7 @@
 use distances::{dot_product_dense_sparse, dot_product_with_merge};
 use pyo3::types::PyModuleMethods;
 
+use half::bf16;
 use half::f16;
 
 pub mod pylib;
@@ -55,16 +56,27 @@ use pyo3::prelude::PyModule;
 use pyo3::{pymodule, Bound, PyResult};
 
 /// Marker for types used as values in a dataset
-pub trait DataType:
-    SpaceUsage + Copy + AsPrimitive<f16> + ToPrimitive + Zero + Send + Sync + PartialOrd + FromPrimitive
+pub trait ValueType:
+    SpaceUsage
+    + Copy
+    + AsPrimitive<f16>
+    + AsPrimitive<bf16>
+    + ToPrimitive
+    + Zero
+    + Send
+    + Sync
+    + PartialOrd
+    + FromPrimitive
 {
 }
 
-impl DataType for f64 {}
+impl ValueType for f64 {}
 
-impl DataType for f32 {}
+impl ValueType for f32 {}
 
-impl DataType for f16 {}
+impl ValueType for f16 {}
+
+impl ValueType for bf16 {}
 
 pub trait ComponentType:
     AsPrimitive<usize>
@@ -92,8 +104,8 @@ pub trait ComponentType:
         v_values: &[V],
     ) -> f32
     where
-        Q: DataType,
-        V: DataType;
+        Q: ValueType,
+        V: ValueType;
     const WIDTH: usize;
 }
 
@@ -140,8 +152,8 @@ impl ComponentType for u16 {
         v_values: &[V],
     ) -> f32
     where
-        Q: DataType,
-        V: DataType,
+        Q: ValueType,
+        V: ValueType,
     {
         if let Some(query) = dense_query {
             // This is the case when we have a dense query
@@ -166,8 +178,8 @@ impl ComponentType for u32 {
         v_values: &[V],
     ) -> f32
     where
-        Q: DataType,
-        V: DataType,
+        Q: ValueType,
+        V: ValueType,
     {
         dot_product_with_merge(query_terms_ids, query_values, v_components, v_values)
     }

@@ -23,17 +23,18 @@ use std::path::Path;
 use rayon::iter::plumbing::{bridge, Consumer, Producer, UnindexedConsumer};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
+use half::bf16;
 use half::f16;
 
 use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
 use crate::utils::{conditionally_densify, prefetch_read_NTA};
-use crate::{ComponentType, DataType, SpaceUsage};
+use crate::{ComponentType, SpaceUsage, ValueType};
 
 // Implementation of a (immutable) sparse dataset.
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SparseDataset<C, T>
 where
-    T: DataType,
+    T: ValueType,
 {
     n_vecs: usize,
     d: usize,
@@ -45,7 +46,7 @@ where
 impl<C, T> SparseDataset<C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     /// Retrieves the components and values of the sparse vector at the specified index.
     ///
@@ -132,6 +133,20 @@ where
         let values: Vec<_> = self.values.iter().map(|&v| v.as_()).collect();
 
         SparseDataset::<C, f16> {
+            n_vecs: self.n_vecs,
+            d: self.d,
+            offsets: self.offsets,
+            components: self.components,
+            values: values.into_boxed_slice(),
+        }
+    }
+
+    /// Returns a dataset with values quatized to `bf16`. We don't use `From` trait because
+    /// of clash with default `impl From<T> for T`, so doing any generic impl will conflict with it.
+    pub fn quantize_bf16(self) -> SparseDataset<C, bf16> {
+        let values: Vec<_> = self.values.iter().map(|&v| v.as_()).collect();
+
+        SparseDataset::<C, bf16> {
             n_vecs: self.n_vecs,
             d: self.d,
             offsets: self.offsets,
@@ -629,7 +644,7 @@ where
 pub struct SparseDatasetMut<C, T>
 where
     C: ComponentType,
-    T: SpaceUsage + DataType,
+    T: SpaceUsage + ValueType,
 {
     d: usize,
     offsets: Vec<usize>,
@@ -640,7 +655,7 @@ where
 impl<C, T> Default for SparseDatasetMut<C, T>
 where
     C: ComponentType,
-    T: SpaceUsage + DataType,
+    T: SpaceUsage + ValueType,
 {
     /// Constructs a new, empty mutable sparse dataset.
     ///
@@ -666,7 +681,7 @@ where
 impl<C, T> SparseDatasetMut<C, T>
 where
     C: ComponentType,
-    T: SpaceUsage + DataType,
+    T: SpaceUsage + ValueType,
 {
     /// Constructs a new, empty mutable sparse dataset.
     ///
@@ -984,7 +999,7 @@ where
 impl<C, T> FromIterator<(Vec<C>, Vec<T>)> for SparseDataset<C, T>
 where
     C: ComponentType,
-    T: SpaceUsage + DataType,
+    T: SpaceUsage + ValueType,
 {
     /// Constructs a `SparseDataset<C, T>` from an iterator over pairs of vectors.
     ///
@@ -1032,7 +1047,7 @@ where
 impl<C, T> FromIterator<(Vec<C>, Vec<T>)> for SparseDatasetMut<C, T>
 where
     C: ComponentType,
-    T: SpaceUsage + DataType,
+    T: SpaceUsage + ValueType,
 {
     /// Constructs a `SparseDatasetMut<C, T>` from an iterator over pairs of vectors.
     ///
@@ -1080,7 +1095,7 @@ where
 impl<'a, C, T> FromIterator<(&'a [C], &'a [T])> for SparseDataset<C, T>
 where
     C: ComponentType,
-    T: DataType + SpaceUsage,
+    T: ValueType + SpaceUsage,
 {
     /// Constructs a `SparseDataset<C, T>` from an iterator over pairs of slices.
     ///
@@ -1123,7 +1138,7 @@ where
 impl<'a, C, T> FromIterator<(&'a [C], &'a [T])> for SparseDatasetMut<C, T>
 where
     C: ComponentType,
-    T: SpaceUsage + DataType,
+    T: SpaceUsage + ValueType,
 {
     /// Constructs a `SparseDatasetMut<C, T>` from an iterator over pairs of slices.
     ///
@@ -1198,7 +1213,7 @@ where
 impl<C, T> From<SparseDatasetMut<C, T>> for SparseDataset<C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     /// Converts a mutable sparse dataset into an immutable one.
     ///
@@ -1236,7 +1251,7 @@ where
 impl<C, T> From<SparseDataset<C, T>> for SparseDatasetMut<C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     /// Converts an immutable sparse dataset into a mutable one.
     ///
@@ -1278,7 +1293,7 @@ where
 impl<'a, C, T> IntoParallelIterator for &'a SparseDataset<C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     type Iter = ParSparseDatasetIter<'a, C, T>;
     type Item = (&'a [C], &'a [T]);
@@ -1296,7 +1311,7 @@ where
 impl<'a, C, T> IntoParallelIterator for &'a SparseDatasetMut<C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     type Iter = ParSparseDatasetIter<'a, C, T>;
     type Item = (&'a [C], &'a [T]);
@@ -1316,7 +1331,7 @@ where
 pub struct SparseDatasetIter<'a, C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     last_offset: usize,
     offsets: &'a [usize],
@@ -1327,7 +1342,7 @@ where
 impl<'a, C, T> SparseDatasetIter<'a, C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     #[inline]
     fn new(dataset: &'a SparseDataset<C, T>) -> Self {
@@ -1356,7 +1371,7 @@ where
 pub struct ParSparseDatasetIter<'a, C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     last_offset: usize,
     offsets: &'a [usize],
@@ -1366,7 +1381,7 @@ where
 
 // impl<'a, T> ParSparseDatasetIter<'a, T>
 // where
-//     T: DataType,
+//     T: ValueType,
 // {
 //     #[inline]
 //     fn new(dataset: &'a SparseDataset<T>) -> Self {
@@ -1382,7 +1397,7 @@ where
 impl<'a, C, T> Iterator for SparseDatasetIter<'a, C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     type Item = (&'a [C], &'a [T]);
 
@@ -1406,7 +1421,7 @@ where
 impl<'a, C, T> ParallelIterator for ParSparseDatasetIter<'a, C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     type Item = (&'a [C], &'a [T]);
 
@@ -1425,7 +1440,7 @@ where
 impl<C, T> IndexedParallelIterator for ParSparseDatasetIter<'_, C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     fn with_producer<CB: ProducerCallback<Self::Item>>(self, callback: CB) -> CB::Output {
         let producer = SparseDatasetProducer::from(self);
@@ -1444,7 +1459,7 @@ where
 impl<C, T> ExactSizeIterator for SparseDatasetIter<'_, C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     fn len(&self) -> usize {
         self.offsets.len()
@@ -1454,7 +1469,7 @@ where
 impl<C, T> DoubleEndedIterator for SparseDatasetIter<'_, C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     /// Retrieves the next vector from the end of the iterator.
     ///
@@ -1503,7 +1518,7 @@ where
 struct SparseDatasetProducer<'a, C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     last_offset: usize,
     offsets: &'a [usize],
@@ -1514,7 +1529,7 @@ where
 impl<'a, C, T> Producer for SparseDatasetProducer<'a, C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     type Item = (&'a [C], &'a [T]);
     type IntoIter = SparseDatasetIter<'a, C, T>;
@@ -1560,7 +1575,7 @@ where
 impl<'a, C, T> From<ParSparseDatasetIter<'a, C, T>> for SparseDatasetProducer<'a, C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     fn from(other: ParSparseDatasetIter<'a, C, T>) -> Self {
         Self {
@@ -1575,7 +1590,7 @@ where
 impl<C, T> SpaceUsage for SparseDataset<C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     /// Returns the size of the dataset in bytes.
     fn space_usage_byte(&self) -> usize {
@@ -1590,7 +1605,7 @@ where
 impl<C, T> SpaceUsage for SparseDatasetMut<C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     /// Returns the size of the dataset in bytes.
     fn space_usage_byte(&self) -> usize {

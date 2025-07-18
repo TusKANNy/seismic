@@ -1,4 +1,4 @@
-use crate::{utils::binary_search_branchless, ComponentType, DataType};
+use crate::{utils::binary_search_branchless, ComponentType, ValueType};
 
 /// Computes the dot product between a dense query and a sparse vector.
 /// Before using this function, the query must be made dense. In some cases,
@@ -31,8 +31,8 @@ use crate::{utils::binary_search_branchless, ComponentType, DataType};
 #[must_use]
 pub fn dot_product_dense_sparse<Q, V>(query: &[Q], v_components: &[u16], v_values: &[V]) -> f32
 where
-    Q: DataType,
-    V: DataType,
+    Q: ValueType,
+    V: ValueType,
 {
     const N_LANES: usize = 4;
 
@@ -106,8 +106,8 @@ pub fn dot_product_with_binary_search<Q, V>(
     v_values: &[V],
 ) -> f32
 where
-    Q: DataType,
-    V: DataType,
+    Q: ValueType,
+    V: ValueType,
 {
     let mut result = 0.0;
 
@@ -164,8 +164,8 @@ pub fn dot_product_with_merge<C, Q, V>(
 ) -> f32
 where
     C: ComponentType,
-    Q: DataType,
-    V: DataType,
+    Q: ValueType,
+    V: ValueType,
 {
     let mut result = 0.0;
     let mut i = 0;

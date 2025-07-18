@@ -5,7 +5,7 @@ use serde::Deserialize;
 //use qwt::SpaceUsage as SpaceUsageQwt;
 use serde_json::Deserializer;
 
-use crate::DataType;
+use crate::ValueType;
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)] // This allows deserializing without tagging the enum variants
@@ -38,7 +38,7 @@ impl JsonFormat {
 
 pub fn extract_jsonl<T>(current_jsonl: JsonFormat) -> (String, Vec<String>, Vec<T>)
 where
-    T: DataType,
+    T: ValueType,
 {
     let (coords, values): (Vec<_>, Vec<_>) = current_jsonl
         .vector()

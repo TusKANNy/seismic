@@ -20,7 +20,7 @@ use flate2::read::GzDecoder;
 use tar::Archive;
 
 use crate::{
-    inverted_index::Configuration, inverted_index::Knn, DataType, InvertedIndex, SpaceUsage,
+    inverted_index::Configuration, inverted_index::Knn, ValueType, InvertedIndex, SpaceUsage,
     SparseDataset, SparseDatasetMut,
 };
 
@@ -28,7 +28,7 @@ use crate::{
 pub struct SeismicIndex<C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     inverted_index: InvertedIndex<C, T>,
     document_mapping: Option<Box<[String]>>,
@@ -38,7 +38,7 @@ where
 impl<C, T> SpaceUsage for SeismicIndex<C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     fn space_usage_byte(&self) -> usize {
         //TODO: add the SpaceUsage of document_mapping and token_to_id_map
@@ -49,7 +49,7 @@ where
 impl<C, T> SeismicIndex<C, T>
 where
     C: ComponentType,
-    T: PartialOrd + DataType,
+    T: PartialOrd + ValueType,
 {
     pub fn new(
         dataset: SparseDataset<C, T>,
@@ -58,7 +58,7 @@ where
         token_to_id_map: HashMap<String, C>,
     ) -> Self
     where
-        T: DataType + PartialOrd,
+        T: ValueType + PartialOrd,
     {
         let inverted_index = InvertedIndex::build(dataset, config);
 
@@ -359,7 +359,7 @@ where
 pub struct SeismicDataset<C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     sparse_dataset: SparseDatasetMut<C, T>,
     document_mapping: Vec<String>,
@@ -369,7 +369,7 @@ where
 impl<C, T> Default for SeismicDataset<C, T>
 where
     C: ComponentType,
-    T: PartialOrd + DataType,
+    T: PartialOrd + ValueType,
 {
     fn default() -> Self {
         Self::new()
@@ -379,11 +379,11 @@ where
 impl<C, T> SeismicDataset<C, T>
 where
     C: ComponentType,
-    T: PartialOrd + DataType,
+    T: PartialOrd + ValueType,
 {
     pub fn new() -> Self
     where
-        T: DataType + PartialOrd,
+        T: ValueType + PartialOrd,
     {
         let sparse_dataset = SparseDatasetMut::new();
         let document_mapping = Vec::<String>::new();

@@ -144,6 +144,10 @@ def build_index(configs, experiment_dir):
         component_type = configs['settings']["component-type"]
         command_and_params.append(f"--component-type {component_type}")
 
+    if configs['settings'].get("value-type", None):
+        value_type = configs['settings']["value-type"]
+        command_and_params.append(f"--value-type {value_type}")
+
     pruning_strategy = configs['indexing_parameters'].get("pruning-strategy", "global-threshold")
     command_and_params.append(f"--pruning-strategy {pruning_strategy}")
 
@@ -278,6 +282,10 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
     if configs['settings'].get("component-type", None):
         component_type = configs['settings']["component-type"]
         command_and_params.append(f"--component-type {component_type}")
+
+    if configs['settings'].get("value-type", None):
+        value_type = configs['settings']["value-type"]
+        command_and_params.append(f"--value-type {value_type}")
 
     command = " ".join(command_and_params)
 

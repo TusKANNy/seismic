@@ -2,7 +2,7 @@ use seismic::inverted_index::{
     BlockingStrategy, ClusteringAlgorithm, ClusteringAlgorithmClap, Configuration,
     KnnConfiguration, PruningStrategy, PruningStrategyClap, SummarizationStrategy,
 };
-use seismic::{ComponentType, InvertedIndex, SparseDataset};
+use seismic::{ComponentType, InvertedIndex, SparseDataset, ValueType};
 
 use std::fs;
 
@@ -90,16 +90,58 @@ struct Args {
     #[clap(long, value_parser)]
     #[arg(default_value = "u16")]
     component_type: String,
+
+    /// Value type: f16, bf16, or f32
+    #[clap(long, value_parser)]
+    #[arg(default_value = "f16")]
+    value_type: String,
 }
 
-fn build_index_with_component_type<C>(args: Args)
-where
-    C: ComponentType + serde::Serialize + for<'de> serde::Deserialize<'de>,
-{
-    let dataset = SparseDataset::<C, f32>::read_bin_file(&args.input_file.unwrap())
+fn build_index_with_u16_f16(args: &Args) {
+    let dataset = SparseDataset::<u16, f32>::read_bin_file(&args.input_file.as_ref().unwrap())
         .unwrap()
         .quantize_f16();
+    build_index_generic(dataset, args);
+}
 
+fn build_index_with_u16_bf16(args: &Args) {
+    let dataset = SparseDataset::<u16, f32>::read_bin_file(&args.input_file.as_ref().unwrap())
+        .unwrap()
+        .quantize_bf16();
+    build_index_generic(dataset, args);
+}
+
+fn build_index_with_u16_f32(args: &Args) {
+    let dataset =
+        SparseDataset::<u16, f32>::read_bin_file(&args.input_file.as_ref().unwrap()).unwrap();
+    build_index_generic(dataset, args);
+}
+
+fn build_index_with_u32_f16(args: &Args) {
+    let dataset = SparseDataset::<u32, f32>::read_bin_file(&args.input_file.as_ref().unwrap())
+        .unwrap()
+        .quantize_f16();
+    build_index_generic(dataset, args);
+}
+
+fn build_index_with_u32_bf16(args: &Args) {
+    let dataset = SparseDataset::<u32, f32>::read_bin_file(&args.input_file.as_ref().unwrap())
+        .unwrap()
+        .quantize_bf16();
+    build_index_generic(dataset, args);
+}
+
+fn build_index_with_u32_f32(args: &Args) {
+    let dataset =
+        SparseDataset::<u32, f32>::read_bin_file(&args.input_file.as_ref().unwrap()).unwrap();
+    build_index_generic(dataset, args);
+}
+
+fn build_index_generic<C, D>(dataset: SparseDataset<C, D>, args: &Args)
+where
+    C: ComponentType + serde::Serialize + for<'de> serde::Deserialize<'de>,
+    D: ValueType + serde::Serialize + for<'de> serde::Deserialize<'de>,
+{
     println!("Number of Vectors: {}", dataset.len());
     println!("Number of Dimensions: {}", dataset.dim());
 
@@ -110,7 +152,7 @@ where
 
     let time = Instant::now();
 
-    let knn_config = KnnConfiguration::new(args.knn, args.knn_path);
+    let knn_config = KnnConfiguration::new(args.knn, args.knn_path.clone());
 
     let my_clustering_algorithm = match args.clustering_algorithm {
         ClusteringAlgorithmClap::RandomKmeansInvertedIndexApprox => {
@@ -166,7 +208,7 @@ where
     );
     let serialized = bincode::serialize(&inverted_index).unwrap();
 
-    let path = args.output_file.unwrap() + ".index.seismic";
+    let path = args.output_file.as_ref().unwrap().clone() + ".index.seismic";
 
     println!("Saving ... {}", path);
     let r = fs::write(path, serialized);
@@ -179,17 +221,33 @@ where
 pub fn main() {
     let args = Args::parse();
 
-    match args.component_type.as_str() {
-        "u16" => {
-            println!("Using u16 component type");
-            build_index_with_component_type::<u16>(args);
+    match (args.component_type.as_str(), args.value_type.as_str()) {
+        ("u16", "f16") => {
+            println!("Using u16 component type with f16 value type");
+            build_index_with_u16_f16(&args);
         }
-        "u32" => {
-            println!("Using u32 component type");
-            build_index_with_component_type::<u32>(args);
+        ("u16", "bf16") => {
+            println!("Using u16 component type with bf16 value type");
+            build_index_with_u16_bf16(&args);
+        }
+        ("u16", "f32") => {
+            println!("Using u16 component type with f32 value type");
+            build_index_with_u16_f32(&args);
+        }
+        ("u32", "f16") => {
+            println!("Using u32 component type with f16 value type");
+            build_index_with_u32_f16(&args);
+        }
+        ("u32", "bf16") => {
+            println!("Using u32 component type with bf16 value type");
+            build_index_with_u32_bf16(&args);
+        }
+        ("u32", "f32") => {
+            println!("Using u32 component type with f32 value type");
+            build_index_with_u32_f32(&args);
         }
         _ => {
-            eprintln!("Error: component-type must be either 'u16' or 'u32'");
+            eprintln!("Error: component-type must be either 'u16' or 'u32', value-type must be 'f16', 'bf16', or 'f32'");
             std::process::exit(1);
         }
     }

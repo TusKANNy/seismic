@@ -4,7 +4,7 @@ use std::collections::HashSet;
 #[allow(unused_imports)]
 use rand::{rngs::StdRng, seq::IteratorRandom, thread_rng, SeedableRng};
 
-use crate::{ComponentType, DataType, SparseDataset};
+use crate::{ComponentType, ValueType, SparseDataset};
 
 /// Computes the size of the intersection of two unsorted lists of integers.
 pub fn intersection<T: Eq + Hash + Clone>(s: &[T], groundtruth: &[T]) -> usize {
@@ -94,7 +94,7 @@ pub fn binary_search_branchless(data: &[u16], target: u16) -> usize {
 
 use itertools::Itertools;
 
-fn compute_centroid_assignments_approx_dot_product<C: ComponentType, T: DataType>(
+fn compute_centroid_assignments_approx_dot_product<C: ComponentType, T: ValueType>(
     doc_ids: &[usize],
     inverted_index: &[Vec<(usize, T)>],
     dataset: &SparseDataset<C, T>,
@@ -149,7 +149,7 @@ pub fn do_random_kmeans_on_docids_ii_approx_dot_product<C, T>(
 ) -> Vec<(usize, usize)>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -237,7 +237,7 @@ fn compute_centroid_assignments_dot_product<C, T>(
 ) -> Vec<(usize, usize)>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
 
@@ -324,7 +324,7 @@ pub fn do_random_kmeans_on_docids_ii_dot_product<C, T>(
 ) -> Vec<(usize, usize)>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -409,7 +409,7 @@ where
     final_assigments
 }
 
-fn compute_centroid_assignments<C: ComponentType, T: DataType>(
+fn compute_centroid_assignments<C: ComponentType, T: ValueType>(
     doc_ids: &[usize],
     dataset: &SparseDataset<C, T>,
     centroids: &[usize],
@@ -459,7 +459,7 @@ fn compute_centroid_assignments<C: ComponentType, T: DataType>(
     centroid_assignments
 }
 
-pub fn do_random_kmeans_on_docids<C: ComponentType, T: DataType>(
+pub fn do_random_kmeans_on_docids<C: ComponentType, T: ValueType>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &SparseDataset<C, T>,

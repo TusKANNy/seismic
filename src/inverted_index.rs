@@ -1,7 +1,7 @@
 use crate::sparse_dataset::{SparseDatasetIter, SparseDatasetMut};
 use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
 use crate::utils::{conditionally_densify, prefetch_read_NTA};
-use crate::{ComponentType, DataType, QuantizedSummary, SpaceUsage, SparseDataset};
+use crate::{ComponentType, QuantizedSummary, SpaceUsage, SparseDataset, ValueType};
 
 use indicatif::ParallelProgressIterator;
 
@@ -23,7 +23,7 @@ use std::io::Result as IoResult;
 pub struct InvertedIndex<C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     forward_index: SparseDataset<C, T>,
     posting_lists: Box<[PostingList<C>]>,
@@ -34,7 +34,7 @@ where
 impl<C, T> SpaceUsage for InvertedIndex<C, T>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     fn space_usage_byte(&self) -> usize {
         let forward = self.forward_index.space_usage_byte();
@@ -113,7 +113,7 @@ impl Configuration {
 impl<C, T> InvertedIndex<C, T>
 where
     C: ComponentType,
-    T: PartialOrd + DataType,
+    T: PartialOrd + ValueType,
 {
     /// Help function to print the space usage of the index.
     pub fn print_space_usage_byte(&self) -> usize {
@@ -502,7 +502,7 @@ impl<C: ComponentType> PostingList<C> {
         forward_index: &SparseDataset<C, T>,
         sort_summaries: bool,
     ) where
-        T: DataType,
+        T: ValueType,
     {
         let mut blocks_to_evaluate: Vec<&[u64]> = Vec::new();
 
@@ -572,7 +572,7 @@ impl<C: ComponentType> PostingList<C> {
         visited: &mut HashSet<usize>,
         forward_index: &SparseDataset<C, T>,
     ) where
-        T: DataType,
+        T: ValueType,
         C: ComponentType,
     {
         let (mut prev_offset, mut prev_len) = Self::unpack_offset_len(packed_posting_block[0]);
@@ -623,7 +623,7 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Self
     where
         C: ComponentType,
-        T: PartialOrd + DataType,
+        T: PartialOrd + ValueType,
     {
         let mut posting_list: Vec<_> = postings.iter().map(|(_, docid)| *docid).collect();
 
@@ -704,7 +704,7 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Vec<usize>
     where
         C: ComponentType,
-        T: DataType,
+        T: ValueType,
     {
         if posting_list.is_empty() {
             return Vec::new();
@@ -774,7 +774,7 @@ impl<C: ComponentType> PostingList<C> {
     ) -> (Vec<C>, Vec<T>)
     where
         C: ComponentType,
-        T: PartialOrd + DataType,
+        T: PartialOrd + ValueType,
     {
         let mut hash = HashMap::new();
         for &doc_id in block.iter() {
@@ -812,7 +812,7 @@ impl<C: ComponentType> PostingList<C> {
     ) -> (Vec<C>, Vec<T>)
     where
         C: ComponentType,
-        T: PartialOrd + DataType,
+        T: PartialOrd + ValueType,
     {
         let mut hash = HashMap::new();
         for &doc_id in block.iter() {
@@ -981,7 +981,7 @@ impl Knn {
     #[must_use]
     pub fn new<C, T>(index: &InvertedIndex<C, T>, d: usize) -> Self
     where
-        T: PartialOrd + DataType,
+        T: PartialOrd + ValueType,
         C: ComponentType,
     {
         const KNN_QUERY_CUT: usize = 10;
@@ -1105,7 +1105,7 @@ impl Knn {
         in_n_knn: usize,
     ) where
         C: ComponentType,
-        T: DataType,
+        T: ValueType,
     {
         //let n_knn = cmp::max(self.d, in_n_knn);
         let n_knn = cmp::min(self.d, in_n_knn);

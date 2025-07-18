@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{ComponentType, DataType, SpaceUsage, SparseDataset};
+use crate::{ComponentType, SpaceUsage, SparseDataset, ValueType};
 
 use crate::elias_fano::EliasFano;
 use rustc_hash::FxHashMap;
@@ -71,7 +71,7 @@ impl<C: ComponentType> QuantizedSummary<C> {
 
     #[inline]
     #[must_use]
-    fn quantize<T: DataType>(values: &[T]) -> (f32, f32, Vec<u8>) {
+    fn quantize<T: ValueType>(values: &[T]) -> (f32, f32, Vec<u8>) {
         assert!(!values.is_empty());
 
         // Compute min and max values in the vector
@@ -102,7 +102,7 @@ impl<C: ComponentType> QuantizedSummary<C> {
 impl<C, T> From<SparseDataset<C, T>> for QuantizedSummary<C>
 where
     C: ComponentType,
-    T: DataType,
+    T: ValueType,
 {
     /// # Panics
     /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)

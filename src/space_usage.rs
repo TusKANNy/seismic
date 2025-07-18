@@ -1,3 +1,4 @@
+use half::bf16;
 use half::f16;
 use std::mem;
 
@@ -64,5 +65,5 @@ macro_rules! impl_space_usage {
 }
 
 impl_space_usage![
-    bool, i8, u8, i16, u16, i32, u32, i64, u64, i128, u128, isize, usize, f32, f64, f16
+    bool, i8, u8, i16, u16, i32, u32, i64, u64, i128, u128, isize, usize, f32, f64, f16, bf16
 ];
