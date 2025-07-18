@@ -228,57 +228,6 @@ knn =                   [0]                    # KNN neighbors
 first_sorted =          [true, false]         # Boolean options
 ```
 
-## Data Type Performance Guide
-
-### Component Type Selection (`component-type`)
-
-The `component-type` parameter determines how sparse vector component indices are stored:
-
-- **`"u16"` (recommended)**: 16-bit unsigned integers supporting up to 65,535 unique components
-  - **Memory**: 2 bytes per component index
-  - **Use case**: Most datasets with vocabulary sizes < 65K (e.g., BERT, SPLADE models)
-  - **Performance**: Faster due to better cache locality
-
-- **`"u32"`**: 32-bit unsigned integers supporting up to 4+ billion unique components  
-  - **Memory**: 4 bytes per component index (2x memory overhead vs u16)
-  - **Use case**: Large vocabulary datasets or extremely high-dimensional spaces
-  - **Performance**: Slightly slower due to increased memory usage
-
-### Value Type Selection (`value-type`)
-
-The `value-type` parameter controls the precision and storage format for sparse vector values:
-
-- **`"f16"` (recommended)**: IEEE 754 half-precision floating point
-  - **Memory**: 2 bytes per value
-  - **Performance**: ~5-6% faster query times vs bf16, ~5% faster build times
-  - **Accuracy**: Excellent recall preservation (within 0.1% of f32)
-  - **Use case**: Default choice for most applications
-
-- **`"bf16"`**: Google Brain's bfloat16 format  
-  - **Memory**: 2 bytes per value
-  - **Performance**: Slightly slower than f16 in practice
-  - **Accuracy**: Good recall preservation, minimal difference vs f16
-  - **Use case**: When targeting Google TPU deployment or specific hardware optimizations
-
-- **`"f32"`**: IEEE 754 single-precision floating point
-  - **Memory**: 4 bytes per value (2x overhead vs half-precision)
-  - **Performance**: Slower due to increased memory bandwidth requirements
-  - **Accuracy**: Highest precision (reference standard)
-  - **Use case**: When maximum precision is required regardless of performance cost
-
-### Performance Benchmarks
-
-Based on experimental validation with MS MARCO dataset:
-
-| Configuration | Query Time | Build Time | Memory Usage | Recall@10 |
-|--------------|------------|------------|--------------|-----------|
-| u16 + f16    | **Fastest** | **Fastest** | **Smallest** | **Best** |
-| u16 + bf16   | +5.6% slower | +5.3% slower | Same | -0.6% |
-| u16 + f32    | +15% slower | +12% slower | 2x larger | Reference |
-| u32 + f16    | +3% slower | +2% slower | ~1.5x larger | Same |
-
-**Recommendation**: Use `component-type = "u16"` and `value-type = "f16"` for optimal performance unless your dataset specifically requires u32 component indices.
-
 This generates a Cartesian product of all parameter combinations.
 
 ## Example Configurations
