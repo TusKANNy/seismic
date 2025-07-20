@@ -1,5 +1,5 @@
 //! Minimal implementation of Elias-Fano encoding.
-//! This implementation is inspired by C++ implementation by [Giuseppe Ottaviano](https://github.com/ot/succinct/blob/master/elias_fano.hpp).
+//! This implementation is inspired by [C++ implementation](https://github.com/ot/succinct/blob/master/elias_fano.hpp) by Giuseppe Ottaviano.
 use serde::{Deserialize, Serialize};
 
 use crate::SpaceUsage;
@@ -36,13 +36,13 @@ pub struct EliasFano {
 
 impl EliasFano {
     /// Calculates the space usage in bits for an Elias-Fano structure
-    /// given the universe size, number of distinct values, and total number of values.
-    pub fn estimate_space_bits(universe: usize, distinct_vals: usize, num_vals: usize) -> usize {
-        if num_vals == 0 || distinct_vals == 0 {
+    /// given the universe size and total number of values.
+    pub fn estimate_space_bits(universe: usize, num_vals: usize) -> usize {
+        if num_vals == 0 {
             return 0;
         }
 
-        let low_len = msb(universe / distinct_vals) as usize;
+        let low_len = msb(universe / num_vals) as usize;
 
         // Total space = low_bits + high_bits
         // low_bits: low_len * num_vals
@@ -69,15 +69,11 @@ impl EliasFano {
         }
 
         assert!(
-            data.windows(2).all(|w| w[0] <= w[1]),
-            "The sequence must be monotonically non decreasing."
+            data.windows(2).all(|w| w[0] < w[1]),
+            "The sequence must be monotonically strictly increasing."
         );
 
-        let distinct_vals = data
-            .windows(2)
-            .fold(1, |acc, w| if w[0] != w[1] { acc + 1 } else { acc });
-
-        let mut efb = EliasFanoBuilder::new(1 + data.last().unwrap(), distinct_vals, data.len());
+        let mut efb = EliasFanoBuilder::new(1 + data.last().unwrap(), data.len());
 
         efb.extend(data.to_vec());
 
@@ -189,18 +185,13 @@ impl EliasFanoBuilder {
     ///
     /// # Panics
     /// Panics if `num_vals` is zero.
-    pub fn new(universe: usize, distict_vals: usize, num_vals: usize) -> Self {
+    pub fn new(universe: usize, num_vals: usize) -> Self {
         assert!(
             num_vals > 0,
             "The number of values num_vals must not be zero."
         );
 
-        assert!(
-            distict_vals > 0,
-            "The number of values distict_vals must not be zero."
-        );
-
-        let low_len = msb(universe / distict_vals) as usize;
+        let low_len = msb(universe / num_vals) as usize;
 
         Self {
             high_bits: BitVectorMut::with_zeros((num_vals + 1) + (universe >> low_len) + 1),

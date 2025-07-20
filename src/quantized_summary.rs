@@ -46,7 +46,7 @@ impl<C: ComponentType> QuantizedSummary<C> {
 
         // Space for Elias-Fano offsets using the correct formula
         let ef_space = if num_components > 0 && max_offset > 0 {
-            EliasFano::estimate_space_bits(max_offset + 1, num_components, num_components + 1)
+            EliasFano::estimate_space_bits(max_offset + 1, num_components)
         } else {
             0
         };
@@ -58,7 +58,7 @@ impl<C: ComponentType> QuantizedSummary<C> {
     fn estimate_dense_space(d: usize, max_offset: usize) -> usize {
         // Space for Elias-Fano offsets with full dimension d
         if d > 0 && max_offset > 0 {
-            EliasFano::estimate_space_bits(max_offset + 1, d, d + 1)
+            EliasFano::estimate_space_bits(max_offset + 1, d)
         } else {
             0
         }
@@ -178,6 +178,17 @@ where
             }
         }
 
+        // In case of dense strategy, we want to make the offsets a strictly increasing sequence.
+        // This is done by adding the index to the offset.
+        // This is not needed for sparse strategy, since offsets are already strictly increasing.
+        // Thie use of a strictly increasing sequence may be more space efficient for Elias-Fano.
+
+        if !use_sparse_strategy {
+            for (i, o) in offsets.iter_mut().enumerate() {
+                *o += i;
+            }
+        }
+
         Self {
             n_summaries: dataset.len(),
             d: dataset.dim(),
@@ -252,10 +263,10 @@ impl DistancesIter {
             if qc.as_() >= summaries.d {
                 break;
             }
-            let current_offset = summaries.offsets.select(qc.as_()).unwrap();
-            let next_offset = summaries.offsets.select(qc.as_() + 1).unwrap();
+            let current_offset = summaries.offsets.select(qc.as_()).unwrap() - qc.as_();
+            let next_offset = summaries.offsets.select(qc.as_() + 1).unwrap() - (qc.as_() + 1);
 
-            if next_offset - current_offset == 0 {
+            if current_offset == next_offset {
                 continue;
             }
             let current_summaries_ids = &summaries.summaries_ids[current_offset..next_offset];
