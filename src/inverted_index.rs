@@ -120,22 +120,46 @@ where
         println!("Space Usage:");
         let forward = self.forward_index.space_usage_byte();
         println!("\tForward Index: {:} Bytes", forward);
-        let postings: usize = self
-            .posting_lists
-            .iter()
-            .map(|list| list.space_usage_byte())
-            .sum();
+
+        // Breakdown dettagliato delle posting lists
+        let mut total_packed_postings = 0;
+        let mut total_block_offsets = 0;
+        let mut total_summaries = 0;
+
+        for posting_list in self.posting_lists.iter() {
+            total_packed_postings += SpaceUsage::space_usage_byte(&posting_list.packed_postings);
+            total_block_offsets += SpaceUsage::space_usage_byte(&posting_list.block_offsets);
+            total_summaries += posting_list.summaries.space_usage_byte();
+        }
+
+        let postings_total = total_packed_postings + total_block_offsets + total_summaries;
+
+        println!("\tPosting Lists: {:} Bytes", postings_total);
+        println!(
+            "\t  ├─ packed_postings: {:} Bytes ({:.2}%)",
+            total_packed_postings,
+            total_packed_postings as f64 / postings_total as f64 * 100.0
+        );
+        println!(
+            "\t  ├─ block_offsets: {:} Bytes ({:.2}%)",
+            total_block_offsets,
+            total_block_offsets as f64 / postings_total as f64 * 100.0
+        );
+        println!(
+            "\t  └─ summaries: {:} Bytes ({:.2}%)",
+            total_summaries,
+            total_summaries as f64 / postings_total as f64 * 100.0
+        );
 
         let knn_size = match &self.knn {
             Some(knn) => knn.space_usage_byte(),
             None => 0,
         };
 
-        println!("\tPosting Lists: {:} Bytes", postings);
         println!("\tKnn: {:} Bytes", knn_size);
-        println!("\tTotal: {:} Bytes", forward + postings + knn_size);
+        println!("\tTotal: {:} Bytes", forward + postings_total + knn_size);
 
-        forward + postings + knn_size
+        forward + postings_total + knn_size
     }
 
     #[allow(clippy::too_many_arguments)]

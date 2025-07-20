@@ -44,12 +44,7 @@ impl<C: ComponentType> QuantizedSummary<C> {
         // Space for component_ids: number of components * size of component type C in bits
         let component_ids_space = num_components * std::mem::size_of::<C>() * 8;
 
-        // Space for Elias-Fano offsets using the correct formula
-        let ef_space = if num_components > 0 && max_offset > 0 {
-            EliasFano::estimate_space_bits(max_offset + 1, num_components)
-        } else {
-            0
-        };
+        let ef_space = EliasFano::estimate_space_bits(max_offset + 1, num_components);
 
         component_ids_space + ef_space
     }
@@ -57,11 +52,7 @@ impl<C: ComponentType> QuantizedSummary<C> {
     /// Calculate space usage for dense offset strategy (without component_ids)
     fn estimate_dense_space(d: usize, max_offset: usize) -> usize {
         // Space for Elias-Fano offsets with full dimension d
-        if d > 0 && max_offset > 0 {
-            EliasFano::estimate_space_bits(max_offset + 1, d)
-        } else {
-            0
-        }
+        EliasFano::estimate_space_bits(max_offset + 1 + d, d)
     }
 
     #[must_use]
@@ -96,6 +87,116 @@ impl<C: ComponentType> QuantizedSummary<C> {
         }
 
         (min, quant, quantized_values)
+    }
+
+    /// Print detailed space usage breakdown for this QuantizedSummary
+    pub fn print_space_usage(&self) {
+        // Calcolo la dimensione in byte di ogni campo
+        let component_ids_size = if let Some(ref component_ids) = self.component_ids {
+            SpaceUsage::space_usage_byte(component_ids)
+        } else {
+            0_usize
+        };
+
+        let n_summaries_size = SpaceUsage::space_usage_byte(&self.n_summaries);
+        let d_size = SpaceUsage::space_usage_byte(&self.d);
+        let offsets_size = SpaceUsage::space_usage_byte(&self.offsets);
+        let summaries_ids_size = SpaceUsage::space_usage_byte(&self.summaries_ids);
+        let values_size = SpaceUsage::space_usage_byte(&self.values);
+        let minimums_size = SpaceUsage::space_usage_byte(&self.minimums);
+        let quants_size = SpaceUsage::space_usage_byte(&self.quants);
+
+        // Calcolo il totale
+        let total_size = component_ids_size
+            + n_summaries_size
+            + d_size
+            + offsets_size
+            + summaries_ids_size
+            + values_size
+            + minimums_size
+            + quants_size;
+
+        // Stampo il report dettagliato
+        println!("\n=== QuantizedSummary Space Usage ===");
+        println!(
+            "Total size: {} bytes ({:.2} MB)",
+            total_size,
+            total_size as f64 / 1_048_576.0
+        );
+        println!("n_summaries: {}", self.n_summaries);
+        println!("d (dimensions): {}", self.d);
+
+        if let Some(ref component_ids) = self.component_ids {
+            println!(
+                "Strategy: SPARSE (component_ids present, {} components)",
+                component_ids.len()
+            );
+        } else {
+            println!("Strategy: DENSE (no component_ids)");
+        }
+
+        println!("\n--- Component Breakdown ---");
+
+        if component_ids_size > 0 {
+            println!(
+                "component_ids:   {:>12} bytes ({:>6.2}%)",
+                component_ids_size,
+                component_ids_size as f64 / total_size as f64 * 100.0
+            );
+        } else {
+            println!(
+                "component_ids:   {:>12} bytes ({:>6.2}%) [DENSE strategy]",
+                0, 0.0
+            );
+        }
+
+        println!(
+            "n_summaries:     {:>12} bytes ({:>6.2}%)",
+            n_summaries_size,
+            n_summaries_size as f64 / total_size as f64 * 100.0
+        );
+
+        println!(
+            "d:               {:>12} bytes ({:>6.2}%)",
+            d_size,
+            d_size as f64 / total_size as f64 * 100.0
+        );
+
+        println!(
+            "offsets (EF):    {:>12} bytes ({:>6.2}%) [{} offsets]",
+            offsets_size,
+            offsets_size as f64 / total_size as f64 * 100.0,
+            self.offsets.len()
+        );
+
+        println!(
+            "summaries_ids:   {:>12} bytes ({:>6.2}%) [{} summaries {} distinct]",
+            summaries_ids_size,
+            summaries_ids_size as f64 / total_size as f64 * 100.0,
+            self.summaries_ids.len(),
+            self.n_summaries
+        );
+
+        println!(
+            "values:          {:>12} bytes ({:>6.2}%) [{} values]",
+            values_size,
+            values_size as f64 / total_size as f64 * 100.0,
+            self.values.len()
+        );
+
+        println!(
+            "minimums:        {:>12} bytes ({:>6.2}%)",
+            minimums_size,
+            minimums_size as f64 / total_size as f64 * 100.0
+        );
+
+        println!(
+            "quants:          {:>12} bytes ({:>6.2}%)",
+            quants_size,
+            quants_size as f64 / total_size as f64 * 100.0
+        );
+
+        println!("=====================================\n");
     }
 }
 
@@ -141,7 +242,7 @@ where
             .sum::<usize>();
 
         let sparse_space = Self::estimate_sparse_space(num_non_empty_components, total_postings);
-        let dense_space = Self::estimate_dense_space(dataset.dim(), total_postings);
+        let dense_space = Self::estimate_dense_space(dataset.dim(), dataset.dim() + total_postings);
 
         // Choose sparse strategy if it uses less space
         let use_sparse_strategy = sparse_space < dense_space;
@@ -189,7 +290,7 @@ where
             }
         }
 
-        Self {
+        let me = Self {
             n_summaries: dataset.len(),
             d: dataset.dim(),
             component_ids: if let Some(component_ids) = component_ids {
@@ -202,7 +303,11 @@ where
             values: codes.into_boxed_slice(),
             minimums: minimums.into_boxed_slice(),
             quants: quants.into_boxed_slice(),
-        }
+        };
+
+        // me.print_space_usage();
+
+        me
     }
 }
 
