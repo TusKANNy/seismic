@@ -132,6 +132,10 @@ def build_index(configs, experiment_dir):
         kmeans_doc_cut = configs['indexing_parameters']['kmeans-doc-cut']
         command_and_params.append(f"--kmeans-doc-cut {kmeans_doc_cut}")
 
+    if configs['indexing_parameters'].get('min-cluster-size', None):
+        min_cluster_size = configs['indexing_parameters']['min-cluster-size']
+        command_and_params.append(f"--min-cluster-size {min_cluster_size}")
+
     if configs['indexing_parameters'].get("max-fraction", None):
         max_fraction = configs['indexing_parameters']["max-fraction"]
         command_and_params.append(f"--max-fraction {max_fraction}")

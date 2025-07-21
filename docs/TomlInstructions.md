@@ -172,6 +172,7 @@ alpha =                 0.2                 # COI threshold parameter
 
 **Clustering-Specific Parameters:**
 - `kmeans-doc-cut`: Number of top document components to consider during clustering (for inverted-index variants)
+- `min-cluster-size`: Minimum size of clusters during k-means clustering. Clusters smaller than this are removed and their documents are reassigned to the nearest valid cluster. This helps eliminate noise and improves clustering quality
 - `kmeans-pruning-factor`: Pruning factor for inverted-index k-means variants
 
 **Pruning Strategy Options:**

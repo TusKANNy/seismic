@@ -35,6 +35,7 @@ summary-energy =        [0.4, 0.5,]
 knn =                   [0]
 clustering-algorithm =  ["random-kmeans"] # Possible options are "random-kmeans", "random-kmeans-inverted-index", "random-kmeans-inverted-index-approx"
 kmeans-doc-cut =        [15]    # needed by "random-kmeans-inverted-index" and "random-kmeans-inverted-index-approx"
+min-cluster-size =      [2]    # minimum size of clusters during k-means clustering (clusters smaller than this are removed and documents reassigned)
 kmeans-pruning-factor = [0.005] # Only used by random-kmeans-inverted-index
 
 [querying_parameters]
