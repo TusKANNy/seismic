@@ -2,7 +2,7 @@ use seismic::inverted_index::{
     BlockingStrategy, ClusteringAlgorithm, ClusteringAlgorithmClap, Configuration,
     KnnConfiguration, PruningStrategy, PruningStrategyClap, SummarizationStrategy,
 };
-use seismic::{InvertedIndex, SparseDataset};
+use seismic::{ComponentType, InvertedIndex, SparseDataset};
 
 use std::fs;
 
@@ -58,7 +58,7 @@ struct Args {
     #[arg(default_value_t = 15)]
     kmeans_doc_cut: usize,
 
-    #[clap(short, long, value_parser)]
+    #[clap(long, value_parser)]
     #[arg(default_value_t = 2)]
     min_cluster_size: usize,
 
@@ -83,14 +83,20 @@ struct Args {
     knn_path: Option<String>,
 
     /// Number of documents per chunk in the batched indexing mode.
-    #[clap(short, long, value_parser)]
+    #[clap(long, value_parser)]
     batched_indexing: Option<usize>,
+
+    /// Component type: u16 (for component IDs up to 65535) or u32 (for larger component IDs)
+    #[clap(long, value_parser)]
+    #[arg(default_value = "u16")]
+    component_type: String,
 }
 
-pub fn main() {
-    let args = Args::parse();
-
-    let dataset = SparseDataset::<u16, f32>::read_bin_file(&args.input_file.unwrap())
+fn build_index_with_component_type<C>(args: Args)
+where
+    C: ComponentType + serde::Serialize + for<'de> serde::Deserialize<'de>,
+{
+    let dataset = SparseDataset::<C, f32>::read_bin_file(&args.input_file.unwrap())
         .unwrap()
         .quantize_f16();
 
@@ -168,4 +174,23 @@ pub fn main() {
 
     let elapsed = time.elapsed();
     println!("Time to build {} secs", elapsed.as_secs());
+}
+
+pub fn main() {
+    let args = Args::parse();
+
+    match args.component_type.as_str() {
+        "u16" => {
+            println!("Using u16 component type");
+            build_index_with_component_type::<u16>(args);
+        }
+        "u32" => {
+            println!("Using u32 component type");
+            build_index_with_component_type::<u32>(args);
+        }
+        _ => {
+            eprintln!("Error: component-type must be either 'u16' or 'u32'");
+            std::process::exit(1);
+        }
+    }
 }

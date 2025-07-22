@@ -21,7 +21,7 @@ use crate::{utils::binary_search_branchless, ComponentType, DataType};
 /// use seismic::distances::dot_product_dense_sparse;
 ///
 /// let query = [1.0, 2.0, 3.0, 0.0];
-/// let v_components = [0_u32, 2, 3];
+/// let v_components = [0_u16, 2, 3];
 /// let v_values = [1.0, 1.0, 1.5];
 ///
 /// let result = dot_product_dense_sparse(&query, &v_components, &v_values);

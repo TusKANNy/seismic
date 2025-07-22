@@ -125,14 +125,13 @@ impl ComponentType for u16 {
     /// let query = [1.0, 2.0, 3.0, 0.0];
     /// let query_terms_ids = [0_u16, 1, 2];
     /// let query_values = [1.0, 2.0, 3.0];
-    /// let v_components = [0_u32, 2, 3];
+    /// let v_components = [0_u16, 2, 3];
     /// let v_values = [1.0, 1.0, 1.5];
     ///
     /// let result = dot_product_dense_sparse(&query, &v_components, &v_values);
     /// assert_eq!(result, 4.0);
     /// ```
     #[inline]
-    #[must_use]
     fn compute_dot_product<Q, V>(
         dense_query: Option<&[Q]>,
         query_terms_ids: &[u16],
@@ -159,7 +158,6 @@ impl ComponentType for u32 {
     const WIDTH: usize = 32; // Required for compile time checks.
 
     #[inline]
-    #[must_use]
     fn compute_dot_product<Q, V>(
         _query: Option<&[Q]>,
         query_terms_ids: &[u32],

@@ -1,7 +1,5 @@
 //! Minimal implementation of Elias-Fano encoding.
 //! This implementation is inspired by C++ implementation by [Giuseppe Ottaviano](https://github.com/ot/succinct/blob/master/elias_fano.hpp).
-//! (https://github.com/kampersanda/sucds/blob/main/src/mii_sequences/elias_fano.rs)
-
 use serde::{Deserialize, Serialize};
 
 use crate::SpaceUsage;
@@ -57,10 +55,14 @@ impl EliasFano {
 
         assert!(
             data.windows(2).all(|w| w[0] <= w[1]),
-            "The sequence must be monotonically increasing."
+            "The sequence must be monotonically non decreasing."
         );
 
-        let mut efb = EliasFanoBuilder::new(1 + data.last().unwrap(), data.len());
+        let distinct_vals = data
+            .windows(2)
+            .fold(1, |acc, w| if w[0] != w[1] { acc + 1 } else { acc });
+
+        let mut efb = EliasFanoBuilder::new(1 + data.last().unwrap(), distinct_vals, data.len());
 
         efb.extend(data.to_vec());
 
@@ -145,7 +147,7 @@ impl EliasFano {
 /// use seismic::elias_fano::{EliasFano, EliasFanoBuilder};
 ///
 /// let v: Vec<usize> = vec![1,3,3,7];
-/// let mut efb = EliasFanoBuilder::new(8,4);
+/// let mut efb = EliasFanoBuilder::new(8,4,4);
 ///
 /// for &n in v.iter(){
 ///     let _ = efb.push(n);
@@ -172,13 +174,18 @@ impl EliasFanoBuilder {
     ///
     /// # Panics
     /// Panics if `num_vals` is zero.
-    pub fn new(universe: usize, num_vals: usize) -> Self {
+    pub fn new(universe: usize, distict_vals: usize, num_vals: usize) -> Self {
         assert!(
             num_vals > 0,
             "The number of values num_vals must not be zero."
         );
 
-        let low_len = msb(universe / num_vals) as usize;
+        assert!(
+            distict_vals > 0,
+            "The number of values distict_vals must not be zero."
+        );
+
+        let low_len = msb(universe / distict_vals) as usize;
 
         Self {
             high_bits: BitVectorMut::with_zeros((num_vals + 1) + (universe >> low_len) + 1),

@@ -228,42 +228,9 @@ where
                 chunk_inv_pairs.push(Vec::new());
             }
 
-            if let PruningStrategy::CoiThreshold {
-                alpha,
-                n_postings: _,
-            } = config.pruning
-            {
-                for (_, (doc_id, (components, values))) in chunk.enumerate() {
-                    let l1_norm = values
-                        .iter()
-                        .map(|e| e.to_f32().unwrap())
-                        .sum::<f32>()
-                        .abs();
-
-                    let mut terms = components
-                        .iter()
-                        .zip(values)
-                        .map(|(c, v)| (*c, *v))
-                        .collect::<Vec<_>>();
-
-                    terms.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-
-                    let mut mass = 0_f32;
-
-                    for (c, score) in terms {
-                        mass += score.to_f32().unwrap().abs();
-                        chunk_inv_pairs[c.as_()].push((score, doc_id));
-
-                        if mass >= alpha * l1_norm {
-                            break;
-                        }
-                    }
-                }
-            } else {
-                for (_, (doc_id, (components, values))) in chunk.enumerate() {
-                    for (&c, &score) in components.iter().zip(values) {
-                        chunk_inv_pairs[c.as_()].push((score, doc_id));
-                    }
+            for (_, (doc_id, (components, values))) in chunk.enumerate() {
+                for (&c, &score) in components.iter().zip(values) {
+                    chunk_inv_pairs[c.as_()].push((score, doc_id));
                 }
             }
 
@@ -287,6 +254,7 @@ where
                 PruningStrategy::GlobalThreshold { n_postings, .. } => {
                     Self::global_threshold_pruning(&mut inverted_pairs, n_postings);
                 }
+                // Partial pruning for CoiThreshold is not implemented yet. Need to estimate the number of postings in the final list
                 PruningStrategy::CoiThreshold {
                     alpha: _,
                     n_postings: _,
@@ -305,12 +273,9 @@ where
                     (n_postings as f32 * max_fraction) as usize,
                 );
             }
-            PruningStrategy::CoiThreshold {
-                alpha: _,
-                n_postings,
-            } => {
+            PruningStrategy::CoiThreshold { alpha, n_postings } => {
                 if n_postings > 0 {
-                    Self::fixed_pruning(&mut inverted_pairs, n_postings);
+                    Self::coi_pruning(&mut inverted_pairs, alpha, n_postings)
                 }
             }
             _ => {}
@@ -383,7 +348,23 @@ where
         })
     }
 
-    // Implementation of the NEW pruning strategy that selects a threshold such that survives on average `n_postings` for each posting list
+    // Implementation of the pruning strategy that selects the top-x posting from each posting list where x is alpha times the number of postings in the list or max_n_posting if too big.
+    fn coi_pruning(inverted_pairs: &mut Vec<Vec<(T, usize)>>, alpha: f32, max_n_postings: usize) {
+        inverted_pairs.par_iter_mut().for_each(|posting_list| {
+            if posting_list.is_empty() {
+                return;
+            }
+            posting_list.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+
+            let cur_n_postings =
+                max_n_postings.min((posting_list.len() as f32 * alpha) as usize + 1);
+            posting_list.truncate(cur_n_postings);
+
+            posting_list.shrink_to_fit();
+        })
+    }
+
+    // Implementation of the pruning strategy that selects a threshold such that survives on average `n_postings` for each posting list
     // In the new version, documents with scores equal to the threshold are included, without exceeding the threshold of 10% of expected postings
     fn global_threshold_pruning(inverted_pairs: &mut [Vec<(T, usize)>], n_postings: usize) {
         let tot_postings = inverted_pairs.len() * n_postings; // overall number of postings to select
