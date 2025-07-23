@@ -42,6 +42,11 @@ macro_rules! impl_seismic_index {
 
         #[pymethods]
         impl $rust_name {
+
+            pub fn get_doc_ids_in_postings(&self, list_id: usize) -> PyResult<Vec<usize>> {
+                Ok(self.index.inverted_index().get_doc_ids_in_postings(list_id))
+            }
+
             /// Get the dimensionality of the index.
             ///
             /// This method returns the total number of unique tokens
@@ -57,6 +62,7 @@ macro_rules! impl_seismic_index {
             pub fn get_dim(&self) -> PyResult<usize> {
                 Ok(self.index.dim())
             }
+
 
             /// Get the number of documents in the index.
             ///
@@ -666,8 +672,14 @@ macro_rules! impl_seismic_index_raw {
             inverted_index: InvertedIndex<$Key, f16>,
         }
 
+
         #[pymethods]
         impl $rust_name {
+
+            pub fn get_doc_ids_in_postings(&self, list_id: usize) -> PyResult<Vec<usize>> {
+                Ok(self.inverted_index.get_doc_ids_in_postings(list_id))
+            }
+
             /// Get the dimensionality of the raw index.
             ///
             /// This method returns the total number of unique tokens (features)

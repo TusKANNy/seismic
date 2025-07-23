@@ -115,6 +115,19 @@ where
     C: ComponentType,
     T: PartialOrd + ValueType,
 {
+    pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
+        assert!(
+            list_id < self.posting_lists.len(),
+            "Invalid list_id: {}",
+            list_id
+        );
+        self.posting_lists[list_id]
+            .get_all_doc_offsets()
+            .into_iter()
+            .map(|offset| self.forward_index.offset_to_id(offset))
+            .collect()
+    }
+
     /// Help function to print the space usage of the index.
     pub fn print_space_usage_byte(&self) -> usize {
         println!("Space Usage:");
@@ -510,6 +523,16 @@ impl<C: ComponentType> PostingList<C> {
     #[inline]
     pub fn unpack_offset_len(pack: u64) -> (usize, usize) {
         ((pack >> 16) as usize, (pack & (u16::MAX as u64)) as usize)
+    }
+
+    pub fn get_all_doc_offsets(&self) -> Vec<usize> {
+        let mut doc_ids = Vec::with_capacity(self.packed_postings.len());
+        for pack in self.packed_postings.iter() {
+            let (offset, _) = Self::unpack_offset_len(*pack);
+            doc_ids.push(offset);
+        }
+
+        doc_ids
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -20,8 +20,8 @@ use flate2::read::GzDecoder;
 use tar::Archive;
 
 use crate::{
-    inverted_index::Configuration, inverted_index::Knn, ValueType, InvertedIndex, SpaceUsage,
-    SparseDataset, SparseDatasetMut,
+    inverted_index::Configuration, inverted_index::Knn, InvertedIndex, SpaceUsage, SparseDataset,
+    SparseDatasetMut, ValueType,
 };
 
 #[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +51,10 @@ where
     C: ComponentType,
     T: PartialOrd + ValueType,
 {
+    pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
+        self.inverted_index.get_doc_ids_in_postings(list_id)
+    }
+
     pub fn new(
         dataset: SparseDataset<C, T>,
         config: Configuration,
