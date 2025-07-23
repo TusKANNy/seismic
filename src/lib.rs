@@ -22,6 +22,8 @@ pub use sparse_dataset::SparseDatasetMut;
 
 pub mod inverted_index;
 
+pub mod bitpacking;
+
 pub use inverted_index::InvertedIndex;
 
 pub mod inverted_index_wrapper;
