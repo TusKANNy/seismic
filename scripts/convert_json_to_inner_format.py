@@ -52,7 +52,7 @@ def write_sparse_vectors_to_binary_file_2(filename, term_id):
 def convert_documents_with_no_token_conversion(document_folder):
     sorted_files = sorted(
         filter(lambda x: x.endswith(".json"), os.listdir(document_folder)),
-        key=lambda x: x.split(".", maxsplit=1),
+        key=lambda x: x.split("."   , maxsplit=1),
     )
     documents = []
     doc_ids = []
@@ -251,7 +251,7 @@ def convert_queries_from_file(queries_path, token_to_id_mapping=None):
     queries_ids = []
     for json_str in tqdm(json_list):
         result = json.loads(json_str)
-        new_dict = {token_to_id_mapping[k]: v for k, v in result["vector"].items()}
+        new_dict = {token_to_id_mapping[k]: v for k, v in result["vector"].items() if k in token_to_id_mapping}
         # integer_id = int(result['id'])
         queries.append(new_dict)
         queries_ids.append(result["id"])
