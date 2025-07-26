@@ -1,6 +1,6 @@
 [package]
 name = "seismic"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 license = "MIT"
 description = "Seismic is designed for effective and efficient KNN retrieval over learned sparse embeddings."
@@ -28,6 +28,7 @@ half = { version = "2.3.1", features = ["serde", "std", "num-traits"]}
 num-traits = "0.2.17"
 itertools = "0.13.0"
 rand = "0.8.5"
+rand_chacha = "0.3.1"
 sux = "0.8.0"
 qwt = {version = "0.3.1"}
 pyo3 = { version = "0.23.0", features = ["extension-module"] } #NOTE: pyo3 and numpy require the same version at the moment

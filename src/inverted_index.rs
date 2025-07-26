@@ -564,6 +564,9 @@ impl<C: ComponentType> PostingList<C> {
             indexed_dots.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
         }
 
+        // let mut entered = 0;
+        // let mut evaluated_docs = 0;
+
         for &(block_id, dot) in indexed_dots.iter() {
             if heap.len() == k && dot < -heap_factor * heap.top() {
                 continue;
@@ -571,6 +574,9 @@ impl<C: ComponentType> PostingList<C> {
 
             let packed_posting_block = &self.packed_postings
                 [self.block_offsets[block_id]..self.block_offsets[block_id + 1]];
+
+            // entered += 1;
+            // evaluated_docs += packed_posting_block.len();
 
             if blocks_to_evaluate.len() == 1 {
                 for cur_packed_posting in blocks_to_evaluate.iter() {
@@ -605,6 +611,13 @@ impl<C: ComponentType> PostingList<C> {
                 forward_index,
             );
         }
+
+        // println!(
+        //     "Number of summaries to evaluate: {}. Evaluated {} blocks, {} documents, ",
+        //     indexed_dots.len(),
+        //     entered,
+        //     evaluated_docs
+        // );
     }
 
     #[allow(clippy::too_many_arguments)]

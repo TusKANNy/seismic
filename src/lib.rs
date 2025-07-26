@@ -4,7 +4,7 @@
     feature(stdarch_aarch64_prefetch)
 )]
 #![doc = include_str!("../README.md")]
-use distances::{dot_product_dense_sparse, dot_product_with_merge};
+use distances::{dot_product_dense_sparse, dot_product_dense_sparse_u32, dot_product_with_merge};
 use pyo3::types::PyModuleMethods;
 
 use half::bf16;
@@ -171,7 +171,7 @@ impl ComponentType for u32 {
 
     #[inline]
     fn compute_dot_product<Q, V>(
-        _query: Option<&[Q]>,
+        dense_query: Option<&[Q]>,
         query_terms_ids: &[u32],
         query_values: &[Q],
         v_components: &[u32],
@@ -181,7 +181,12 @@ impl ComponentType for u32 {
         Q: ValueType,
         V: ValueType,
     {
-        dot_product_with_merge(query_terms_ids, query_values, v_components, v_values)
+        if let Some(query) = dense_query {
+            // This is the case when we have a dense query
+            dot_product_dense_sparse_u32(query, v_components, v_values)
+        } else {
+            dot_product_with_merge(query_terms_ids, query_values, v_components, v_values)
+        }
     }
 }
 

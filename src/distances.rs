@@ -69,6 +69,51 @@ where
     // result
 }
 
+// We need two copies of this function, one for u16 and one for u32.
+// The reason it that if we use C: ComponentType, we need to used .as_() method to cast components into
+// usize. This is howerver slower that usize primitive castiting to usize.
+#[inline]
+#[must_use]
+pub fn dot_product_dense_sparse_u32<Q, V>(query: &[Q], v_components: &[u32], v_values: &[V]) -> f32
+where
+    Q: ValueType,
+    V: ValueType,
+{
+    const N_LANES: usize = 4;
+
+    let mut result = [0.0; N_LANES];
+    let chunk_iter = v_components.iter().zip(v_values).array_chunks::<N_LANES>();
+
+    for chunk in chunk_iter {
+        //for i in 0..N_LANES { // Slightly faster withour this for.
+        result[0] += query[*chunk[0].0 as usize].to_f32().unwrap() * (chunk[0].1.to_f32().unwrap());
+        result[1] += query[*chunk[1].0 as usize].to_f32().unwrap() * chunk[1].1.to_f32().unwrap();
+        result[2] += query[*chunk[2].0 as usize].to_f32().unwrap() * chunk[2].1.to_f32().unwrap();
+        result[3] += query[*chunk[3].0 as usize].to_f32().unwrap() * chunk[3].1.to_f32().unwrap();
+        //result[3] += unsafe { *query.get_unchecked(*chunk[3].0 as usize) } * *chunk[3].1;
+        //}
+    }
+
+    let l = v_components.len();
+    let rem = l % N_LANES;
+
+    if rem > 0 {
+        for (&i, &v) in v_components[l - rem..].iter().zip(&v_values[l - rem..]) {
+            result[0] += query[i as usize].to_f32().unwrap() * v.to_f32().unwrap();
+        }
+    }
+
+    result.iter().sum()
+
+    // This is what we would like to write :-)
+    // let mut result = 0.0;
+    // for (&i, &v) in self.iter_vector(id) {
+    //     result += query[i as usize] * v;
+    // }
+
+    // result
+}
+
 /// Computes the dot product between a sparse query and a sparse vector using binary search.
 /// This function should be used when the query has just a few components.
 /// Both the query's and vector's terms must be sorted by id.
@@ -175,12 +220,13 @@ where
                 i += 1;
             }
 
-            if i == v_term_ids.len() {
-                break;
-            }
-
             if *v_term_ids.get_unchecked(i) == q_id {
                 result += (*v_values.get_unchecked(i)).to_f32().unwrap() * q_v.to_f32().unwrap();
+                continue;
+            }
+
+            if i == v_term_ids.len() {
+                break;
             }
         }
     }

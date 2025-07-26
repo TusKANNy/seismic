@@ -208,6 +208,18 @@ where
     /// # Panics
     /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)
     fn from(dataset: SparseDataset<C, T>) -> QuantizedSummary<C> {
+        Self::from(&dataset)
+    }
+}
+
+impl<C, T> From<&SparseDataset<C, T>> for QuantizedSummary<C>
+where
+    C: ComponentType,
+    T: ValueType,
+{
+    /// # Panics
+    /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)
+    fn from(dataset: &SparseDataset<C, T>) -> QuantizedSummary<C> {
         assert!(
             dataset.len() <= u16::MAX as usize,
             "Number of summaries cannot be more than 2^16"
@@ -246,6 +258,9 @@ where
 
         // Choose sparse strategy if it uses less space
         let use_sparse_strategy = sparse_space < dense_space;
+
+        // println!("Sparse space: {}, Dense space: {}", sparse_space, dense_space);
+        // println!("Using sparse strategy: {}", use_sparse_strategy);
 
         let mut component_ids: Option<Vec<C>> = if use_sparse_strategy {
             Some(Vec::new())
@@ -407,6 +422,184 @@ impl Iterator for DistancesIter {
             Some(self.distances[current])
         } else {
             None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SparseDatasetMut;
+    use rand::prelude::*;
+    use rand_chacha::ChaCha8Rng;
+
+    fn generate_random_sparse_dataset<C: ComponentType>(
+        seed: u64,
+        n_vecs: usize,
+        dim: usize,
+        min_nnz: usize,
+        max_nnz: usize,
+        value: f32,
+    ) -> SparseDataset<C, f32>
+    where
+        C: std::convert::TryFrom<usize>,
+        <C as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
+    {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let mut dataset = SparseDatasetMut::new();
+
+        for _ in 0..n_vecs {
+            let nnz = rng.gen_range(min_nnz..=max_nnz);
+            let mut components: Vec<usize> = (0..dim).collect();
+            components.shuffle(&mut rng);
+            components.truncate(nnz);
+            components.sort_unstable();
+
+            let components: Vec<C> = components
+                .into_iter()
+                .map(|x| C::try_from(x).unwrap())
+                .collect();
+            let values = vec![value; nnz];
+            dataset.push(&components, &values);
+        }
+
+        dataset.into()
+    }
+
+    fn generate_random_queries<C: ComponentType>(
+        seed: u64,
+        n_queries: usize,
+        dim: usize,
+        min_nnz: usize,
+        max_nnz: usize,
+    ) -> SparseDatasetMut<C, f32>
+    where
+        C: std::convert::TryFrom<usize>,
+        <C as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
+    {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let mut dataset = SparseDatasetMut::new();
+
+        for _ in 0..n_queries {
+            let nnz = rng.gen_range(min_nnz..=max_nnz);
+            let mut components: Vec<usize> = (0..dim).collect();
+            components.shuffle(&mut rng);
+            components.truncate(nnz);
+            components.sort_unstable();
+
+            let components: Vec<C> = components
+                .into_iter()
+                .map(|x| C::try_from(x).unwrap())
+                .collect();
+            let values: Vec<f32> = (0..nnz).map(|_| rng.gen::<f32>()).collect();
+            dataset.push(&components, &values);
+        }
+
+        dataset
+    }
+
+    fn compute_inner_product<C: ComponentType>(
+        query_components: &[C],
+        query_values: &[f32],
+        vec_components: &[C],
+        vec_values: &[f32],
+    ) -> f32 {
+        let mut i = 0;
+        let mut j = 0;
+        let mut result = 0.0;
+
+        while i < query_components.len() && j < vec_components.len() {
+            let qc = query_components[i].as_();
+            let vc = vec_components[j].as_();
+
+            if qc == vc {
+                result += query_values[i] * vec_values[j];
+                i += 1;
+                j += 1;
+            } else if qc < vc {
+                i += 1;
+            } else {
+                j += 1;
+            }
+        }
+
+        result
+    }
+
+    #[test]
+    fn test_distances_iter() {
+        let seed = 142;
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        
+        // Generate random dimensions within specified ranges
+        let n_vecs = rng.gen_range(50..=100);
+        let dim = rng.gen_range(100_000..=140_000);
+        let min_nnz = 300;
+        let max_nnz = 500;
+
+        println!("Test parameters: n_vecs={}, dim={}, min_nnz={}, max_nnz={}, seed={}", 
+                 n_vecs, dim, min_nnz, max_nnz, seed);
+
+        // Generate dataset with all values set to 1.0
+        let dataset: SparseDataset<u32, f32> = generate_random_sparse_dataset(
+            seed,
+            n_vecs,
+            dim,
+            min_nnz,
+            max_nnz, 
+            1.0,
+        );
+
+        // Generate 100 random queries
+        let mut queries = generate_random_queries(
+            seed + 1, // Different seed for queries
+            100,
+            dim,
+            min_nnz,
+            max_nnz,
+        );
+
+        // Also add dataset itselft to the queries
+        for (c, v) in dataset.iter() {
+            queries.push(c, v);
+        }
+
+        // Create quantized summary
+        let summary = QuantizedSummary::from(&dataset);
+
+
+        // For each query, compare distances
+        for (query_id, (query_components, query_values)) in queries.iter().enumerate() {
+            
+            // Get distances using DistancesIter
+            let distances: Vec<f32> = summary.distances_iter(query_components, query_values).collect();
+            assert_eq!(distances.len(), dataset.len());
+
+            // Compute distances explicitly
+            let mut expected_distances = Vec::with_capacity(dataset.len());
+            for (vec_components, vec_values) in dataset.iter() {
+                                let distance = compute_inner_product(
+                    query_components,
+                    query_values,
+                    vec_components,
+                    vec_values,
+                );
+                expected_distances.push(distance);
+            }
+
+            
+            // Compare results  
+            for (i, (got, expected)) in distances.iter().zip(expected_distances.iter()).enumerate() {
+                assert!(
+                    (got - expected).abs() < 1e-5,
+                    "Distance mismatch for query {} vector {}: got {}, expected {} (diff: {})",
+                    query_id,
+                    i,
+                    got,
+                    expected,
+                    (got - expected).abs()
+                );
+            }
         }
     }
 }

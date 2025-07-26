@@ -4,7 +4,7 @@ use std::collections::HashSet;
 #[allow(unused_imports)]
 use rand::{rngs::StdRng, seq::IteratorRandom, thread_rng, SeedableRng};
 
-use crate::{ComponentType, ValueType, SparseDataset};
+use crate::{ComponentType, SparseDataset, ValueType};
 
 /// Computes the size of the intersection of two unsorted lists of integers.
 pub fn intersection<T: Eq + Hash + Clone>(s: &[T], groundtruth: &[T]) -> usize {
@@ -31,7 +31,7 @@ where
     C: ComponentType,
 {
     let dense_query: Option<Vec<f32>> = if query_components.len() > THRESHOLD_BINARY_SEARCH
-        && query_components.len() < 2_usize.pow(16)
+        && query_components.len() < 2_usize.pow(18)
     {
         let mut vec = vec![0.0; query_dim];
         for (&i, &v) in query_components.iter().zip(query_values) {

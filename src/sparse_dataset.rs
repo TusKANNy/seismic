@@ -1248,6 +1248,17 @@ where
     }
 }
 
+impl<C, T> AsRef<SparseDataset<C, T>> for SparseDataset<C, T>
+where
+    C: ComponentType,
+    T: ValueType,
+{
+    #[inline]
+    fn as_ref(&self) -> &SparseDataset<C, T> {
+        self
+    }
+}
+
 impl<C, T> From<SparseDataset<C, T>> for SparseDatasetMut<C, T>
 where
     C: ComponentType,
