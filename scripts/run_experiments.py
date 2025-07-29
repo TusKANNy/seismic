@@ -328,6 +328,8 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
 
 
 def get_machine_info(configs, experiment_folder):
+
+    return
     machine_info_file = os.path.join(experiment_folder, "machine.output")
     machine_info = open(machine_info_file, "w")
 

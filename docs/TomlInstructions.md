@@ -211,7 +211,30 @@ Multiple query configurations that may achieve different recall targets:
 **Naming Convention:**
 Query sections can use any descriptive name following the pattern `[query.section_name]`. Common conventions include recall targets (e.g., `[query.recall_90]`, `[query.recall_95]`) or descriptive names (e.g., `[query.fast]`, `[query.accurate]`, `[query.balanced]`).
 
+## Example Configurations
+
+For complete example configurations that reproduce the experiments from our published conference papers, see the configuration files in the `experiments/` directory. These configurations demonstrate various parameter combinations and use cases:
+
+- **`experiments/sigir2024/`**: Contains configurations used in our SIGIR 2024 publication
+- **`experiments/cikm2024/`**: Configurations for CIKM 2024 experiments
+
+---
+
 ## Grid Search Configuration
+
+To run a full grid search over indexing and querying parameters, use the script:
+
+```bash
+python scripts/run_grid_search.py --exp path/to/grid_search_config.toml
+```
+
+This will:
+- Read the grid specification from the TOML file
+- Generate all valid combinations of indexing and querying parameters (via Cartesian product)
+- Launch one experiment per combination
+
+In the toml file we can spacify parameter sweeps for both indexing and querying parameters. 
+Here **`experiments/grid_searches/`** is an example grid search configurations demonstrating parameter sweeps.
 
 For parameter sweeps, use array values in `[indexing_parameters]` and `[querying_parameters]`:
 
@@ -230,11 +253,48 @@ first_sorted =          [true, false]         # Boolean options
 ```
 
 This generates a Cartesian product of all parameter combinations.
+The experiments will be saved in the folder specified in the TOML file. 
 
-## Example Configurations
+Once all combinations have been executed, use `scripts/gather_grid_search_results.py` to aggregate results into a single file (`final_report.tsv`), which can be analyzed or post-processed with additional scripts.
 
-For complete example configurations that reproduce the experiments from our published conference papers, see the configuration files in the `experiments/` directory. These configurations demonstrate various parameter combinations and use cases:
 
-- **`experiments/sigir2024/`**: Contains configurations used in our SIGIR 2024 publication
-- **`experiments/cikm2024/`**: Configurations for CIKM 2024 experiments
-- **`experiments/grid_searches/`**: Example grid search configurations demonstrating parameter sweeps
+### Collecting Grid Search Reports
+
+After running a grid search with `scripts/run_grid_search.py`, each experiment will produce multiple subdirectories (e.g., `building_combination_0_*/`) containing individual `report.tsv` files and `experiment_config.toml` files.
+
+To aggregate all of these into a single file for analysis, run:
+
+```bash
+python scripts/gather_grid_search_results.py <grid_search_root_folder>
+```
+
+This script collects:
+- All performance metrics from `report.tsv` files
+- Indexing and settings parameters from the TOML configuration
+- Query-specific parameters from `[query.combination_z]` sections
+
+It outputs a unified `final_report.tsv` containing one row per tested combination.
+
+
+Once the grid search has completed and all results have been collected into a `final_report.tsv` file using:
+
+```bash
+python scripts/gather_grid_search_results.py <grid_search_root_folder>
+```
+
+you can analyze the best-performing configurations across recall ranges using:
+
+```bash
+python scripts/find_best_grid_results_by_recall_range.py final_report.tsv best_results.tsv
+```
+
+This script filters the grid search results by recall intervals (e.g., 90.0–90.5, 90.5–91.0, ...) and optionally by a memory usage threshold. For each interval, it selects the configuration with the lowest query time that satisfies the constraints.
+
+Command-line options include:
+
+- `--space_usage`: Maximum allowed memory usage (in bytes)
+- `--recall_min`: Minimum recall value (default: 90.0)
+- `--recall_max`: Maximum recall value (default: 99.5)
+- `--step`: Step size for recall intervals (default: 0.5)
+
+The output is written to the specified TSV file (e.g., `best_results.tsv`), with one row per recall subrange.
