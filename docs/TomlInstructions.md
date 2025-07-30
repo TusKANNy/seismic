@@ -194,7 +194,7 @@ Multiple query configurations that may achieve different recall targets:
     query-cut =         3
     heap-factor =       0.9
     knn =               0           # Optional: KNN neighbors for this query
-    first-sorted =      true        # Optional: Whether to sort initial results
+    first-sorted =      true        # Optional: Whether to sort the inner product of the summaries 
 
     [query.recall_91]
     query-cut =         4
