@@ -113,7 +113,7 @@ fn compute_centroid_assignments_approx_dot_product<C: ComponentType, T: ValueTyp
             .take(doc_cut)
         {
             for &(centroid_id, score) in inverted_index[component_id.as_()].iter() {
-                scores[centroid_id] += score.to_f32().unwrap() * value.to_f32().unwrap();
+                scores[centroid_id] += score.to_f32() * value.to_f32();
             }
         }
 

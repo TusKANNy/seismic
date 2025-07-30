@@ -75,7 +75,9 @@ n-runs =        1           # Number of experimental runs (affects query time me
 build =         true        # Whether to build the index (false if index already exists)
 metric =        "RR@10"     # Evaluation metric to compute
 component-type = "u16"      # Component type for sparse vector indices
-value-type =     "f16"      # Value type for sparse vector values
+value-type =     "f16"      # Value type for sparse vector values (options: "f16", "bf16", "f32", "fixedu8", "fixedu16")
+# value-type =   "fixedu8"  # Example: use 8-bit fixed-point quantization
+# value-type =   "fixedu16" # Example: use 16-bit fixed-point quantization
 # NUMA =        "numactl --physcpubind='0-15' --localalloc"  # NUMA configuration
 ```
 
@@ -92,7 +94,9 @@ value-type =     "f16"      # Value type for sparse vector values
   - `"f16"`: IEEE 754 half-precision (16-bit) floating point - **recommended for best performance**
   - `"bf16"`: Google Brain's bfloat16 format (16-bit) - alternative half-precision format
   - `"f32"`: IEEE 754 single-precision (32-bit) floating point - highest precision but slower
-  - **Recommendation**: Use `"f16"` for optimal balance of speed, memory efficiency, and accuracy
+  - `"fixedu8"`: 8-bit fixed-point quantization (Q0.8) - very compact, lowest memory usage, may reduce accuracy
+  - `"fixedu16"`: 16-bit fixed-point quantization (Q0.16) - compact, higher accuracy than fixedu8, lower memory than floats
+  - **Recommendation**: Use `"f16"` for optimal balance of speed, memory efficiency, and accuracy. Use `"fixedu8"` for maximum memory savings when some loss in accuracy is acceptable.
 - `NUMA`: Optional NUMA (Non-Uniform Memory Access) configuration string for performance optimization
 
 ## Folder Section

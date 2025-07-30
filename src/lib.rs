@@ -4,9 +4,13 @@
     feature(stdarch_aarch64_prefetch)
 )]
 #![doc = include_str!("../README.md")]
+
 use distances::{dot_product_dense_sparse, dot_product_dense_sparse_u32, dot_product_with_merge};
 use pyo3::types::PyModuleMethods;
 
+use fixed::types::extra::U8;
+use fixed::FixedU16;
+use fixed::FixedU8;
 use half::bf16;
 use half::f16;
 
@@ -59,8 +63,8 @@ use pyo3::{pymodule, Bound, PyResult};
 pub trait ValueType:
     SpaceUsage
     + Copy
-    + AsPrimitive<f16>
-    + AsPrimitive<bf16>
+    + ToF32
+    + FromPrimitive
     + ToPrimitive
     + Zero
     + Send
@@ -77,6 +81,67 @@ impl ValueType for f32 {}
 impl ValueType for f16 {}
 
 impl ValueType for bf16 {}
+
+// Trait locale per conversione a f32
+pub trait ToF32 {
+    fn to_f32(self) -> f32;
+}
+
+impl ToF32 for f32 {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        self
+    }
+}
+impl ToF32 for f64 {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        self as f32
+    }
+}
+impl ToF32 for f16 {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        f32::from(self)
+    }
+}
+impl ToF32 for bf16 {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        f32::from(self)
+    }
+}
+impl ToF32 for FixedU8Q {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        self.to_num::<f32>()
+    }
+}
+impl ToF32 for FixedU16Q {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        self.to_num::<f32>()
+    }
+}
+
+/// Type aliases for quantized fixed-point types (8 fractional bits)
+pub type FixedU8Q = FixedU8<U8>;
+pub type FixedU16Q = FixedU16<U8>;
+
+impl ValueType for FixedU8Q {}
+impl ValueType for FixedU16Q {}
+
+impl SpaceUsage for FixedU8Q {
+    fn space_usage_byte(&self) -> usize {
+        1 // 1 byte for FixedU8Q
+    }
+}
+
+impl SpaceUsage for FixedU16Q {
+    fn space_usage_byte(&self) -> usize {
+        2 // 2 bytes for FixedU16Q
+    }
+}
 
 pub trait ComponentType:
     AsPrimitive<usize>

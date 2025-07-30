@@ -23,9 +23,6 @@ use std::path::Path;
 use rayon::iter::plumbing::{bridge, Consumer, Producer, UnindexedConsumer};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
-use half::bf16;
-use half::f16;
-
 use crate::topk_selectors::{HeapFaiss, OnlineTopKSelector};
 use crate::utils::{conditionally_densify, prefetch_read_NTA};
 use crate::{ComponentType, SpaceUsage, ValueType};
@@ -125,34 +122,6 @@ where
         let v_values = &self.values[offset..offset + len];
 
         (v_components, v_values)
-    }
-
-    /// Returns a dataset with values quatized to `f16`. We don't use `From` trait because
-    /// of clash with default `impl From<T> for T`, so doing any generic impl will conflict with it.
-    pub fn quantize_f16(self) -> SparseDataset<C, f16> {
-        let values: Vec<_> = self.values.iter().map(|&v| v.as_()).collect();
-
-        SparseDataset::<C, f16> {
-            n_vecs: self.n_vecs,
-            d: self.d,
-            offsets: self.offsets,
-            components: self.components,
-            values: values.into_boxed_slice(),
-        }
-    }
-
-    /// Returns a dataset with values quatized to `bf16`. We don't use `From` trait because
-    /// of clash with default `impl From<T> for T`, so doing any generic impl will conflict with it.
-    pub fn quantize_bf16(self) -> SparseDataset<C, bf16> {
-        let values: Vec<_> = self.values.iter().map(|&v| v.as_()).collect();
-
-        SparseDataset::<C, bf16> {
-            n_vecs: self.n_vecs,
-            d: self.d,
-            offsets: self.offsets,
-            components: self.components,
-            values: values.into_boxed_slice(),
-        }
     }
 
     // Returns the range of positions of the slice with the given `id`.
@@ -280,6 +249,45 @@ where
         assert!(id < self.n_vecs, "the id is out of range");
 
         self.offsets[id]
+    }
+
+    /// Converts a `SparseDataset<C, T>` into a `SparseDataset<C, Q>`.
+    ///
+    /// This conversion is useful when you want to change the value type of the dataset.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use seismic::SparseDataset;
+    ///
+    /// let data = vec![
+    ///                 (vec![0, 2, 4], vec![1.0, 2.0, 3.0]),
+    ///                 (vec![1, 3], vec![4.0, 5.0]),
+    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
+    ///                ];
+    ///
+    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
+    ///
+    /// let new_dataset: SparseDataset<u16, f16> = dataset.quantize();
+    /// ```
+    #[must_use]
+    pub fn quantize<Q: ValueType>(self) -> SparseDataset<C, Q> {
+        let values: Vec<_> = self
+            .values
+            .iter()
+            .map(|&v| {
+                let v: f32 = v.to_f32();
+                Q::from_f32(v).unwrap() // TODO: Handle potential conversion errors
+            })
+            .collect();
+
+        SparseDataset::<C, Q> {
+            d: self.d,
+            offsets: self.offsets,
+            n_vecs: self.n_vecs,
+            components: self.components,
+            values: values.into_boxed_slice(),
+        }
     }
 
     /// Returns the length of the vector with the specified index.
@@ -1175,38 +1183,6 @@ where
         }
 
         dataset
-    }
-}
-
-impl<C> From<SparseDataset<C, f32>> for SparseDataset<C, f16>
-where
-    C: ComponentType,
-{
-    /// Converts a `SparseDataset<C, f32>` into a `SparseDataset<C, f16>`.
-    ///
-    /// This function consumes the provided `SparseDataset<C, f32>` and produces
-    /// a corresponding `SparseDataset<C, f16>` instance. The conversion is performed
-    /// by converting the values of the components from `f32` to `f16`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDataset;
-    /// use half::f16;
-    ///
-    /// let data = vec![
-    ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
-    ///                 (vec![1, 3],       vec![4.0, 5.0]),
-    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
-    ///                ];
-    ///
-    /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
-    /// let dataset_f16: SparseDataset<u16, f16> = dataset.into();
-    ///
-    /// assert_eq!(dataset_f16.nnz(), 9); // Total non-zero components across all vectors
-    /// ```
-    fn from(dataset: SparseDataset<C, f32>) -> Self {
-        dataset.quantize_f16()
     }
 }
 
