@@ -41,10 +41,10 @@ where
 
     for chunk in chunk_iter {
         //for i in 0..N_LANES { // Slightly faster withour this for.
-        result[0] += query[*chunk[0].0 as usize].to_f32().unwrap() * (chunk[0].1.to_f32().unwrap());
-        result[1] += query[*chunk[1].0 as usize].to_f32().unwrap() * chunk[1].1.to_f32().unwrap();
-        result[2] += query[*chunk[2].0 as usize].to_f32().unwrap() * chunk[2].1.to_f32().unwrap();
-        result[3] += query[*chunk[3].0 as usize].to_f32().unwrap() * chunk[3].1.to_f32().unwrap();
+        result[0] += query[*chunk[0].0 as usize].to_f32() * (chunk[0].1.to_f32().unwrap());
+        result[1] += query[*chunk[1].0 as usize].to_f32() * chunk[1].1.to_f32().unwrap();
+        result[2] += query[*chunk[2].0 as usize].to_f32() * chunk[2].1.to_f32().unwrap();
+        result[3] += query[*chunk[3].0 as usize].to_f32() * chunk[3].1.to_f32().unwrap();
         //result[3] += unsafe { *query.get_unchecked(*chunk[3].0 as usize) } * *chunk[3].1;
         //}
     }
@@ -54,7 +54,7 @@ where
 
     if rem > 0 {
         for (&i, &v) in v_components[l - rem..].iter().zip(&v_values[l - rem..]) {
-            result[0] += query[i as usize].to_f32().unwrap() * v.to_f32().unwrap();
+            result[0] += query[i as usize].to_f32() * v.to_f32();
         }
     }
 
@@ -86,10 +86,10 @@ where
 
     for chunk in chunk_iter {
         //for i in 0..N_LANES { // Slightly faster withour this for.
-        result[0] += query[*chunk[0].0 as usize].to_f32().unwrap() * (chunk[0].1.to_f32().unwrap());
-        result[1] += query[*chunk[1].0 as usize].to_f32().unwrap() * chunk[1].1.to_f32().unwrap();
-        result[2] += query[*chunk[2].0 as usize].to_f32().unwrap() * chunk[2].1.to_f32().unwrap();
-        result[3] += query[*chunk[3].0 as usize].to_f32().unwrap() * chunk[3].1.to_f32().unwrap();
+        result[0] += query[*chunk[0].0 as usize].to_f32() * (chunk[0].1.to_f32().unwrap());
+        result[1] += query[*chunk[1].0 as usize].to_f32() * chunk[1].1.to_f32().unwrap();
+        result[2] += query[*chunk[2].0 as usize].to_f32() * chunk[2].1.to_f32().unwrap();
+        result[3] += query[*chunk[3].0 as usize].to_f32() * chunk[3].1.to_f32().unwrap();
         //result[3] += unsafe { *query.get_unchecked(*chunk[3].0 as usize) } * *chunk[3].1;
         //}
     }
@@ -99,7 +99,7 @@ where
 
     if rem > 0 {
         for (&i, &v) in v_components[l - rem..].iter().zip(&v_values[l - rem..]) {
-            result[0] += query[i as usize].to_f32().unwrap() * v.to_f32().unwrap();
+            result[0] += query[i as usize].to_f32() * v.to_f32();
         }
     }
 
@@ -163,7 +163,7 @@ where
         // SAFETY: result of binary search is always smaller than v_term_id.len() and v_values.len()
         let cmp = *unsafe { v_terms_ids.get_unchecked(i) } == term_id;
         result += if cmp {
-            value.to_f32().unwrap() * unsafe { v_values.get_unchecked(i).to_f32().unwrap() }
+            value.to_f32() * unsafe { v_values.get_unchecked(i).to_f32().unwrap() }
         } else {
             0.0
         };
@@ -221,7 +221,7 @@ where
             }
 
             if *v_term_ids.get_unchecked(i) == q_id {
-                result += (*v_values.get_unchecked(i)).to_f32().unwrap() * q_v.to_f32().unwrap();
+                result += (*v_values.get_unchecked(i)).to_f32() * q_v.to_f32();
                 continue;
             }
 

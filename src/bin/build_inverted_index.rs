@@ -4,6 +4,11 @@ use seismic::inverted_index::{
 };
 use seismic::{ComponentType, InvertedIndex, SparseDataset, ValueType};
 
+use half::bf16;
+use half::f16;
+use seismic::FixedU16Q;
+use seismic::FixedU8Q;
+
 use std::fs;
 
 use clap::Parser;
@@ -91,57 +96,22 @@ struct Args {
     #[arg(default_value = "u16")]
     component_type: String,
 
-    /// Value type: f16, bf16, or f32
+    /// Value type: f16, bf16, f32, fixedu16, or fixedu8
     #[clap(long, value_parser)]
     #[arg(default_value = "f16")]
     value_type: String,
 }
 
-fn build_index_with_u16_f16(args: &Args) {
-    let dataset = SparseDataset::<u16, f32>::read_bin_file(&args.input_file.as_ref().unwrap())
-        .unwrap()
-        .quantize_f16();
-    build_index_generic(dataset, args);
-}
-
-fn build_index_with_u16_bf16(args: &Args) {
-    let dataset = SparseDataset::<u16, f32>::read_bin_file(&args.input_file.as_ref().unwrap())
-        .unwrap()
-        .quantize_bf16();
-    build_index_generic(dataset, args);
-}
-
-fn build_index_with_u16_f32(args: &Args) {
-    let dataset =
-        SparseDataset::<u16, f32>::read_bin_file(&args.input_file.as_ref().unwrap()).unwrap();
-    build_index_generic(dataset, args);
-}
-
-fn build_index_with_u32_f16(args: &Args) {
-    let dataset = SparseDataset::<u32, f32>::read_bin_file(&args.input_file.as_ref().unwrap())
-        .unwrap()
-        .quantize_f16();
-    build_index_generic(dataset, args);
-}
-
-fn build_index_with_u32_bf16(args: &Args) {
-    let dataset = SparseDataset::<u32, f32>::read_bin_file(&args.input_file.as_ref().unwrap())
-        .unwrap()
-        .quantize_bf16();
-    build_index_generic(dataset, args);
-}
-
-fn build_index_with_u32_f32(args: &Args) {
-    let dataset =
-        SparseDataset::<u32, f32>::read_bin_file(&args.input_file.as_ref().unwrap()).unwrap();
-    build_index_generic(dataset, args);
-}
-
-fn build_index_generic<C, D>(dataset: SparseDataset<C, D>, args: &Args)
+fn build_index_generic<C, D>(args: &Args)
 where
     C: ComponentType + serde::Serialize + for<'de> serde::Deserialize<'de>,
     D: ValueType + serde::Serialize + for<'de> serde::Deserialize<'de>,
 {
+    let dataset: SparseDataset<C, D> =
+        SparseDataset::<C, f32>::read_bin_file(&args.input_file.as_ref().unwrap())
+            .unwrap()
+            .quantize();
+
     println!("Number of Vectors: {}", dataset.len());
     println!("Number of Dimensions: {}", dataset.dim());
 
@@ -224,30 +194,46 @@ pub fn main() {
     match (args.component_type.as_str(), args.value_type.as_str()) {
         ("u16", "f16") => {
             println!("Using u16 component type with f16 value type");
-            build_index_with_u16_f16(&args);
+            build_index_generic::<u16, f16>(&args);
         }
         ("u16", "bf16") => {
             println!("Using u16 component type with bf16 value type");
-            build_index_with_u16_bf16(&args);
+            build_index_generic::<u16, bf16>(&args);
         }
         ("u16", "f32") => {
             println!("Using u16 component type with f32 value type");
-            build_index_with_u16_f32(&args);
+            build_index_generic::<u16, f32>(&args);
+        }
+        ("u16", "fixedu16") => {
+            println!("Using u16 component type with fixedu16 value type");
+            build_index_generic::<u16, FixedU16Q>(&args);
+        }
+        ("u16", "fixedu8") => {
+            println!("Using u16 component type with fixedu8 value type");
+            build_index_generic::<u16, FixedU8Q>(&args);
         }
         ("u32", "f16") => {
             println!("Using u32 component type with f16 value type");
-            build_index_with_u32_f16(&args);
+            build_index_generic::<u32, f16>(&args);
         }
         ("u32", "bf16") => {
             println!("Using u32 component type with bf16 value type");
-            build_index_with_u32_bf16(&args);
+            build_index_generic::<u32, bf16>(&args);
         }
         ("u32", "f32") => {
             println!("Using u32 component type with f32 value type");
-            build_index_with_u32_f32(&args);
+            build_index_generic::<u32, f32>(&args);
+        }
+        ("u32", "fixedu16") => {
+            println!("Using u32 component type with fixedu16 value type");
+            build_index_generic::<u32, FixedU16Q>(&args);
+        }
+        ("u32", "fixedu8") => {
+            println!("Using u32 component type with fixedu8 value type");
+            build_index_generic::<u32, FixedU8Q>(&args);
         }
         _ => {
-            eprintln!("Error: component-type must be either 'u16' or 'u32', value-type must be 'f16', 'bf16', or 'f32'");
+            eprintln!("Error: component-type must be either 'u16' or 'u32', value-type must be 'f16', 'bf16', 'f32', 'fixedu16', or 'fixedu8'");
             std::process::exit(1);
         }
     }

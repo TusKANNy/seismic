@@ -73,7 +73,7 @@ impl<C: ComponentType> QuantizedSummary<C> {
             )
         });
 
-        let (min, max) = (min.to_f32().unwrap(), max.to_f32().unwrap());
+        let (min, max) = (min.to_f32(), max.to_f32());
 
         // Quantization splits the range [min, max] into Self::N_CLASSES blocks of equal size
         // (max-m)/Self::N_CLASSES.
@@ -82,7 +82,7 @@ impl<C: ComponentType> QuantizedSummary<C> {
         let mut quantized_values = Vec::with_capacity(values.len());
         let quant = (max - min) / (Self::N_CLASSES as f32);
         for &v in values {
-            let q = ((v.to_f32().unwrap() - min) / quant) as u8;
+            let q = ((v.to_f32() - min) / quant) as u8;
             quantized_values.push(q);
         }
 
@@ -530,25 +530,21 @@ mod tests {
     fn test_distances_iter() {
         let seed = 142;
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        
+
         // Generate random dimensions within specified ranges
         let n_vecs = rng.gen_range(50..=100);
         let dim = rng.gen_range(100_000..=140_000);
         let min_nnz = 300;
         let max_nnz = 500;
 
-        println!("Test parameters: n_vecs={}, dim={}, min_nnz={}, max_nnz={}, seed={}", 
-                 n_vecs, dim, min_nnz, max_nnz, seed);
+        println!(
+            "Test parameters: n_vecs={}, dim={}, min_nnz={}, max_nnz={}, seed={}",
+            n_vecs, dim, min_nnz, max_nnz, seed
+        );
 
         // Generate dataset with all values set to 1.0
-        let dataset: SparseDataset<u32, f32> = generate_random_sparse_dataset(
-            seed,
-            n_vecs,
-            dim,
-            min_nnz,
-            max_nnz, 
-            1.0,
-        );
+        let dataset: SparseDataset<u32, f32> =
+            generate_random_sparse_dataset(seed, n_vecs, dim, min_nnz, max_nnz, 1.0);
 
         // Generate 100 random queries
         let mut queries = generate_random_queries(
@@ -567,18 +563,18 @@ mod tests {
         // Create quantized summary
         let summary = QuantizedSummary::from(&dataset);
 
-
         // For each query, compare distances
         for (query_id, (query_components, query_values)) in queries.iter().enumerate() {
-            
             // Get distances using DistancesIter
-            let distances: Vec<f32> = summary.distances_iter(query_components, query_values).collect();
+            let distances: Vec<f32> = summary
+                .distances_iter(query_components, query_values)
+                .collect();
             assert_eq!(distances.len(), dataset.len());
 
             // Compute distances explicitly
             let mut expected_distances = Vec::with_capacity(dataset.len());
             for (vec_components, vec_values) in dataset.iter() {
-                                let distance = compute_inner_product(
+                let distance = compute_inner_product(
                     query_components,
                     query_values,
                     vec_components,
@@ -587,9 +583,9 @@ mod tests {
                 expected_distances.push(distance);
             }
 
-            
-            // Compare results  
-            for (i, (got, expected)) in distances.iter().zip(expected_distances.iter()).enumerate() {
+            // Compare results
+            for (i, (got, expected)) in distances.iter().zip(expected_distances.iter()).enumerate()
+            {
                 assert!(
                     (got - expected).abs() < 1e-5,
                     "Distance mismatch for query {} vector {}: got {}, expected {} (diff: {})",

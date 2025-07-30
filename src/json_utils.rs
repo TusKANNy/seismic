@@ -59,6 +59,6 @@ pub fn read_queries(input_file: &String) -> Vec<(String, Vec<String>, Vec<f32>)>
 
     stream
         .into_iter()
-        .map(|x| (extract_jsonl(x.unwrap())))
+        .map(|x| extract_jsonl(x.unwrap()))
         .collect()
 }

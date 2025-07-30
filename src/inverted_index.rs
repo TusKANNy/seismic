@@ -889,13 +889,13 @@ impl<C: ComponentType> PostingList<C> {
         components_values.sort_unstable_by(|a, b| b.1.partial_cmp(a.1).unwrap());
         let total_sum = components_values
             .iter()
-            .fold(0_f32, |sum, (_, &x)| sum + x.to_f32().unwrap());
+            .fold(0_f32, |sum, (_, &x)| sum + x.to_f32());
 
         let mut term_ids = Vec::new();
         let mut values = Vec::new();
         let mut acc = 0_f32;
         for (&tid, &v) in components_values.iter() {
-            acc += v.to_f32().unwrap();
+            acc += v.to_f32();
             term_ids.push(tid);
             values.push(v);
             if (acc / total_sum) > fraction {

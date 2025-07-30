@@ -4,6 +4,11 @@ use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
 
+use half::bf16;
+use half::f16;
+use seismic::FixedU16Q;
+use seismic::FixedU8Q;
+
 use seismic::{ComponentType, InvertedIndex, SparseDataset, ValueType};
 
 use clap::Parser;
@@ -66,53 +71,13 @@ struct Args {
     #[arg(default_value = "u16")]
     component_type: String,
 
-    /// Value type: f16, bf16, or f32
+    /// Value type: f16, bf16, f32, fixedu8, orfixedu16.
     #[clap(long, value_parser)]
     #[arg(default_value = "f16")]
     value_type: String,
 }
 
-fn run_performance_test_u16_f16(args: Args) {
-    let queries = SparseDataset::<u16, f32>::read_bin_file(&args.query_file.as_ref().unwrap())
-        .unwrap()
-        .quantize_f16();
-    run_performance_test_generic(args, queries);
-}
-
-fn run_performance_test_u16_bf16(args: Args) {
-    let queries = SparseDataset::<u16, f32>::read_bin_file(&args.query_file.as_ref().unwrap())
-        .unwrap()
-        .quantize_bf16();
-    run_performance_test_generic(args, queries);
-}
-
-fn run_performance_test_u16_f32(args: Args) {
-    let queries =
-        SparseDataset::<u16, f32>::read_bin_file(&args.query_file.as_ref().unwrap()).unwrap();
-    run_performance_test_generic(args, queries);
-}
-
-fn run_performance_test_u32_f16(args: Args) {
-    let queries = SparseDataset::<u32, f32>::read_bin_file(&args.query_file.as_ref().unwrap())
-        .unwrap()
-        .quantize_f16();
-    run_performance_test_generic(args, queries);
-}
-
-fn run_performance_test_u32_bf16(args: Args) {
-    let queries = SparseDataset::<u32, f32>::read_bin_file(&args.query_file.as_ref().unwrap())
-        .unwrap()
-        .quantize_bf16();
-    run_performance_test_generic(args, queries);
-}
-
-fn run_performance_test_u32_f32(args: Args) {
-    let queries =
-        SparseDataset::<u32, f32>::read_bin_file(&args.query_file.as_ref().unwrap()).unwrap();
-    run_performance_test_generic(args, queries);
-}
-
-fn run_performance_test_generic<C, D>(args: Args, queries: SparseDataset<C, D>)
+fn run_performance_test_generic<C, D>(args: Args)
 where
     C: ComponentType + serde::Serialize + for<'de> serde::Deserialize<'de>,
     D: ValueType + serde::Serialize + for<'de> serde::Deserialize<'de>,
@@ -127,6 +92,9 @@ where
     let serialized: Vec<u8> = fs::read(index_path.unwrap()).unwrap();
 
     let inverted_index = bincode::deserialize::<InvertedIndex<C, D>>(&serialized).unwrap();
+
+    let queries =
+        SparseDataset::<C, f32>::read_bin_file(&args.query_file.as_ref().unwrap()).unwrap();
 
     let n_queries = cmp::min(args.n_queries, queries.len());
 
@@ -150,12 +118,9 @@ where
         results.clear();
 
         for (query_id, (q_components, q_values)) in queries.iter().take(n_queries).enumerate() {
-            // Convert query values from D to f32
-            let q_values_f32: Vec<f32> = q_values.iter().map(|&v| v.to_f32().unwrap()).collect();
-
             let cur_results = inverted_index.search(
                 q_components,
-                &q_values_f32,
+                q_values,
                 args.k,
                 query_cut,
                 heap_factor,
@@ -204,30 +169,46 @@ pub fn main() {
     match (args.component_type.as_str(), args.value_type.as_str()) {
         ("u16", "f16") => {
             println!("Using u16 component type with f16 value type");
-            run_performance_test_u16_f16(args);
+            run_performance_test_generic::<u16, f16>(args);
         }
         ("u16", "bf16") => {
             println!("Using u16 component type with bf16 value type");
-            run_performance_test_u16_bf16(args);
+            run_performance_test_generic::<u16, bf16>(args);
         }
         ("u16", "f32") => {
             println!("Using u16 component type with f32 value type");
-            run_performance_test_u16_f32(args);
+            run_performance_test_generic::<u16, f32>(args);
+        }
+        ("u16", "fixedu8") => {
+            println!("Using u16 component type with fixedu8 value type");
+            run_performance_test_generic::<u16, FixedU8Q>(args);
+        }
+        ("u16", "fixedu16") => {
+            println!("Using u16 component type with fixedu16 value type");
+            run_performance_test_generic::<u16, FixedU16Q>(args);
         }
         ("u32", "f16") => {
             println!("Using u32 component type with f16 value type");
-            run_performance_test_u32_f16(args);
+            run_performance_test_generic::<u32, f16>(args);
         }
         ("u32", "bf16") => {
             println!("Using u32 component type with bf16 value type");
-            run_performance_test_u32_bf16(args);
+            run_performance_test_generic::<u32, bf16>(args);
         }
         ("u32", "f32") => {
             println!("Using u32 component type with f32 value type");
-            run_performance_test_u32_f32(args);
+            run_performance_test_generic::<u32, f32>(args);
+        }
+        ("u32", "fixedu8") => {
+            println!("Using u32 component type with fixedu8 value type");
+            run_performance_test_generic::<u32, FixedU8Q>(args);
+        }
+        ("u32", "fixedu16") => {
+            println!("Using u32 component type with fixedu16 value type");
+            run_performance_test_generic::<u32, FixedU16Q>(args);
         }
         _ => {
-            eprintln!("Error: component-type must be either 'u16' or 'u32', value-type must be 'f16', 'bf16', or 'f32'");
+            eprintln!("Error: component-type must be either 'u16' or 'u32', value-type must be 'f16', 'bf16', 'f32', 'fixedu16', or 'fixedu8'");
             std::process::exit(1);
         }
     }

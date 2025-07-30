@@ -1014,9 +1014,9 @@ macro_rules! impl_seismic_index_raw {
                 knn_path: Option<String>,
                 batched_indexing: Option<usize>,
             ) -> PyResult<$rust_name> {
-                let dataset = SparseDataset::<$Key, f32>::read_bin_file(input_file)
+                let dataset: SparseDataset<$Key, f16> = SparseDataset::<$Key, f32>::read_bin_file(input_file)
                     .unwrap()
-                    .quantize_f16();
+                    .quantize();
 
                 let knn_config = KnnConfiguration::new(nknn, knn_path);
 
