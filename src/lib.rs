@@ -6,9 +6,9 @@
 #![doc = include_str!("../README.md")]
 
 use distances::{dot_product_dense_sparse, dot_product_dense_sparse_u32, dot_product_with_merge};
+
 use pyo3::types::PyModuleMethods;
 
-use fixed::types::extra::U8;
 use fixed::FixedU16;
 use fixed::FixedU8;
 use half::bf16;
@@ -55,24 +55,12 @@ use crate::pylib::SeismicDatasetLV as PySeismicDatasetLV;
 use crate::pylib::SeismicIndex as PySeismicIndex;
 use crate::pylib::SeismicIndexLV as PySeismicIndexLV;
 
-use num_traits::{AsPrimitive, FromPrimitive, ToPrimitive, Zero};
+use num_traits::{AsPrimitive, Zero};
 use pyo3::prelude::PyModule;
 use pyo3::{pymodule, Bound, PyResult};
 
 /// Marker for types used as values in a dataset
-pub trait ValueType:
-    SpaceUsage
-    + Copy
-    + ToF32
-    + FromPrimitive
-    + ToPrimitive
-    + Zero
-    + Send
-    + Sync
-    + PartialOrd
-    + FromPrimitive
-{
-}
+pub trait ValueType: SpaceUsage + Copy + ToFromF32 + Zero + Send + Sync + PartialOrd {}
 
 impl ValueType for f64 {}
 
@@ -82,50 +70,83 @@ impl ValueType for f16 {}
 
 impl ValueType for bf16 {}
 
-// Trait locale per conversione a f32
-pub trait ToF32 {
+// Trait locale per conversione a    f32
+pub trait ToFromF32 {
     fn to_f32(self) -> f32;
+    fn from_f32(value: f32) -> Self;
 }
 
-impl ToF32 for f32 {
+impl ToFromF32 for f32 {
     #[inline]
     fn to_f32(self) -> f32 {
         self
     }
+    #[inline]
+    fn from_f32(value: f32) -> Self {
+        value
+    }
 }
-impl ToF32 for f64 {
+impl ToFromF32 for f64 {
     #[inline]
     fn to_f32(self) -> f32 {
         self as f32
     }
-}
-impl ToF32 for f16 {
+
     #[inline]
-    fn to_f32(self) -> f32 {
-        f32::from(self)
-    }
-}
-impl ToF32 for bf16 {
-    #[inline]
-    fn to_f32(self) -> f32 {
-        f32::from(self)
-    }
-}
-impl ToF32 for FixedU8Q {
-    #[inline]
-    fn to_f32(self) -> f32 {
-        self.to_num::<f32>()
-    }
-}
-impl ToF32 for FixedU16Q {
-    #[inline]
-    fn to_f32(self) -> f32 {
-        self.to_num::<f32>()
+    fn from_f32(value: f32) -> Self {
+        value as f64
     }
 }
 
-/// Type aliases for quantized fixed-point types (8 fractional bits)
-pub type FixedU8Q = FixedU8<U8>;
+impl ToFromF32 for f16 {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        f32::from(self)
+    }
+    #[inline]
+    fn from_f32(value: f32) -> Self {
+        f16::from_f32(value)
+    }
+}
+
+impl ToFromF32 for bf16 {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        f32::from(self)
+    }
+    #[inline]
+    fn from_f32(value: f32) -> Self {
+        bf16::from_f32(value)
+    }
+}
+
+impl ToFromF32 for FixedU8Q {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        self.saturating_to_num::<f32>()
+    }
+    #[inline]
+    fn from_f32(value: f32) -> Self {
+        FixedU8Q::saturating_from_num(value)
+    }
+}
+
+impl ToFromF32 for FixedU16Q {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        self.saturating_to_num::<f32>()
+    }
+    #[inline]
+    fn from_f32(value: f32) -> Self {
+        FixedU16Q::saturating_from_num(value)
+    }
+}
+
+/// Type aliases for quantized fixed-point types. You can change FRAC in the `fixed` crate to adjust the precision.
+/// The `FixedU8Q` type uses 6 fractional bits, while `FixedU16Q` uses 8 fractional bits.
+use fixed::types::extra::U6;
+use fixed::types::extra::U8;
+pub type FixedU8Q = FixedU8<U6>;
 pub type FixedU16Q = FixedU16<U8>;
 
 impl ValueType for FixedU8Q {}
@@ -145,7 +166,7 @@ impl SpaceUsage for FixedU16Q {
 
 pub trait ComponentType:
     AsPrimitive<usize>
-    + FromPrimitive
+    + num_traits::FromPrimitive
     + SpaceUsage
     + Copy
     + Send

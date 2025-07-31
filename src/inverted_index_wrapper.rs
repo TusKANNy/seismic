@@ -449,7 +449,7 @@ where
 
         let sorted_values = sorted_indexes
             .iter()
-            .map(|&i| T::from_f32(values[i]).unwrap())
+            .map(|&i| T::from_f32(values[i]))
             .collect::<Vec<_>>();
 
         self.sparse_dataset.push(&sorted_components, &sorted_values);

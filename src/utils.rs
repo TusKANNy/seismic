@@ -262,7 +262,7 @@ where
             .get(doc_id)
             .1
             .iter()
-            .map(|v| v.to_f32().unwrap())
+            .map(|v| v.to_f32())
             .collect::<Vec<_>>();
 
         let dense_vector = conditionally_densify(doc_components, &doc_values, dataset.dim());
@@ -432,7 +432,7 @@ fn compute_centroid_assignments<C: ComponentType, T: ValueType>(
             .get(doc_id)
             .1
             .iter()
-            .map(|v| v.to_f32().unwrap())
+            .map(|v| v.to_f32())
             .collect::<Vec<_>>();
 
         let dense_vector = conditionally_densify(doc_components, &doc_values, dataset.dim());

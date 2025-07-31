@@ -277,7 +277,7 @@ where
             .iter()
             .map(|&v| {
                 let v: f32 = v.to_f32();
-                Q::from_f32(v).unwrap() // TODO: Handle potential conversion errors
+                Q::from_f32(v)
             })
             .collect();
 

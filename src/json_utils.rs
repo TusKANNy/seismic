@@ -43,7 +43,7 @@ where
     let (coords, values): (Vec<_>, Vec<_>) = current_jsonl
         .vector()
         .iter()
-        .map(|(s, y)| (s.to_string(), T::from_f32(*y).unwrap()))
+        .map(|(s, y)| (s.to_string(), T::from_f32(*y)))
         .unzip();
 
     (current_jsonl.get_id_as_string(), coords, values)

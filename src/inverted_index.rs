@@ -1055,7 +1055,7 @@ impl Knn {
             .progress_count(index.forward_index.len() as u64)
             .enumerate()
             .map(|(my_doc_id, (components, values))| {
-                let f32_values: Vec<f32> = values.iter().map(|v| v.to_f32().unwrap()).collect();
+                let f32_values: Vec<f32> = values.iter().map(|v| v.to_f32()).collect();
 
                 index
                     .search(
