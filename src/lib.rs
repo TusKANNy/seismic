@@ -7,53 +7,43 @@
 
 use distances::{dot_product_dense_sparse, dot_product_dense_sparse_u32, dot_product_with_merge};
 
-use pyo3::types::PyModuleMethods;
-
 use fixed::FixedU16;
 use fixed::FixedU8;
 use half::bf16;
 use half::f16;
 
 pub mod pylib;
-
-pub mod sparse_dataset;
-
+use crate::pylib::get_seismic_string;
+use crate::pylib::SeismicDataset as PySeismicDataset;
+use crate::pylib::SeismicDatasetLV as PySeismicDatasetLV;
+use crate::pylib::SeismicIndex as PySeismicIndex;
+use crate::pylib::SeismicIndexLV as PySeismicIndexLV;
 use pylib::SeismicIndexRaw;
 use pylib::SeismicIndexRawLV;
+use pyo3::types::PyModuleMethods;
 use pyo3::wrap_pyfunction;
+
+pub mod sparse_dataset;
 pub use sparse_dataset::SparseDataset;
 pub use sparse_dataset::SparseDatasetMut;
 
 pub mod inverted_index;
-
 pub use inverted_index::InvertedIndex;
 
 pub mod inverted_index_wrapper;
-
 pub use inverted_index_wrapper::SeismicDataset;
 pub use inverted_index_wrapper::SeismicIndex;
 
 pub mod quantized_summary;
-
 pub use quantized_summary::QuantizedSummary;
 
-pub mod elias_fano;
-
 pub mod space_usage;
-
 pub use space_usage::SpaceUsage;
 
 pub mod distances;
 pub mod json_utils;
 pub mod topk_selectors;
 pub mod utils;
-
-use crate::pylib::get_seismic_string;
-use crate::pylib::SeismicDataset as PySeismicDataset;
-use crate::pylib::SeismicDatasetLV as PySeismicDatasetLV;
-
-use crate::pylib::SeismicIndex as PySeismicIndex;
-use crate::pylib::SeismicIndexLV as PySeismicIndexLV;
 
 use num_traits::{AsPrimitive, Zero};
 use pyo3::prelude::PyModule;

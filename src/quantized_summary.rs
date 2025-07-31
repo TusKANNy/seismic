@@ -2,8 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ComponentType, SpaceUsage, SparseDataset, ValueType};
 
-use crate::elias_fano::EliasFano;
 use rustc_hash::FxHashMap;
+
+use toolkit::BitFieldBoxed;
+use toolkit::EliasFano;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct QuantizedSummary<C: ComponentType> {
@@ -11,10 +13,23 @@ pub struct QuantizedSummary<C: ComponentType> {
     d: usize,
     component_ids: Option<Box<[C]>>,
     offsets: EliasFano,
-    summaries_ids: Box<[u16]>, // There cannot be more than 2^16 summaries
+    summaries_ids: BitFieldBoxed,
     values: Box<[u8]>,
     minimums: Box<[f32]>,
     quants: Box<[f32]>,
+}
+
+use mem_dbg::{MemSize, SizeFlags};
+impl SpaceUsage for BitFieldBoxed {
+    fn space_usage_byte(&self) -> usize {
+        self.mem_size(SizeFlags::empty())
+    }
+}
+
+impl SpaceUsage for EliasFano {
+    fn space_usage_byte(&self) -> usize {
+        self.mem_size(SizeFlags::empty())
+    }
 }
 
 impl<C: ComponentType> SpaceUsage for QuantizedSummary<C> {
@@ -269,7 +284,7 @@ where
         };
 
         let mut offsets: Vec<usize> = Vec::with_capacity(dataset.len());
-        let mut summaries_ids: Vec<u16> = Vec::with_capacity(dataset.nnz());
+        let mut summaries_ids: Vec<u64> = Vec::with_capacity(dataset.nnz());
         let mut codes = Vec::with_capacity(dataset.nnz());
 
         offsets.push(0);
@@ -277,7 +292,7 @@ where
 
         for (c, ip) in inverted_pairs.iter() {
             codes.extend(ip.iter().map(|(s, _)| *s));
-            summaries_ids.extend(ip.iter().map(|(_, id)| *id as u16));
+            summaries_ids.extend(ip.iter().map(|(_, id)| *id as u64));
             if let Some(ref mut component_ids) = component_ids {
                 // Sparse offset strategy: Store only occuring components
                 component_ids.push(C::from_usize(c.as_()).unwrap());
@@ -314,7 +329,7 @@ where
                 None
             },
             offsets: EliasFano::from(&offsets),
-            summaries_ids: summaries_ids.into_boxed_slice(),
+            summaries_ids: BitFieldBoxed::from(summaries_ids),
             values: codes.into_boxed_slice(),
             minimums: minimums.into_boxed_slice(),
             quants: quants.into_boxed_slice(),
@@ -353,11 +368,12 @@ impl DistancesIter {
                     let current_offset = summaries.offsets.select(i).unwrap();
                     let next_offset = summaries.offsets.select(i + 1).unwrap();
 
-                    let current_summaries_ids =
-                        &summaries.summaries_ids[current_offset..next_offset];
+                    // let current_summaries_ids =
+                    //     &summaries.summaries_ids[current_offset..next_offset];
                     let current_values = &summaries.values[current_offset..next_offset];
 
-                    for (&s_id, &v) in current_summaries_ids.iter().zip(current_values) {
+                    for (pos, &v) in (current_offset..next_offset).zip(current_values) {
+                        let s_id = unsafe { summaries.summaries_ids.get_unchecked(pos) as usize };
                         let val = v as f32 * summaries.quants[s_id as usize]
                             + summaries.minimums[s_id as usize];
                         accumulator[s_id as usize] += val * qv;
@@ -389,10 +405,13 @@ impl DistancesIter {
             if current_offset == next_offset {
                 continue;
             }
-            let current_summaries_ids = &summaries.summaries_ids[current_offset..next_offset];
+            // let current_summaries_ids = &summaries.summaries_ids[current_offset..next_offset];
             let current_values = &summaries.values[current_offset..next_offset];
 
-            for (&s_id, &v) in current_summaries_ids.iter().zip(current_values) {
+            for (pos, &v) in (current_offset..next_offset).zip(current_values) {
+                let s_id = unsafe { summaries.summaries_ids.get_unchecked(pos) as usize };
+
+                // for (&s_id, &v) in current_summaries_ids.iter().zip(current_values) {
                 let val =
                     v as f32 * summaries.quants[s_id as usize] + summaries.minimums[s_id as usize];
                 //accumulator[c as usize] += v as f32 * qv;

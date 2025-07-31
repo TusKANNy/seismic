@@ -268,6 +268,7 @@ where
     ///
     /// let dataset: SparseDataset<u16, f32> = data.into_iter().collect();
     ///
+    /// use half::f16;
     /// let new_dataset: SparseDataset<u16, f16> = dataset.quantize();
     /// ```
     #[must_use]
