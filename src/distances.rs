@@ -219,14 +219,13 @@ where
             while i < v_term_ids.len() && *v_term_ids.get_unchecked(i) < q_id {
                 i += 1;
             }
+            if i == v_term_ids.len() {
+                break;
+            }
 
             if *v_term_ids.get_unchecked(i) == q_id {
                 result += (*v_values.get_unchecked(i)).to_f32() * q_v.to_f32();
                 continue;
-            }
-
-            if i == v_term_ids.len() {
-                break;
             }
         }
     }
