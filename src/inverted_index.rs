@@ -5,9 +5,9 @@ use crate::{ComponentType, QuantizedSummary, SpaceUsage, SparseDataset, ValueTyp
 
 use indicatif::ParallelProgressIterator;
 
-use qwt::SpaceUsage as SpaceUsageQwt;
-use qwt::{BitVector, BitVectorMut};
 use std::fs;
+use toolkit::bitfield::BitFieldVec;
+use toolkit::BitFieldBoxed;
 
 use itertools::Itertools;
 use rayon::prelude::*;
@@ -1024,8 +1024,7 @@ impl KnnConfiguration {
 pub struct Knn {
     n_vecs: usize,
     d: usize,
-    neighbours: BitVector,
-    nbits: usize,
+    neighbours: BitFieldBoxed,
 }
 
 impl SpaceUsage for Knn {
@@ -1033,7 +1032,6 @@ impl SpaceUsage for Knn {
         self.neighbours.space_usage_byte()
             + SpaceUsage::space_usage_byte(&self.n_vecs)
             + SpaceUsage::space_usage_byte(&self.d)
-            + SpaceUsage::space_usage_byte(&self.nbits)
     }
 }
 
@@ -1075,21 +1073,18 @@ impl Knn {
             })
             .collect();
 
-        let (bv, nbits) = Self::compress_into_bitvector(
-            docs_search_results
-                .into_iter()
-                .flat_map(|r| r.into_iter())
-                .map(|(_distance, doc_id)| doc_id as u64),
-            n_vecs,
-            d,
-        );
+        let neighbours: Vec<u64> = docs_search_results
+            .into_iter()
+            .flat_map(|r| r.into_iter())
+            .map(|(_distance, doc_id)| doc_id as u64)
+            .collect();
+
+        let bitfield = BitFieldBoxed::from(neighbours);
 
         Self {
             n_vecs,
             d,
-            //neighbours: neighbours.into_boxed_slice(),
-            neighbours: bv,
-            nbits,
+            neighbours: bitfield,
         }
     }
 
@@ -1112,21 +1107,20 @@ impl Knn {
             println!("We only take {:} neighbors per element!", nknn);
         }
 
-        let mut neighbours = BitVectorMut::with_capacity(knn.n_vecs * knn.nbits * nknn);
+        let mut neighbours = BitFieldVec::with_capacity(knn.n_vecs, knn.neighbours.field_width());
 
         for id in 0..knn.n_vecs {
+            let base_pos = id * knn.d;
             for i in 0..nknn {
-                let bit_offset = id * knn.d * knn.nbits + i * knn.nbits;
-                let neighbor = knn.neighbours.get_bits(bit_offset, knn.nbits).unwrap();
-                neighbours.append_bits(neighbor, knn.nbits);
+                let neighbor = knn.neighbours.get(base_pos + i).unwrap();
+                neighbours.push(neighbor);
             }
         }
 
         Knn {
             n_vecs: knn.n_vecs,
             d: nknn,
-            neighbours: BitVector::from(neighbours),
-            nbits: knn.nbits,
+            neighbours: neighbours.convert_into(),
         }
     }
 
@@ -1135,21 +1129,6 @@ impl Knn {
         let path = output_file.to_string() + ".knn.seismic";
         println!("Saving ... {}", path);
         fs::write(path, serialized)
-    }
-
-    #[must_use]
-    fn compress_into_bitvector(
-        data: impl Iterator<Item = u64>,
-        n_vecs: usize,
-        d: usize,
-    ) -> (BitVector, usize) {
-        let nbits = (n_vecs as f32).log2().ceil() as usize;
-        let mut neighbours = BitVectorMut::with_capacity(n_vecs * d * nbits);
-        for x in data {
-            //neighbours.push(x as u32);
-            neighbours.append_bits(x, nbits);
-        }
-        (BitVector::from(neighbours), nbits)
     }
 
     #[inline]
@@ -1173,14 +1152,15 @@ impl Knn {
         let neighbours: Vec<_> = heap.topk();
         for &(_distance, offset) in neighbours.iter() {
             let id = forward_index.offset_to_id(offset);
+            let base_pos = id * self.d;
 
             for i in 0..n_knn {
-                let bit_offset = id * self.d * self.nbits + i * self.nbits;
-                let neighbour = self.neighbours.get_bits(bit_offset, self.nbits).unwrap();
+                // SAFETY: we are sure the position is valid
+                let neighbour = unsafe { self.neighbours.get_unchecked(base_pos + i) } as usize;
 
-                let offset = forward_index.vector_offset(neighbour as usize);
+                let offset = forward_index.vector_offset(neighbour);
 
-                let len = forward_index.vector_len(neighbour as usize);
+                let len = forward_index.vector_len(neighbour);
 
                 if !visited.contains(&offset) {
                     let (v_components, v_values) = forward_index.get_with_offset(offset, len);
