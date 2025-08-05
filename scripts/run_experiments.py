@@ -427,6 +427,25 @@ def get_machine_info(configs, experiment_folder):
     return
 
 
+def remove_index_files(configs):
+    """Remove index files if delete parameter is set to true."""
+    if not configs['settings'].get('delete', False):
+        return
+
+    index_folder = configs["folder"]["index"]
+    index_filename = get_index_filename(configs["filename"]["index"], configs)
+    index_file_path = os.path.join(index_folder, f"{index_filename}.index.seismic")
+
+    try:
+        if os.path.exists(index_file_path):
+            os.remove(index_file_path)
+            print(colored(f"Index file removed: {index_file_path}", "yellow"))
+        else:
+            print(colored(f"Index file not found (already removed?): {index_file_path}", "yellow"))
+    except Exception as e:
+        print(colored(f"Warning: Could not remove index file {index_file_path}: {e}", "red"))
+
+
 def run_experiment(config_data):
     """Run the seismic experiment based on the provided configuration."""
 
@@ -475,6 +494,9 @@ def run_experiment(config_data):
             for subsection, query_config in config_data['query'].items():
                 query_time, recall, metric, memory_usage = query_execution(config_data, query_config, experiment_folder, subsection)
                 report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\t{building_time}\n")
+
+    # Remove index files if delete parameter is set to true
+    remove_index_files(config_data)
 
 def main(experiment_config_filename):
     config_data = parse_toml(experiment_config_filename)
