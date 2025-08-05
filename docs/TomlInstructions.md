@@ -73,6 +73,7 @@ General configuration for the experiment execution:
 k =             10          # Number of top results to retrieve
 n-runs =        1           # Number of experimental runs (affects query time measurement)
 build =         true        # Whether to build the index (false if index already exists)
+delete =        false       # Whether to remove index files after use to save disk space
 metric =        "RR@10"     # Evaluation metric to compute
 component-type = "u16"      # Component type for sparse vector indices
 value-type =     "f16"      # Value type for sparse vector values (options: "f16", "bf16", "f32", "fixedu8", "fixedu16")
