@@ -13,6 +13,7 @@ n-runs =        1       # Number of runs. PLEASE think carefully how increasing
 # NUMA =        ""      # "numactl --physcpubind='0-15' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
 metric =        "RR@10"
 build =         true    # Do we need to build the index?
+delete =        false   # Remove index files after use to save disk space
 
 [folder] 
 data =          "~/sparse_datasets/msmarco_v1_passage/cocondenser/data"
