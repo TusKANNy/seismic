@@ -10,6 +10,7 @@
 //! Conversion between the two representations is straightforward, as both implement the [`From`] trait.
 
 use itertools::Itertools;
+use metis::Graph;
 use rayon::iter::plumbing::ProducerCallback;
 use serde::{Deserialize, Serialize};
 
@@ -21,11 +22,14 @@ use std::io::{BufReader, Read, Result as IoResult};
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::path::Path;
+use std::time::Instant;
 
 use rayon::iter::plumbing::{Consumer, Producer, UnindexedConsumer, bridge};
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
 
 use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
+use crate::partitioned_dataset::fitting_integer::*;
+use crate::partitioned_dataset::utils::HollowSymmetricMatrix;
 use crate::utils::prefetch_read_slice;
 use crate::{ComponentType, SpaceUsage, ValueType};
 
@@ -615,6 +619,68 @@ where
 
     pub fn dataset_par_iter(&'_ self) -> ParSparseDatasetIter<'_, C, V> {
         ParSparseDatasetIter::new(self)
+    }
+
+    pub fn partition_components<const N_PARTITIONS: usize>(
+        &self,
+    ) -> Vec<FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>>
+    where
+        (): Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>,
+    {
+        print!("\tBuilding adjacency matrix ");
+        let time = Instant::now();
+
+        let mut adj = HollowSymmetricMatrix::new(self.dim());
+
+        for (components, _) in self.dataset_iter() {
+            for (i, c1) in components.iter().map(|&c| c.as_()).enumerate() {
+                // Skip the components where c2 <= c1, since the matrix is symmetrical. Remember that the components are ordered.
+                for c2 in components.iter().map(|c| c.as_()).skip(i + 1) {
+                    unsafe {
+                        *adj.get_unchecked_mut(c1, c2) += 1;
+                    }
+                }
+            }
+        }
+
+        let elapsed = time.elapsed();
+        println!("{} secs", elapsed.as_secs());
+
+        let mut adjncy = Vec::new();
+        let mut weights = Vec::new();
+        let mut xadj = Vec::with_capacity(self.dim() + 1);
+        xadj.push(0);
+        for c1 in 0..self.dim() {
+            for (c2, &w) in adj.iter_row(c1).filter(|(_, w)| **w > 0) {
+                adjncy.push(c2 as i32);
+                weights.push(w);
+            }
+            xadj.push(adjncy.len() as i32);
+        }
+
+        print!("\tBuilding partitions ");
+        let time = Instant::now();
+
+        let mut part = vec![0; self.dim()];
+
+        Graph::new(1, N_PARTITIONS as i32, xadj.as_slice(), adjncy.as_slice())
+            .unwrap()
+            .set_adjwgt(weights.as_slice())
+            .part_recursive(part.as_mut_slice())
+            .unwrap();
+
+        let result = part
+            .into_iter()
+            .map(|p| {
+                FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_i32(p)
+                    .unwrap()
+            })
+            .collect();
+
+        let elapsed = time.elapsed();
+        println!("{} secs", elapsed.as_secs());
+
+        result
     }
 }
 

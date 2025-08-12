@@ -25,7 +25,7 @@ trait Offset = PrimInt + FromPrimitive + ToPrimitive + Pod;
 struct PostingView<'a, const N_PARTITIONS: usize, C, V, O>
 where
     (): Fit<N_PARTITIONS>,
-    FittingArray<N_PARTITIONS>: Sized,
+    [(); N_PARTITIONS.div_ceil(size_of::<FittingInteger<N_PARTITIONS>>() * 8)]: Sized,
     O: Offset,
     C: ComponentType,
     V: ValueType,
@@ -39,7 +39,7 @@ where
 impl<'a, const N_PARTITIONS: usize, C, V, O> PostingView<'a, N_PARTITIONS, C, V, O>
 where
     (): Fit<N_PARTITIONS>,
-    FittingArray<N_PARTITIONS>: Sized,
+    [(); N_PARTITIONS.div_ceil(size_of::<FittingInteger<N_PARTITIONS>>() * 8)]: Sized,
     O: Offset,
     C: ComponentType,
     V: ValueType,
@@ -87,13 +87,17 @@ where
     /// Given a document, convert the document in a format that can be read by `Self::from_unchecked`.
     ///
     /// It asks for an existing `&mut Vec` to `extend` in order to avoid making unnecessary allocations.
-    fn push_posting(vec: &mut Vec<u8>, posting: impl Iterator<Item = (C, V)>) {
-        let (components, values) =
-            sort_by_partition(posting, partitioning_function::<N_PARTITIONS, C>);
-        let partitions_len: [_; N_PARTITIONS] = partitions_len_array(
-            components.iter().cloned(),
-            partitioning_function::<N_PARTITIONS, C>,
-        );
+    fn push_posting(
+        vec: &mut Vec<u8>,
+        posting: impl Iterator<Item = (C, V)>,
+        partitions: &[FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>],
+    ) where
+        (): Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>,
+    {
+        let partitioning_function = |c| partitioning_function(c, partitions);
+        let (components, values) = sort_by_partition(posting, partitioning_function);
+        let partitions_len: [_; N_PARTITIONS] =
+            partitions_len_array(components.iter().cloned(), partitioning_function);
 
         let active_partitions =
             gen_active_partitions::<N_PARTITIONS>(partitions_len.map(|s| s > 0));
@@ -242,8 +246,7 @@ where
 #[derive(Serialize, Deserialize)]
 pub struct SparseDatasetPartitioned<const N_PARTITIONS: usize, C, V>
 where
-    (): Fit<N_PARTITIONS>,
-    FittingArray<N_PARTITIONS>: Sized,
+    (): Fit<N_PARTITIONS> + Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>,
     C: ComponentType,
     V: ValueType,
 {
@@ -251,14 +254,15 @@ where
     nnz: usize,
     offsets: Box<[usize]>,
     postings: Box<[usize]>, // usize to force alignment for each posting
+    partitions: Box<[FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>]>, // Could be u8 (why use more than 256 partitions?), but this is technically correct
     phantom_data: PhantomData<(C, V)>,
 }
 
 impl<const N_PARTITIONS: usize, C, V> SparseDatasetTrait
     for SparseDatasetPartitioned<N_PARTITIONS, C, V>
 where
-    (): Fit<N_PARTITIONS>,
-    FittingArray<N_PARTITIONS>: Sized,
+    (): Fit<N_PARTITIONS> + Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>,
+    [(); N_PARTITIONS.div_ceil(size_of::<FittingInteger<N_PARTITIONS>>() * 8)]: Sized,
     C: ComponentType,
     V: ValueType,
 {
@@ -290,7 +294,7 @@ where
             query.inspect(|&(c, v)| {
                 query_vec[c.as_()] = v;
             }),
-            |(d, _)| partitioning_function::<N_PARTITIONS, _>(d),
+            |(d, _)| partitioning_function(d, self.partitions.as_ref()),
         );
         let active_partitions = gen_active_partitions(partitions.map(|l| l > 0));
 
@@ -370,8 +374,8 @@ impl<const N_PARTITIONS: usize, C, V, O, AC, AV>
     FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
     for SparseDatasetPartitioned<N_PARTITIONS, C, V>
 where
-    (): Fit<N_PARTITIONS>,
-    FittingArray<N_PARTITIONS>: Sized,
+    (): Fit<N_PARTITIONS> + Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>,
+    [(); N_PARTITIONS.div_ceil(size_of::<FittingInteger<N_PARTITIONS>>() * 8)]: Sized,
     C: ComponentType,
     V: ValueType,
     O: AsRef<[usize]> + SpaceUsage,
@@ -381,13 +385,20 @@ where
     fn from_dataset_f32(dataset: SparseDatasetGeneric<C, f32, O, AC, AV>) -> Self {
         let dim = dataset.dim();
         let nnz = dataset.nnz();
+        let partitions = dataset
+            .partition_components::<N_PARTITIONS>()
+            .into_boxed_slice();
 
         let mut postings_u8 = Vec::new();
 
         let offsets = std::iter::once(0)
             .chain(dataset.iter().map(|p| {
                 let p = p.map(|(c, v)| (c, V::from_f32_saturating(v)));
-                PostingView::<N_PARTITIONS, C, V, u16>::push_posting(&mut postings_u8, p);
+                PostingView::<N_PARTITIONS, C, V, u16>::push_posting(
+                    &mut postings_u8,
+                    p,
+                    partitions.as_ref(),
+                );
                 postings_u8.len() / size_of::<usize>()
             }))
             .collect();
@@ -409,6 +420,7 @@ where
             nnz,
             offsets,
             postings,
+            partitions,
             phantom_data: PhantomData,
         }
     }
@@ -416,8 +428,7 @@ where
 
 impl<const N_PARTITIONS: usize, C, V> SpaceUsage for SparseDatasetPartitioned<N_PARTITIONS, C, V>
 where
-    (): Fit<N_PARTITIONS>,
-    FittingArray<N_PARTITIONS>: Sized,
+    (): Fit<N_PARTITIONS> + Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>,
     C: ComponentType,
     V: ValueType,
 {
@@ -427,6 +438,7 @@ where
             + self.nnz.space_usage_byte()
             + self.offsets.space_usage_byte()
             + self.postings.space_usage_byte()
+            + self.partitions.space_usage_byte()
     }
 }
 
@@ -451,7 +463,7 @@ mod tests {
         );
 
         let partitioned_dataset =
-            SparseDatasetPartitioned::<32, u16, FixedU16Q>::from_dataset_f32(dataset);
+            SparseDatasetPartitioned::<4, u16, FixedU16Q>::from_dataset_f32(dataset);
 
         let query = [(0_usize, 1.0), (1, 2.0)];
         let prepared_query = partitioned_dataset.prepare_query(query.into_iter());
@@ -517,7 +529,7 @@ mod tests {
         );
 
         let partitioned_dataset =
-            SparseDatasetPartitioned::<32, u16, FixedU16Q>::from_dataset_f32(dataset);
+            SparseDatasetPartitioned::<4, u16, FixedU16Q>::from_dataset_f32(dataset);
 
         let my_clustering_algorithm = ClusteringAlgorithm::RandomKmeans {};
 

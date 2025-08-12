@@ -1,5 +1,8 @@
 use bytemuck::Pod;
 use num_traits::{FromBytes, FromPrimitive, One, ToBytes, ToPrimitive};
+use serde::{Serialize, de::DeserializeOwned};
+
+use crate::SpaceUsage;
 
 // This is a very ugly workaround to achieve the equivalent of the following:
 // ```
@@ -12,13 +15,17 @@ use num_traits::{FromBytes, FromPrimitive, One, ToBytes, ToPrimitive};
 // TODO: when it is, remove this ugly workaround, and all the ugly `where`'s in partitioned_dataset.rs related to it!
 pub trait Fit<const N: usize> {
     type Integer: num_traits::PrimInt
+        + SpaceUsage
         + FromPrimitive
         + ToPrimitive
         + FromBytes
         + ToBytes
         + One
         + Send
-        + Pod;
+        + Sync
+        + Pod
+        + Serialize
+        + DeserializeOwned;
 }
 
 pub type FittingInteger<const N: usize> = <() as Fit<N>>::Integer;

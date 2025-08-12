@@ -1,3 +1,3 @@
 pub mod dataset;
-mod fitting_integer;
-mod utils;
+pub(crate) mod fitting_integer;
+pub(crate) mod utils;
