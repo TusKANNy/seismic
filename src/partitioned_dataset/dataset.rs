@@ -230,6 +230,26 @@ where
     }
 }
 
+// Offsets take a big chunk of space, meaning that having them as small as possible is important.
+// Thus, each posting's uses a different offset type depending on how many components/values in it.
+// This macro helps choosing the correct Offset type given a posting's slice.
+macro_rules! with_posting_view {
+    ($view:expr, |$posting_view:ident| $body:block) => {
+        unsafe {
+            let view_u8 = try_cast_slice::<_, u8>($view).unwrap_unchecked();
+            // This address is for getting the "second offset"
+            // If the "second offset" is 0, it's because it's actually an u16
+            if *view_u8.get_unchecked(size_of::<FittingArray<N_PARTITIONS>>() + 1) > 0 {
+                let $posting_view = PostingView::<N_PARTITIONS, C, V, u8>::from_unchecked($view);
+                $body
+            } else {
+                let $posting_view = PostingView::<N_PARTITIONS, C, V, u16>::from_unchecked($view);
+                $body
+            }
+        }
+    };
+}
+
 /// A dataset where in each document, components (and their respective values) are divided by the partition,
 /// in order to require less information to represent (not implemented yet).
 ///
@@ -276,13 +296,11 @@ where
         &self,
         offset: usize,
         len: usize,
-    ) -> impl ExactSizeIterator<Item = (Self::Component, Self::Value)> {
-        let posting_view = unsafe {
-            PostingView::<N_PARTITIONS, C, V, u16>::from_unchecked(
-                self.postings.get_unchecked(offset..offset + len),
-            )
-        };
-        posting_view.get_all_iter()
+    ) -> Box<dyn ExactSizeIterator<Item = (Self::Component, Self::Value)> + Send + '_> {
+        let view = unsafe { self.postings.get_unchecked(offset..offset + len) };
+        with_posting_view!(view, |posting_view| {
+            Box::new(posting_view.get_all_iter())
+        })
     }
 
     fn prepare_query<D: ComponentType, U: ValueType>(
@@ -308,12 +326,10 @@ where
         offset: usize,
         len: usize,
     ) -> f32 {
-        unsafe {
-            PostingView::<N_PARTITIONS, C, V, u16>::from_unchecked(
-                self.postings.get_unchecked(offset..offset + len),
-            )
-        }
-        .dot_product(prepared_query.0, &prepared_query.1)
+        let view = unsafe { self.postings.get_unchecked(offset..offset + len) };
+        with_posting_view!(view, |posting_view| {
+            posting_view.dot_product(prepared_query.0, &prepared_query.1)
+        })
     }
 
     fn offset_to_id(&self, offset: usize) -> usize {
@@ -415,13 +431,24 @@ where
         let mut postings_u8 = Vec::new();
 
         let offsets = std::iter::once(0)
-            .chain(dataset.iter().map(|p| {
-                let p = p.map(|(c, v)| (c, V::from_f32_saturating(v)));
-                PostingView::<N_PARTITIONS, C, V, u16>::push_posting(
-                    &mut postings_u8,
-                    p,
-                    partitions.as_ref(),
-                );
+            .chain(dataset.dataset_iter().map(|(c, v)| {
+                let p_iter = c
+                    .iter()
+                    .zip(v)
+                    .map(|(&c, &v)| (c, V::from_f32_saturating(v)));
+                if c.len() < 256 {
+                    PostingView::<N_PARTITIONS, C, V, u8>::push_posting(
+                        &mut postings_u8,
+                        p_iter,
+                        partitions.as_ref(),
+                    );
+                } else {
+                    PostingView::<N_PARTITIONS, C, V, u16>::push_posting(
+                        &mut postings_u8,
+                        p_iter,
+                        partitions.as_ref(),
+                    );
+                }
                 postings_u8.len() / size_of::<usize>()
             }))
             .collect();
