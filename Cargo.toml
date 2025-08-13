@@ -27,7 +27,12 @@ clap = { version = "4.5", features = ["derive"] }
 rayon = "1.11"
 # TODO: f16 available in nightly, but not supported by crates: https://github.com/rust-num/num-traits/pull/333
 half = { version = "2.6", features = ["serde", "std", "num-traits"] }
-fixed = { version = "1.29.0", features = ["num-traits", "serde"] }
+# TODO: use upstream when https://gitlab.com/tspiteri/fixed/-/issues/69 is fixed
+# If it's not getting fixed, prefer using a git patch when https://github.com/rust-lang/cargo/issues/4648 is fixed
+fixed = { git = "https://gitlab.com/tinozzo123/fixed", branch = "fast_to_f32_hack", features = [
+    "num-traits",
+    "serde",
+] }
 num-traits = "0.2"
 itertools = "0.14"
 rand = "0.9"
