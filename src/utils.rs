@@ -112,7 +112,7 @@ impl Ord for ScoredItem {
 /// We use 48 bits for the offset and 16 bits for the length. This choice limits the size of the dataset to be 1<<48.
 /// We use the forward index to convert the offsets of the top-k back to the id of the corresponding documents.
 /// Preferably use #[repr(packed)], if u48 becomes a thing: https://github.com/rust-lang/rfcs/issues/2903
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub(crate) struct PackedPostingBlock {
     n: u64,
 }

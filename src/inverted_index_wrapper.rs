@@ -6,9 +6,9 @@ use std::{
 };
 
 use crate::{
-    ComponentType,
+    ComponentType, FromDatasetGenericF32,
     json_utils::{JsonFormat, extract_jsonl},
-    sparse_dataset::{FromDatasetGenericF32, SparseDatasetMutTrait, SparseDatasetTrait},
+    sparse_dataset::{SparseDatasetMutTrait, SparseDatasetStableTrait, SparseDatasetTrait},
 };
 
 use indicatif::ProgressIterator;
@@ -49,7 +49,7 @@ where
 
 impl<S> SeismicIndex<S>
 where
-    S: SparseDatasetTrait + Sync,
+    S: SparseDatasetStableTrait + Sync,
 {
     pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
         self.inverted_index.get_doc_ids_in_postings(list_id)
@@ -360,7 +360,7 @@ where
     pub fn from_dataset<T>(dataset: SeismicDataset<T>, config: Configuration) -> Self
     where
         T: SparseDatasetMutTrait,
-        S: From<T>,
+        S: From<T> + SparseDatasetStableTrait,
     {
         Self {
             inverted_index: InvertedIndex::build(S::from(dataset.sparse_dataset), config),

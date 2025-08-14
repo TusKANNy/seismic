@@ -38,6 +38,8 @@ pub trait SparseDatasetTrait: SpaceUsage {
     type PreparedQuery<D: ComponentType, W: ValueType>;
 
     /// Iterates a document from a given ID, returning its components and values.
+    ///
+    /// If the dataset doesn't implement `SparseDatasetStableTrait`, the components will not match the base dataset it was built from.
     #[inline]
     fn get_iter(&self, id: usize) -> impl Iterator<Item = (Self::Component, Self::Value)> {
         let offset = self.offset_range(id);
@@ -45,6 +47,8 @@ pub trait SparseDatasetTrait: SpaceUsage {
     }
 
     /// Iterates a document from a given offset, returning its components and values.
+    ///
+    /// If the dataset doesn't implement `SparseDatasetStableTrait`, the components will not match the base dataset it was built from.
     fn get_with_offset_iter(
         &self,
         offset: usize,
@@ -143,6 +147,19 @@ pub trait SparseDatasetTrait: SpaceUsage {
     fn par_iter(
         &self,
     ) -> impl IndexedParallelIterator<Item = impl Iterator<Item = (Self::Component, Self::Value)> + Send>;
+}
+
+/// Marks the dataset as "stable": its components do not change from the binary index, making it suitable for building an inverted index.
+pub trait SparseDatasetStableTrait: SparseDatasetTrait {}
+
+impl<C, V, O, AC, AV> SparseDatasetStableTrait for SparseDatasetGeneric<C, V, O, AC, AV>
+where
+    C: ComponentType,
+    V: ValueType,
+    O: AsRef<[usize]> + SpaceUsage,
+    AC: AsRef<[C]> + SpaceUsage,
+    AV: AsRef<[V]> + SpaceUsage,
+{
 }
 
 pub trait SparseDatasetMutTrait: SparseDatasetTrait + Default {

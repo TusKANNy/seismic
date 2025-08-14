@@ -578,9 +578,6 @@ mod tests {
                 .map(|(c, v)| c.into_iter().zip(v).collect_vec()),
         );
 
-        let partitioned_dataset =
-            SparseDatasetPartitioned::<4, u16, FixedU16Q>::from_dataset_f32(dataset);
-
         let my_clustering_algorithm = ClusteringAlgorithm::RandomKmeans {};
 
         let config = Configuration::default()
@@ -597,7 +594,10 @@ mod tests {
         println!("\nBuilding the index...");
         println!("{:?}", config);
 
-        let inverted_index = InvertedIndex::build(partitioned_dataset, config);
+        let inverted_index =
+            InvertedIndex::<SparseDatasetPartitioned<4, u16, FixedU16Q>>::from_base_dataset(
+                dataset, config,
+            );
 
         let (query_components, query_values) = ([0, 1], [1.0, 2.0]);
 

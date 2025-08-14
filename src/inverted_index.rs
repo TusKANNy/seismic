@@ -1,9 +1,10 @@
+use crate::sparse_dataset::SparseDatasetStableTrait;
 use crate::utils::{
     KHeap, PackedPostingBlock, ScoredItem, prefetch_read_slice, read_from_path, write_to_path,
 };
 use crate::{
-    ComponentType, QuantizedSummary, SpaceUsage, SparseDataset, SparseDatasetMut,
-    SparseDatasetTrait, ValueType,
+    ComponentType, FromDatasetGenericF32, QuantizedSummary, SpaceUsage, SparseDataset,
+    SparseDatasetMut, SparseDatasetTrait, ValueType,
 };
 use toolkit::BitFieldBoxed;
 use toolkit::bitfield::BitFieldVec;
@@ -258,7 +259,10 @@ where
     }
 
     /// `n_postings`: minimum number of postings to select for each component
-    pub fn build(dataset: S, config: Configuration) -> Self {
+    pub fn build(dataset: S, config: Configuration) -> Self
+    where
+        S: SparseDatasetStableTrait,
+    {
         // Distribute pairs (score, doc_id) to corresponding components for each chunk.
         // We use pairs because later each posting list will be sorted by score
         // by the pruning strategy.
@@ -384,6 +388,57 @@ where
             config,
             knn: Some(knn),
         }
+    }
+
+    /// Convert the `InvertedIndex`'s dataset to another one.
+    pub fn from_inverted_index<T>(inverted_index: InvertedIndex<T>) -> Self
+    where
+        S: SparseDatasetTrait<Component = T::Component>
+            + FromDatasetGenericF32<T>
+            + SparseDatasetTrait,
+        T: SparseDatasetStableTrait,
+    {
+        // For datasets that are only used as bases for conversion, it would be better to store the id
+        let old_packs: Box<_> = (0..inverted_index.forward_index.len())
+            .map(|i| {
+                let range = inverted_index.forward_index.offset_range(i);
+                PackedPostingBlock::new_pack(range.start as u64, range.len() as u16)
+            })
+            .collect();
+        let new_dataset = S::from_dataset_f32(inverted_index.forward_index);
+        let packs_map: HashMap<_, _> = old_packs
+            .into_iter()
+            .zip((0..new_dataset.len()).map(|i| {
+                let range = new_dataset.offset_range(i);
+                PackedPostingBlock::new_pack(range.start as u64, range.len() as u16)
+            }))
+            .collect();
+
+        let mut posting_lists = inverted_index.posting_lists;
+        for posting in posting_lists.iter_mut() {
+            for pack in posting.packed_postings.iter_mut() {
+                *pack = packs_map[pack];
+            }
+        }
+
+        Self {
+            forward_index: new_dataset,
+            posting_lists,
+            config: inverted_index.config,
+            knn: inverted_index.knn,
+        }
+    }
+
+    /// Convenience function to build InvertedIndex using a certain dataset as a base, then convering the dataset.
+    pub fn from_base_dataset<T>(dataset: T, config: Configuration) -> Self
+    where
+        S: SparseDatasetTrait<Component = T::Component>
+            + FromDatasetGenericF32<T>
+            + SparseDatasetTrait,
+        T: SparseDatasetStableTrait + Sync,
+    {
+        let inverted_index = InvertedIndex::<T>::build(dataset, config);
+        Self::from_inverted_index(inverted_index)
     }
 
     // Add a precomputed knn graph to the index, limiting the number of neighbours to limit if it is not None
