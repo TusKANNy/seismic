@@ -1,9 +1,12 @@
 use std::hint::assert_unchecked;
+use std::time::Instant;
 
 use crate::{ComponentType, partitioned_dataset::fitting_integer::*};
 use itertools::Itertools;
+use metis::Graph;
 use num_traits::{One, Zero};
 use num_traits::{PrimInt, ToPrimitive};
+use serde::{Deserialize, Serialize};
 
 /// A symmetrical matrix where the diagonal components are 0. Only the upper part of the matrix is stored.
 pub struct HollowSymmetricMatrix<T: Zero + Copy> {
@@ -46,6 +49,46 @@ impl<T: Zero + Copy> HollowSymmetricMatrix<T> {
         let before = (0..i).map(move |j| (j, unsafe { self.get_unchecked(j, i) }));
         let after = ((i + 1)..self.dim).map(move |j| (j, unsafe { self.get_unchecked(i, j) }));
         before.chain(after)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct MetisParams {
+    pub adjncy: Box<[i32]>,
+    pub weights: Box<[i32]>,
+    pub xadj: Box<[i32]>,
+}
+
+impl MetisParams {
+    pub fn build_partitions<const N_PARTITIONS: usize>(
+        &self,
+    ) -> Vec<FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>>
+    where
+        (): Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>,
+    {
+        print!("\tBuilding partitions ");
+        let time = Instant::now();
+
+        let mut part = vec![0; self.xadj.len() - 1];
+
+        Graph::new(1, N_PARTITIONS as i32, &self.xadj, &self.adjncy)
+            .unwrap()
+            .set_adjwgt(&self.weights)
+            .part_recursive(part.as_mut_slice())
+            .unwrap();
+
+        let result = part
+            .into_iter()
+            .map(|p| {
+                FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_i32(p)
+                    .unwrap()
+            })
+            .collect();
+
+        let elapsed = time.elapsed();
+        println!("{} secs", elapsed.as_secs());
+
+        result
     }
 }
 

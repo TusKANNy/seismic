@@ -10,7 +10,6 @@
 //! Conversion between the two representations is straightforward, as both implement the [`From`] trait.
 
 use itertools::Itertools;
-use metis::Graph;
 use rayon::iter::plumbing::ProducerCallback;
 use serde::{Deserialize, Serialize};
 
@@ -28,8 +27,8 @@ use rayon::iter::plumbing::{Consumer, Producer, UnindexedConsumer, bridge};
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
 
 use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
-use crate::partitioned_dataset::fitting_integer::*;
 use crate::partitioned_dataset::utils::HollowSymmetricMatrix;
+use crate::partitioned_dataset::utils::*;
 use crate::utils::prefetch_read_slice;
 use crate::{ComponentType, SpaceUsage, ValueType};
 
@@ -621,12 +620,7 @@ where
         ParSparseDatasetIter::new(self)
     }
 
-    pub fn partition_components<const N_PARTITIONS: usize>(
-        &self,
-    ) -> Vec<FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>>
-    where
-        (): Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>,
-    {
+    pub fn adjacency_matrix_metis(&self) -> MetisParams {
         print!("\tBuilding adjacency matrix ");
         let time = Instant::now();
 
@@ -648,39 +642,36 @@ where
 
         let mut adjncy = Vec::new();
         let mut weights = Vec::new();
-        let mut xadj = Vec::with_capacity(self.dim() + 1);
-        xadj.push(0);
-        for c1 in 0..self.dim() {
-            for (c2, &w) in adj.iter_row(c1).filter(|(_, w)| **w > 0) {
-                adjncy.push(c2 as i32);
-                weights.push(w);
-            }
-            xadj.push(adjncy.len() as i32);
-        }
-
-        print!("\tBuilding partitions ");
-        let time = Instant::now();
-
-        let mut part = vec![0; self.dim()];
-
-        Graph::new(1, N_PARTITIONS as i32, xadj.as_slice(), adjncy.as_slice())
-            .unwrap()
-            .set_adjwgt(weights.as_slice())
-            .part_recursive(part.as_mut_slice())
-            .unwrap();
-
-        let result = part
-            .into_iter()
-            .map(|p| {
-                FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_i32(p)
-                    .unwrap()
-            })
+        let xadj = std::iter::once(0)
+            .chain((0..self.dim()).map(|c1| {
+                for (c2, &w) in adj.iter_row(c1).filter(|(_, w)| **w > 0) {
+                    adjncy.push(c2 as i32);
+                    weights.push(w);
+                }
+                adjncy.len() as i32
+            }))
             .collect();
 
         let elapsed = time.elapsed();
         println!("{} secs", elapsed.as_secs());
 
-        result
+        MetisParams {
+            adjncy: adjncy.into_boxed_slice(),
+            weights: weights.into_boxed_slice(),
+            xadj,
+        }
+    }
+
+    pub fn offsets(&self) -> &O {
+        &self.offsets
+    }
+
+    pub fn components(&self) -> &AC {
+        &self.components
+    }
+
+    pub fn values(&self) -> &AV {
+        &self.values
     }
 }
 

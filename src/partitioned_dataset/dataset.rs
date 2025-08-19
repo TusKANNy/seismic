@@ -1,4 +1,5 @@
 use std::{
+    hash::{DefaultHasher, Hash, Hasher},
     hint::{assert_unchecked, black_box},
     marker::PhantomData,
     ops::Range,
@@ -14,7 +15,7 @@ use crate::{
     distances::dot_product_dense_sparse,
     partitioned_dataset::{fitting_integer::*, utils::*},
     sparse_dataset::SparseDatasetGeneric,
-    utils::prefetch_read_slice,
+    utils::{prefetch_read_slice, read_from_path, write_to_path},
 };
 
 trait Offset = PrimInt + FromPrimitive + ToPrimitive + Pod;
@@ -378,15 +379,37 @@ where
     [(); N_PARTITIONS.div_ceil(size_of::<FittingInteger<N_PARTITIONS>>() * 8)]: Sized,
     C: ComponentType,
     V: ValueType,
-    O: AsRef<[usize]> + SpaceUsage,
-    AC: AsRef<[C]> + SpaceUsage,
+    O: AsRef<[usize]> + SpaceUsage + Hash,
+    AC: AsRef<[C]> + SpaceUsage + Hash,
     AV: AsRef<[f32]> + SpaceUsage,
 {
     fn from_dataset_f32(dataset: SparseDatasetGeneric<C, f32, O, AC, AV>) -> Self {
         let dim = dataset.dim();
         let nnz = dataset.nnz();
-        let partitions = dataset
-            .partition_components::<N_PARTITIONS>()
+
+        // Load the dataset's adjacency matrix
+        // Hash the dataset's components and offsets so that its adjacency can be cached (as it's a very long operation)
+        let mut s = DefaultHasher::new();
+        dataset.components().hash(&mut s);
+        dataset.offsets().hash(&mut s);
+        let hash = s.finish();
+        let filename = format!("cached_adjacency_{}", hash);
+        let metis_params = if !std::fs::exists(filename.as_str()).is_ok_and(|b| b) {
+            println!("Adjacency matrix not cached. Creating.");
+            let params = dataset.adjacency_matrix_metis();
+
+            println!("Saving ... {}", filename);
+            write_to_path(&params, filename.as_str()).unwrap();
+
+            params
+        } else {
+            println!("Loading adjacency matrix {}.", filename.as_str());
+            read_from_path(filename.as_str()).unwrap()
+        };
+
+        // Build the partitioned dataset from the adjacency matrix
+        let partitions = metis_params
+            .build_partitions::<N_PARTITIONS>()
             .into_boxed_slice();
 
         let mut postings_u8 = Vec::new();
