@@ -2,10 +2,9 @@ use std::hint::assert_unchecked;
 use std::time::Instant;
 
 use crate::{ComponentType, partitioned_dataset::fitting_integer::*};
-use itertools::Itertools;
 use metis::Graph;
+use num_traits::PrimInt;
 use num_traits::{One, Zero};
-use num_traits::{PrimInt, ToPrimitive};
 use serde::{Deserialize, Serialize};
 
 /// A symmetrical matrix where the diagonal components are 0. Only the upper part of the matrix is stored.
@@ -92,12 +91,45 @@ impl MetisParams {
     }
 }
 
-#[inline]
-pub(crate) fn partitioning_function<C: ComponentType, D: ToPrimitive>(
-    c: C,
-    partitions: &[D],
-) -> usize {
-    unsafe { partitions.get_unchecked(c.as_()).to_usize().unwrap() }
+pub fn map_components<const N_PARTITIONS: usize, const N_COMPONENT_BITS: usize>(
+    partitions: &[FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>],
+) -> Box<[FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS }>]>
+where
+    (): Fit<N_PARTITIONS>
+        + Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>
+        + Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS }>,
+{
+    // In theory, instead of usize, it should be `FittingInteger<N_COMPONENT_BITS.next_power_of_two().ilog2()>`,
+    // but this is already messy enoguh...
+    // Plus, the error checking at the end.
+    let mut n_assigned_array = [0_usize; N_PARTITIONS];
+
+    let mapping = partitions
+        .iter()
+        .map(|&partition| {
+            let n_assigned = unsafe { n_assigned_array.get_unchecked_mut(partition.as_()) };
+            let combined = partition.to_usize().unwrap() << N_COMPONENT_BITS | *n_assigned;
+            *n_assigned += 1;
+            FittingInteger::<
+                    { N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS },
+                >::from_usize(combined)
+                .unwrap()
+        })
+        .collect();
+
+    let actual_required_bit_shift = n_assigned_array
+        .into_iter()
+        .max()
+        .unwrap()
+        .next_power_of_two()
+        .ilog2();
+    assert_eq!(
+        actual_required_bit_shift, N_COMPONENT_BITS as u32,
+        "With {} partitions, this dataset requires N_COMPONENT_BITS = {}, but it was compiled with N_COMPONENT_BITS = {} instead.",
+        N_PARTITIONS, actual_required_bit_shift, N_COMPONENT_BITS
+    );
+
+    mapping
 }
 
 /// Given an array of `bool`s representing the adctive partitions, generates a bitset representing it.
@@ -123,15 +155,6 @@ where
         }
         active_partitions
     })
-}
-
-pub(crate) fn sort_by_partition<F: Fn(C) -> usize, C: Clone, V>(
-    components_values: impl Iterator<Item = (C, V)>,
-    partitioning_function: F,
-) -> (Vec<C>, Vec<V>) {
-    components_values
-        .sorted_by_key(|(c, _)| partitioning_function(c.clone()))
-        .unzip()
 }
 
 #[inline]

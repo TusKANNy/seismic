@@ -2,7 +2,10 @@
 #![feature(array_windows)]
 #![feature(core_intrinsics)]
 #![feature(float_algebraic)]
+#![feature(gen_blocks)]
 #![feature(generic_const_exprs)]
+#![feature(iter_map_windows)]
+#![feature(slice_as_array)]
 #![feature(trait_alias)]
 #![feature(vec_into_chunks)]
 #![feature(vec_push_within_capacity)]
@@ -14,6 +17,7 @@
 
 use fixed::FixedU8;
 use fixed::FixedU16;
+use num_traits::PrimInt;
 use num_traits::{AsPrimitive, FromPrimitive, ToPrimitive, Unsigned, Zero};
 
 pub mod sparse_dataset;
@@ -70,7 +74,9 @@ pub trait ValueType = SpaceUsage
     + Pod
     + 'static;
 
-pub trait ComponentType = AsPrimitive<usize>
+pub trait ComponentType = Unsigned
+    + PrimInt
+    + AsPrimitive<usize>
     + FromPrimitive
     + ToPrimitive
     + Unsigned

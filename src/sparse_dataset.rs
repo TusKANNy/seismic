@@ -690,6 +690,10 @@ where
     pub fn values(&self) -> &AV {
         &self.values
     }
+
+    pub fn destroy(self) -> (O, AC, AV) {
+        (self.offsets, self.components, self.values)
+    }
 }
 
 impl<C, V> SparseDatasetMut<C, V>

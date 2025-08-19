@@ -1,8 +1,7 @@
-use bytemuck::Pod;
 use num_traits::{FromBytes, FromPrimitive, One, ToBytes, ToPrimitive};
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::SpaceUsage;
+use crate::ComponentType;
 
 // This is a very ugly workaround to achieve the equivalent of the following:
 // ```
@@ -14,21 +13,15 @@ use crate::SpaceUsage;
 //
 // TODO: when it is, remove this ugly workaround, and all the ugly `where`'s in partitioned_dataset.rs related to it!
 pub trait Fit<const N: usize> {
-    type Integer: num_traits::PrimInt
-        + SpaceUsage
-        + FromPrimitive
-        + ToPrimitive
-        + FromBytes
-        + ToBytes
-        + One
-        + Send
-        + Sync
-        + Pod
-        + Serialize
-        + DeserializeOwned;
+    type Integer: ComponentType + FromBytes + ToBytes + One + Serialize + DeserializeOwned;
 }
 
 pub type FittingInteger<const N: usize> = <() as Fit<N>>::Integer;
+
+pub fn primitive_cast<Src: ToPrimitive, Dst: FromPrimitive>(src: Src) -> Dst {
+    // Can't think of any better way to do it...
+    unsafe { Dst::from_usize(src.to_usize().unwrap_unchecked()).unwrap_unchecked() }
+}
 
 pub type FittingArray<const N: usize>
 where
@@ -46,6 +39,7 @@ macro_rules! impl_fit {
 }
 
 impl_fit!(
+    0 => u8,
     1 => u8,
     2 => u8,
     3 => u8,

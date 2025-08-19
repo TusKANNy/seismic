@@ -64,6 +64,7 @@ struct Args {
 
 pub fn main() {
     const N_PARTITIONS: usize = envparse::parse_env!("SEISMIC_N_PARTITIONS" as usize);
+    const N_COMPONENT_BITS: usize = envparse::parse_env!("SEISMIC_N_COMPONENT_BITS" as usize);
 
     let args = Args::parse();
 
@@ -75,8 +76,9 @@ pub fn main() {
 
     let nknn = args.n_knn;
 
-    let inverted_index: InvertedIndex<SparseDatasetPartitioned<N_PARTITIONS, u16, FixedU16<U14>>> =
-        read_from_path(index_path.unwrap().as_str()).unwrap();
+    let inverted_index: InvertedIndex<
+        SparseDatasetPartitioned<N_PARTITIONS, N_COMPONENT_BITS, FixedU16<U14>>,
+    > = read_from_path(index_path.unwrap().as_str()).unwrap();
 
     let queries: SparseDataset<u16, f32> = SparseDatasetMut::read_bin_file(&query_path.unwrap())
         .unwrap()

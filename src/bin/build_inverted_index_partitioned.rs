@@ -24,6 +24,7 @@ struct Args {
 
 pub fn main() {
     const N_PARTITIONS: usize = envparse::parse_env!("SEISMIC_N_PARTITIONS" as usize);
+    const N_COMPONENT_BITS: usize = envparse::parse_env!("SEISMIC_N_COMPONENT_BITS" as usize);
     let args = Args::parse();
     let index_path = args.index_file;
 
@@ -44,7 +45,7 @@ pub fn main() {
 
     println!("Converting the inverted index...");
     let inverted_index_partitioned = InvertedIndex::<
-        SparseDatasetPartitioned<N_PARTITIONS, u16, FixedU16<U14>>,
+        SparseDatasetPartitioned<N_PARTITIONS, N_COMPONENT_BITS, FixedU16<U14>>,
     >::from_inverted_index(inverted_index);
 
     let elapsed = time.elapsed();
@@ -54,9 +55,10 @@ pub fn main() {
     );
 
     let path = format!(
-        "{}.{}_part_index.seismic",
+        "{}.{}_part_{}_compbits_index.seismic",
         args.output_file.unwrap(),
-        N_PARTITIONS
+        N_PARTITIONS,
+        N_COMPONENT_BITS
     );
     println!("Saving ... {}", path);
     let r = write_to_path(inverted_index_partitioned, path.as_str());
