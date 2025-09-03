@@ -271,9 +271,10 @@ where
                 }
             }
 
-            // If not batched indexing, chunk_inv_pairs already contain all the pairs
+            // If not batched indexing, chunk_inv_pairs already contains all the pairs
             if chunk_size == dataset.len() {
                 inverted_pairs = chunk_inv_pairs;
+                break;
             } else {
                 // Copy the pairs of the current chunk in the partial results
                 for (c, chunk_pairs) in chunk_inv_pairs.iter().enumerate() {
