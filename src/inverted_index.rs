@@ -274,7 +274,6 @@ where
             // If not batched indexing, chunk_inv_pairs already contains all the pairs
             if chunk_size == dataset.len() {
                 inverted_pairs = chunk_inv_pairs;
-                break;
             } else {
                 // Copy the pairs of the current chunk in the partial results
                 for (c, chunk_pairs) in chunk_inv_pairs.iter().enumerate() {
@@ -301,28 +300,34 @@ where
         }
 
         // Final pruning
-        match config.pruning {
-            PruningStrategy::GlobalThreshold {
-                n_postings,
-                max_fraction,
-            } => {
-                Self::fixed_pruning(
-                    &mut inverted_pairs,
-                    (n_postings as f32 * max_fraction) as usize,
-                );
-            }
-            PruningStrategy::CoiThreshold { alpha, n_postings } => {
-                if n_postings > 0 {
-                    Self::coi_pruning(&mut inverted_pairs, alpha, n_postings)
+        if chunk_size != dataset.len() {
+            match config.pruning {
+                PruningStrategy::GlobalThreshold {
+                    n_postings,
+                    max_fraction,
+                } => {
+                    Self::fixed_pruning(
+                        &mut inverted_pairs,
+                        (n_postings as f32 * max_fraction) as usize,
+                    );
                 }
+                PruningStrategy::CoiThreshold { alpha, n_postings } => {
+                    if n_postings > 0 {
+                        Self::coi_pruning(&mut inverted_pairs, alpha, n_postings)
+                    }
+                }
+                _ => {}
             }
-            _ => {}
         }
 
         let elapsed = time.elapsed();
         println!("{} secs", elapsed.as_secs());
 
         println!("Number of posting lists: {}", inverted_pairs.len());
+
+        let avg_list_lengt = inverted_pairs.iter().map(|l| l.len()).sum::<usize>() as f32
+            / inverted_pairs.len() as f32;
+        println!("Avg posting list length: {:.2}", avg_list_lengt);
 
         print!("Building summaries: ");
         let time = Instant::now();
