@@ -300,24 +300,23 @@ where
         }
 
         // Final pruning
-        if chunk_size != dataset.len() {
-            match config.pruning {
-                PruningStrategy::GlobalThreshold {
-                    n_postings,
-                    max_fraction,
-                } => {
-                    Self::fixed_pruning(
-                        &mut inverted_pairs,
-                        (n_postings as f32 * max_fraction) as usize,
-                    );
-                }
-                PruningStrategy::CoiThreshold { alpha, n_postings } => {
-                    if n_postings > 0 {
-                        Self::coi_pruning(&mut inverted_pairs, alpha, n_postings)
-                    }
-                }
-                _ => {}
+
+        match config.pruning {
+            PruningStrategy::GlobalThreshold {
+                n_postings,
+                max_fraction,
+            } => {
+                Self::fixed_pruning(
+                    &mut inverted_pairs,
+                    (n_postings as f32 * max_fraction) as usize,
+                );
             }
+            PruningStrategy::CoiThreshold { alpha, n_postings } => {
+                if n_postings > 0 {
+                    Self::coi_pruning(&mut inverted_pairs, alpha, n_postings)
+                }
+            }
+            _ => {}
         }
 
         let elapsed = time.elapsed();
