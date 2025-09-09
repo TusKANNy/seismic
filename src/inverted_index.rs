@@ -176,6 +176,7 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn search(
         &self,
         query_components: &[C],
@@ -340,7 +341,7 @@ where
             })
             .collect();
 
-        let result = Self {
+        let me = Self {
             forward_index: dataset,
             posting_lists: posting_lists.into_boxed_slice(),
             config: config.clone(),
@@ -351,7 +352,7 @@ where
         println!("{} secs", elapsed.as_secs());
 
         if config.knn.nknn == 0 && config.knn.knn_path.is_none() {
-            return result;
+            return me;
         }
 
         let time = Instant::now();
@@ -359,14 +360,14 @@ where
         let knn = if let Some(knn_path) = knn_config.knn_path {
             Knn::new_from_serialized(&knn_path, Some(knn_config.nknn))
         } else {
-            Knn::new(&result, knn_config.nknn)
+            Knn::new(&me, knn_config.nknn)
         };
 
         let elapsed = time.elapsed();
         println!("{} secs", elapsed.as_secs());
         Self {
-            forward_index: result.forward_index,
-            posting_lists: result.posting_lists,
+            forward_index: me.forward_index,
+            posting_lists: me.posting_lists,
             config,
             knn: Some(knn),
         }

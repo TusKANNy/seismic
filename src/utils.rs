@@ -158,8 +158,7 @@ pub fn conditionally_densify<C>(
 where
     C: ComponentType,
 {
-    if query_components.len() > THRESHOLD_BINARY_SEARCH && query_components.len() < 2_usize.pow(18)
-    {
+    if query_components.len() > THRESHOLD_BINARY_SEARCH && query_dim <= 2_usize.pow(18) {
         let mut vec = vec![0.0; query_dim];
         for (&i, &v) in query_components.iter().zip(query_values) {
             vec[i.as_()] = v;

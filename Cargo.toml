@@ -32,7 +32,6 @@ num-traits = "0.2"
 itertools = "0.14"
 rand = "0.9"
 rand_chacha = "0.9"
-qwt = { version = "0.3" }
 pyo3 = { version = "0.26", features = ["extension-module"], optional = true }
 numpy = { version = "0.26", optional = true }
 indicatif = { version = "0.18", features = ["rayon"] }
