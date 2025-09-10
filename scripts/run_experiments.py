@@ -208,7 +208,7 @@ def build_index(configs, experiment_dir):
         print(colored("ERROR: Indexing failed!", "red"))
         sys.exit(1)
 
-    print(colored("Index built successfully in {building_time} secs!", "yellow"))
+    print(colored(f"Index built successfully in {building_time} secs!", "yellow"))
     return building_time
 
 def compute_metric(configs, output_file, gt_file, metric):    
@@ -275,7 +275,11 @@ def compute_accuracy(query_file, gt_file):
     # Computes total number of results in the groundtruth
     total_results = len(gt_pd)
     total_intersections = sum(intersections_size.values())
-    return total_intersections/total_results
+    
+    accuracy = total_intersections/total_results
+    
+    print(f"Accuracy: {accuracy}")
+    return accuracy
 
 
 def query_execution(configs, query_config, experiment_dir, subsection_name):
