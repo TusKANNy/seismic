@@ -103,6 +103,7 @@ def shrink_name(original_name):
         "component-type": "c-t",
         "value-type": "v-t",
         "random-kmeans-inverted-index-approx": "r-k-i-a",
+        "pruning-strategy": "p-s"
     }
     
     final_name = original_name
@@ -123,6 +124,7 @@ def get_index_filename(base_filename, configs):
     print(f"SHRINKED NAME {join_name}")
     
     return join_name
+
 
 def build_index(configs, experiment_dir):
     """Build the index, determining if it's partitioned based on build-command structure."""
