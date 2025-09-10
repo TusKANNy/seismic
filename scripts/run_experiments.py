@@ -84,6 +84,20 @@ def compile_rust_code(configs, experiment_dir):
         print(colored("ERROR: Problems during Rust compilation:", "red"), e)
         sys.exit(1)
 
+def shrink_name(original_name):
+    
+    replacement_dict = {
+        "clustering-algorithm": "c-a", 
+        "centroid-fraction": "c-f", 
+        "kmeans-pruning-factor": "k-p-f", 
+        "kmeans-doc-cut": "k-d-c", 
+        "pruning-strategy": "p-s"
+    }
+    
+    final_name = original_name
+    for k,v in replacement_dict.items():
+        final_name = final_name.replace(k, v)
+    return final_name
 
 def get_index_filename(base_filename, configs):
     """Generate the index filename based on the provided parameters."""
@@ -91,7 +105,13 @@ def get_index_filename(base_filename, configs):
         base_filename, 
     ] + sorted(f"{k}_{v}" for k, v in configs["indexing_parameters"].items())
     
-    return "_".join(str(l) for l in name)
+    join_name = "_".join(str(l) for l in name)
+    print(f"ORIGINAL NAME {join_name}")
+    if len(join_name) > 240:
+        join_name = shrink_name(join_name)
+    print(f"SHRINKED NAME {join_name}")
+    
+    return join_name
 
 
 def build_index(configs, experiment_dir):
@@ -148,8 +168,8 @@ def build_index(configs, experiment_dir):
         component_type = configs['settings']["component-type"]
         command_and_params.append(f"--component-type {component_type}")
 
-    if configs['settings'].get("value-type", None):
-        value_type = configs['settings']["value-type"]
+    if configs['indexing_parameters'].get("value-type", None):
+        value_type = configs['indexing_parameters']["value-type"]
         valid_value_types = {"f16", "bf16", "f32", "fixedu8", "fixedu16"}
         if value_type not in valid_value_types:
             print(colored(f"ERROR: Invalid value-type '{value_type}'. Valid options are: {', '.join(valid_value_types)}", "red"))
