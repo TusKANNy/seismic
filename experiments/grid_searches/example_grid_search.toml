@@ -13,7 +13,7 @@ n-runs =        1       # Number of runs. PLEASE think carefully how increasing
 # NUMA =        ""      # "numactl --physcpubind='0-15' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
 metric =        "RR@10"
 build =         true    # Do we need to build the index?
-delete =        false   # Remove index files after use to save disk space
+delete =        false   # If true, it removes index files after use to save disk space
 
 [folder] 
 data =          "~/sparse_datasets/msmarco_v1_passage/cocondenser/data"
@@ -33,6 +33,7 @@ index =         "test_grid_search"
 n-postings =            [500, 1000]
 centroid-fraction =     [0.1]
 summary-energy =        [0.4, 0.5]
+value-type =            ["f16"] # Possible options are "f32", "f16", "bf16", "fixedu16", and "fixedu8". Default is "f16"
 knn =                   [0]
 clustering-algorithm =  ["random-kmeans"] # Possible options are "random-kmeans", "random-kmeans-inverted-index", "random-kmeans-inverted-index-approx"
 kmeans-doc-cut =        [15]    # needed by "random-kmeans-inverted-index" and "random-kmeans-inverted-index-approx"
