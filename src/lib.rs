@@ -52,6 +52,8 @@ pub mod distances;
 pub mod json_utils;
 pub mod utils;
 
+pub mod libbin;
+
 use crate::num_marker::FromF32;
 
 /// Type aliases for quantized fixed-point types. You can change FRAC in the `fixed` crate to adjust the precision.

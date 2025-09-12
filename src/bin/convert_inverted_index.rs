@@ -1,25 +1,25 @@
 use clap::Parser;
 use seismic::SparseDataset;
-use seismic::libbin::perf_inverted_index::*;
+use seismic::libbin::convert_inverted_index::*;
 use seismic::match_component_value;
 
 pub fn main() {
     let args = Args::parse();
 
-    macro_rules! run_performance_test_macro {
+    macro_rules! convert_index_macro {
         ($C:ty, $V:ty) => {
             println!(
                 "Using {} component type with {} value type",
                 stringify!($C),
                 stringify!($V)
             );
-            run_performance_test_generic::<SparseDataset<$C, $V>>(args);
+            convert_index_from_f32::<SparseDataset<$C, $V>>(args);
         };
     }
 
     match_component_value!(
         args.component_type(),
         args.value_type(),
-        run_performance_test_macro
+        convert_index_macro
     );
 }

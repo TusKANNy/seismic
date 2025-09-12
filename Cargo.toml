@@ -22,8 +22,8 @@ name = "seismic"
 crate-type = ["cdylib", "lib"]
 
 [[bin]]
-name = "build_inverted_index_partitioned"
-path = "src/bin/build_inverted_index_partitioned.rs"
+name = "convert_inverted_index_partitioned"
+path = "src/bin/convert_inverted_index_partitioned.rs"
 required-features = ["partitioned-dataset"]
 
 [[bin]]
