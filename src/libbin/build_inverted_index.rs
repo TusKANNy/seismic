@@ -82,10 +82,6 @@ pub struct Args {
     #[clap(long, value_parser)]
     knn_path: Option<String>,
 
-    /// Number of documents per chunk in the batched indexing mode.
-    #[clap(long, value_parser)]
-    batched_indexing: Option<usize>,
-
     /// Component type: u16 (for component IDs up to 65535) or u32 (for larger component IDs)
     #[clap(long, value_parser)]
     #[arg(default_value = "u16")]
@@ -171,8 +167,7 @@ where
         .summarization_strategy(SummarizationStrategy::EnergyPreserving {
             summary_energy: args.summary_energy,
         })
-        .knn(knn_config)
-        .batched_indexing(args.batched_indexing);
+        .knn(knn_config);
 
     println!("\nBuilding the index...");
     println!("{:?}", config);

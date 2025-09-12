@@ -79,7 +79,6 @@ pub struct Configuration {
     blocking: BlockingStrategy,
     summarization: SummarizationStrategy,
     knn: KnnConfiguration,
-    batched_indexing: Option<usize>,
 }
 
 impl Configuration {
@@ -103,12 +102,6 @@ impl Configuration {
 
     pub fn knn(mut self, knn: KnnConfiguration) -> Self {
         self.knn = knn;
-
-        self
-    }
-
-    pub fn batched_indexing(mut self, batched_indexing: Option<usize>) -> Self {
-        self.batched_indexing = batched_indexing;
 
         self
     }
@@ -263,83 +256,35 @@ where
     where
         S: SparseDatasetStableTrait,
     {
-        // Distribute pairs (score, doc_id) to corresponding components for each chunk.
-        // We use pairs because later each posting list will be sorted by score
-        // by the pruning strategy.
-        // The pruning strategy is applied to partial results, for Global Threshold strategy
-        // the final fixed pruning is done only when all chunks have been parsed
-
         print!("Distributing and pruning postings: ");
         let time = Instant::now();
-        let mut inverted_pairs = vec![Vec::new(); dataset.dim()];
 
-        let chunk_size = config.batched_indexing.unwrap_or(dataset.len());
-
-        for chunk in &dataset.iter().enumerate().chunks(chunk_size) {
-            let mut chunk_inv_pairs = vec![Vec::new(); dataset.dim()];
-
-            for (doc_id, components_values_iter) in chunk {
-                for (c, score) in components_values_iter {
-                    chunk_inv_pairs[c.as_()].push((score, doc_id));
-                }
-            }
-
-            // If not batched indexing, chunk_inv_pairs already contains all the pairs
-            if chunk_size == dataset.len() {
-                inverted_pairs = chunk_inv_pairs;
-            } else {
-                // Copy the pairs of the current chunk in the partial results
-                for (c, chunk_pairs) in chunk_inv_pairs.iter().enumerate() {
-                    for (score, doc_id) in chunk_pairs.iter() {
-                        inverted_pairs[c].push((*score, *doc_id));
-                    }
-                }
-            }
-
-            // Pruning on partial result
-            match config.pruning {
-                PruningStrategy::FixedSize { n_postings } => {
-                    Self::fixed_pruning(&mut inverted_pairs, n_postings);
-                }
-                PruningStrategy::GlobalThreshold { n_postings, .. } => {
-                    Self::global_threshold_pruning(&mut inverted_pairs, n_postings);
-                }
-                // Partial pruning for CoiThreshold is not implemented yet. Need to estimate the number of postings in the final list
-                PruningStrategy::CoiThreshold {
-                    alpha: _,
-                    n_postings: _,
-                } => {}
-            }
-        }
-
-        // Final pruning
-
-        match config.pruning {
+        // Distribute pairs (score, doc_id) to corresponding components.
+        //
+        // The pruning strategy chosses how to filter out low-scoring postings.
+        let inverted_pairs = match config.pruning {
+            PruningStrategy::FixedSize { n_postings } => Self::fixed_pruning(&dataset, n_postings),
             PruningStrategy::GlobalThreshold {
                 n_postings,
                 max_fraction,
+            } => Self::global_threshold_pruning(&dataset, n_postings, max_fraction),
+            // Partial pruning for CoiThreshold is not implemented yet. Need to estimate the number of postings in the final list
+            PruningStrategy::CoiThreshold {
+                alpha: _,
+                n_postings: _,
             } => {
-                Self::fixed_pruning(
-                    &mut inverted_pairs,
-                    (n_postings as f32 * max_fraction) as usize,
-                );
+                todo!()
             }
-            PruningStrategy::CoiThreshold { alpha, n_postings } => {
-                if n_postings > 0 {
-                    Self::coi_pruning(&mut inverted_pairs, alpha, n_postings)
-                }
-            }
-            _ => {}
-        }
+        };
 
         let elapsed = time.elapsed();
         println!("{} secs", elapsed.as_secs());
 
         println!("Number of posting lists: {}", inverted_pairs.len());
 
-        let avg_list_lengt = inverted_pairs.iter().map(|l| l.len()).sum::<usize>() as f32
+        let avg_list_length = inverted_pairs.iter().map(|l| l.len()).sum::<usize>() as f32
             / inverted_pairs.len() as f32;
-        println!("Avg posting list length: {:.2}", avg_list_lengt);
+        println!("Avg posting list length: {:.2}", avg_list_length);
 
         print!("Building summaries: ");
         let time = Instant::now();
@@ -448,16 +393,29 @@ where
     }
 
     // Implementation of the pruning strategy that selects the top-`n_postings` from each posting list
-    fn fixed_pruning<V: ValueType>(inverted_pairs: &mut Vec<Vec<(V, usize)>>, n_postings: usize) {
-        inverted_pairs.par_iter_mut().for_each(|posting_list| {
-            *posting_list = posting_list
-                .drain(..)
-                .k_largest_by(n_postings, |a, b| a.0.partial_cmp(&b.0).unwrap())
-                .collect();
-        })
+    fn fixed_pruning(dataset: &S, n_postings: usize) -> Vec<Vec<(S::Value, usize)>> {
+        let mut inverted_pairs = vec![KHeap::new(n_postings); dataset.dim()];
+
+        for (i, posting) in dataset.iter().enumerate() {
+            for (component, value) in posting {
+                // ScoredItem wasn't exactly meant to be used like this, but it works, so why not!
+                inverted_pairs[component.as_()].push(ScoredItem::new(i, value));
+            }
+        }
+
+        inverted_pairs
+            .into_iter()
+            .map(|k| {
+                k.into_sorted_vec()
+                    .into_iter()
+                    .map(|ScoredItem { id, score }| (score, id))
+                    .collect()
+            })
+            .collect()
     }
 
     // Implementation of the pruning strategy that selects the top-x posting from each posting list where x is alpha times the number of postings in the list or max_n_posting if too big.
+    #[allow(unused)]
     fn coi_pruning<V: ValueType>(
         inverted_pairs: &mut Vec<Vec<(V, usize)>>,
         alpha: f32,
@@ -477,46 +435,54 @@ where
         })
     }
 
-    // Implementation of the pruning strategy that selects a threshold such that survives on average `n_postings` for each posting list
-    // In the new version, documents with scores equal to the threshold are included, without exceeding the threshold of 10% of expected postings
-    fn global_threshold_pruning<V: ValueType>(
-        inverted_pairs: &mut [Vec<(V, usize)>],
+    // Implementation of the pruning strategy that selects the `n_postings*dim` top postings globally, with a limit of `n_postings*max_fraction` per posting.
+    fn global_threshold_pruning(
+        dataset: &S,
         n_postings: usize,
-    ) {
-        let tot_postings = inverted_pairs.len() * n_postings; // overall number of postings to select
+        max_fraction: f32,
+    ) -> Vec<Vec<(S::Value, usize)>> {
+        let mut new_inverted_pairs = vec![Vec::new(); dataset.dim()];
 
-        const EQUALITY_THRESHOLD: usize = 10;
-        let max_eq_postings = EQUALITY_THRESHOLD * tot_postings / 100; // maximum number of postings with score equal to the threshold
+        let tot_postings = dataset.dim() * n_postings; // overall number of postings to select
 
-        // for every posting we create the tuple <score, docid, id_posting_list>
-        let mut postings = Vec::<(V, usize, usize)>::new();
-        for (id, posting_list) in inverted_pairs.iter_mut().enumerate() {
-            for (score, docid) in posting_list.drain(..) {
-                postings.push((score, docid, id));
-            }
+        let largest_entries = dataset
+            .iter()
+            .enumerate()
+            .flat_map(|(i, posting)| posting.map(move |p| (i, p)))
+            .k_largest_by(tot_postings, |(_, (_, score_a)), (_, (_, score_b))| {
+                score_a.partial_cmp(score_b).unwrap()
+            });
+
+        for (doc, (component, value)) in largest_entries {
+            if new_inverted_pairs[component.as_()].len()
+                < (n_postings as f32 * max_fraction) as usize
+            {
+                new_inverted_pairs[component.as_()].push((value, doc))
+            };
         }
 
-        let tot_postings = tot_postings.min(postings.len() - 1);
+        /*let smallest = if let Some((id, posting)) = largest_entries.by_ref().next() {
+            new_inverted_pairs[id].push(posting);
+            posting.0
+        } else {
+            panic!()
+        };
 
-        // To ensure that executions with different batch sizes provide the same result, the comparison criterion considers both the score and the doc_id
-        let (_, (t_score, _, _), leq) =
-            postings.select_nth_unstable_by(tot_postings, |a, b| b.partial_cmp(a).unwrap());
-        // All postings with scores equal to the threshold are added, up to max_eq_postings
-        let (eq_pairs, _): (Vec<(V, usize, usize)>, _) = leq.iter().partition(|p| p.0 == *t_score);
-        for (score, docid, id_postings) in eq_pairs.iter().take(max_eq_postings) {
-            inverted_pairs[*id_postings].push((*score, *docid));
+        for (id, posting) in largest_entries
+            .by_ref()
+            .take_while(|(_, (score, _))| *score == smallest)
+        {
+            new_inverted_pairs[id].push(posting);
         }
 
-        if eq_pairs.len() > max_eq_postings {
+        if largest_entries.next().is_none() {
             println!(
-                "A lot of entries have the same value. {} have been pruned, for more info look at DOC_REFERENCE",
-                eq_pairs.len() - max_eq_postings
+                "More than {} entries have the same value. For more info look at DOC_REFERENCE",
+                max_eq_postings
             );
-        }
+        }*/
 
-        for (score, docid, id_posting) in postings.into_iter().take(tot_postings) {
-            inverted_pairs[id_posting].push((score, docid));
-        }
+        new_inverted_pairs
     }
 
     /// Returns the sparse dataset
@@ -592,7 +558,7 @@ impl<C: ComponentType> PostingList<C> {
         query_values: &[W],
         k: usize,
         heap_factor: f32,
-        heap: &mut KHeap<ScoredItem>,
+        heap: &mut KHeap<ScoredItem<f32>>,
         visited: &mut HashSet<usize>,
         forward_index: &S,
     ) where
@@ -641,7 +607,7 @@ impl<C: ComponentType> PostingList<C> {
         query_values: &[W],
         k: usize,
         heap_factor: f32,
-        heap: &mut KHeap<ScoredItem>,
+        heap: &mut KHeap<ScoredItem<f32>>,
         visited: &mut HashSet<usize>,
         forward_index: &S,
     ) where
@@ -690,7 +656,7 @@ impl<C: ComponentType> PostingList<C> {
         &self,
         prepared_query: &S::PreparedQuery<D, W>,
         packed_posting_block: &[PackedPostingBlock],
-        heap: &mut KHeap<ScoredItem>,
+        heap: &mut KHeap<ScoredItem<f32>>,
         visited: &mut HashSet<usize>,
         forward_index: &S,
     ) where
@@ -937,8 +903,8 @@ impl<C: ComponentType> PostingList<C> {
 /// Represents the possible choices for the strategy used to prune the posting
 /// lists at building time.
 /// There are the following possible strategies:
-/// - `Fixed  { n_postings: usize }`: Every posting list is pruned by taking its top-`n_postings`
-/// - `GlobalThreshold { n_postings: usize, max_fraction: f32 }`: We globally select a threshold and we prune all the postings with smaller score. The threshold is chosen so that every posting list has `n_postings` on average. We limit the number of postings per list to `max_fraction*n_postings`.
+/// - `Fixed  { n_postings: usize }`: Every posting list is pruned by only taking its top-`n_postings`
+/// - `GlobalThreshold { n_postings: usize, max_fraction: f32 }`: Globally select the top postings, pruning the one with a smaller score. The number of posting kept in total is `n_postings*dim` (so that the average per posting list is `n_postings`), with a limit per posting list of `max_fraction*n_postings`.
 /// - `CoiThreshold { alpha: f32, n_postings: usize }`: we prune each vector to preserve a fraction alpha of its L1 mass. Then, we prune the posting lists to have no more than n_postings: each. If n_postings is 0, then we skip the last step.
 pub enum PruningStrategy {
     FixedSize {
@@ -1161,7 +1127,7 @@ impl Knn {
     pub fn refine<S, D: ComponentType, W: ValueType>(
         &self,
         prepared_query: &S::PreparedQuery<D, W>,
-        heap: &mut KHeap<ScoredItem>,
+        heap: &mut KHeap<ScoredItem<f32>>,
         visited: &mut HashSet<usize>,
         forward_index: &S,
         in_n_knn: usize,

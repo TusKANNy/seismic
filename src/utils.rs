@@ -3,7 +3,6 @@ use std::{
     cmp::{Ordering, Reverse},
     collections::{BinaryHeap, HashSet},
     fs::File,
-    hint::assert_unchecked,
     io::{BufReader, BufWriter},
 };
 //use std::time::Instant;
@@ -47,7 +46,6 @@ impl<T: Ord> KHeap<T> {
 
     #[inline]
     pub fn push(&mut self, item: T) {
-        unsafe { assert_unchecked(self.k > 0 && self.bh.capacity() == self.k) };
         if self.bh.len() < self.k {
             self.bh.push(Reverse(item));
         } else {
@@ -81,26 +79,32 @@ impl<T: Ord> KHeap<T> {
 }
 
 #[derive(Clone, PartialEq)]
-pub struct ScoredItem {
+pub struct ScoredItem<T> {
     pub id: usize,
-    pub score: f32,
+    pub score: T,
 }
 
-impl ScoredItem {
-    pub fn new(id: usize, score: f32) -> Self {
+impl<T> ScoredItem<T> {
+    pub fn new(id: usize, score: T) -> Self {
         Self { id, score }
     }
 }
 
-impl Eq for ScoredItem {}
+impl<T> Eq for ScoredItem<T> where T: PartialEq {}
 
-impl PartialOrd for ScoredItem {
+impl<T> PartialOrd for ScoredItem<T>
+where
+    T: PartialOrd,
+{
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for ScoredItem {
+impl<T> Ord for ScoredItem<T>
+where
+    T: PartialOrd,
+{
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         unsafe { self.score.partial_cmp(&other.score).unwrap_unchecked() }
     }
