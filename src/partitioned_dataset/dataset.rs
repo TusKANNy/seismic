@@ -164,7 +164,7 @@ where
         self.active_partitions
     }
 
-    unsafe fn component_values_nth_offset_raw(
+    unsafe fn components_values_nth_offset_raw(
         &self,
         n: usize,
     ) -> (&'a [FittingInteger<N_COMPONENT_BITS>], &'a [V]) {
@@ -196,13 +196,15 @@ where
         ),
     > + 'a {
         let (components, values) =
-            unsafe { self.component_values_nth_offset_raw(active_partition) };
+            unsafe { self.components_values_nth_offset_raw(active_partition) };
         let partition_shled = partition << N_COMPONENT_BITS;
         components.iter().zip(values).map(move |(&c, &v)| {
             let component = primitive_cast(c.as_() | partition_shled);
             // The reason for the `black_box` is to prevent the compiler from unrolling the loop in an attempt to be more efficient with many elements.
             // Because the number of elements is usually very small, the unrolling only bloats the code size and makes performance worse.
-            (component, black_box(v))
+black_box(());
+
+            (component, v)
         })
     }
 
@@ -233,14 +235,20 @@ where
                     let scroll = query_active.leading_zeros() as usize + 1;
 
                     partition = partition.wrapping_add(scroll);
+                    // Without doing this, the result of `partition << N_COMPONENT_BITS` will be `or`ed every time, instead of just here.
+                    let query = unsafe { query.get_unchecked((partition << N_COMPONENT_BITS)..) };
 
                     let n_skipped_offsets =
                         (self_active >> (n_bits - scroll)).count_ones() as usize;
                     current_offset = current_offset.wrapping_add(n_skipped_offsets);
-                    let iter = unsafe {
-                        self.components_values_nth_offset_iter(current_offset, partition)
-                            .map(|(c, v)| (c.as_(), v.to_f32().unwrap()))
-                    };
+
+                    let (components_raw, values) =
+                        unsafe { self.components_values_nth_offset_raw(current_offset) };
+                    let iter = components_raw.iter().zip(values.iter()).map(|(c, v)| {
+                        // Same reason as `components_values_nth_offset_iter` above for `black_box`
+                        black_box(());
+                        (c.as_(), v.to_f32().unwrap())
+                    });
                     result = result.algebraic_add(dot_product_dense_sparse(query, iter));
 
                     n_active -= 1;
