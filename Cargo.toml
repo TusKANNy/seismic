@@ -74,7 +74,8 @@ toolkit = { git = "https://github.com/rossanoventurini/toolkit.git" }
 mem_dbg = "0.3.0"
 
 rgb = { git = "https://github.com/JMMackenzie/enhanced-graph-bisection.git" }
-compressed-intvec = { version = "0.5.2", features = ["serde"] }
+#compressed-intvec = { version = "0.5.2", features = ["serde"] }
+compressed-intvec = {git = "https://github.com/CosimoRulli/compressed-intvec.git", features = ["serde"]}
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 

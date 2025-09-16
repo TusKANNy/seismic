@@ -1,16 +1,16 @@
 use clap::Parser;
-use seismic::InvertedIndex;
 use seismic::FixedU8Q;
-use seismic::stream_vbyte_dataset::dataset::SparseDatasetStreamVbyte;
+use seismic::InvertedIndex;
 use seismic::sparse_dataset::{SparseDatasetMut, SparseDatasetTrait};
+use seismic::stream_vbyte_dataset::dataset_fixedu8::SparseDatasetStreamVbyteFixedu8;
 
 use seismic::utils::read_from_path;
 
+use rand::prelude::IndexedRandom;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use rand::prelude::IndexedRandom;
-use std::time::Instant;
 use std::cmp;
+use std::time::Instant;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -60,10 +60,10 @@ fn main() {
     let index_path = args.index_file;
     let n_docs = args.n_docs;
 
-    let inverted_index: InvertedIndex<SparseDatasetStreamVbyte<FixedU8Q>> = read_from_path(index_path.unwrap().as_str()).unwrap();
+    let inverted_index: InvertedIndex<SparseDatasetStreamVbyteFixedu8> =
+        read_from_path(index_path.unwrap().as_str()).unwrap();
 
-    let queries =
-        SparseDatasetMut::<u16, f32>::read_bin_file(&args.query_file.unwrap()).unwrap();
+    let queries = SparseDatasetMut::<u16, f32>::read_bin_file(&args.query_file.unwrap()).unwrap();
 
     let n_queries = cmp::min(args.n_queries, queries.len());
 
