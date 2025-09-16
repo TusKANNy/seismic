@@ -183,11 +183,11 @@ fn compute_centroid_assignments_approx_dot_product<C: ComponentType, T: ValueTyp
     doc_ids: &[usize],
     inverted_index: &[Vec<(usize, T)>],
     dataset: &SparseDataset<C, T>,
-    centroids: &[usize],
+    centroids_doc_ids: &[usize],
     to_avoid: &HashSet<usize>,
     doc_cut: usize,
 ) -> Vec<(usize, usize)> {
-    let mut scores = vec![0_f32; centroids.len()];
+    let mut scores = vec![0_f32; centroids_doc_ids.len()];
 
     doc_ids
         .iter()
@@ -202,14 +202,14 @@ fn compute_centroid_assignments_approx_dot_product<C: ComponentType, T: ValueTyp
                 }
             }
 
-            let (&max_centroid_id, _) = centroids
+            let (&max_centroid_doc_id, _) = centroids_doc_ids
                 .iter()
                 .zip(scores.iter())
-                .filter(|(centroid_id, _)| !to_avoid.contains(centroid_id))
+                .filter(|(centroid_doc_id, _)| !to_avoid.contains(centroid_doc_id))
                 .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-                .unwrap_or((&centroids[0], &0.0));
+                .unwrap_or((&centroids_doc_ids[0], &0.0));
 
-            (max_centroid_id, doc_id)
+            (max_centroid_doc_id, doc_id)
         })
         .collect()
 }
@@ -234,7 +234,7 @@ where
 {
     let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
-    let centroid_ids: Vec<_> = doc_ids
+    let centroid_doc_ids: Vec<_> = doc_ids
         .choose_multiple(&mut rng, n_clusters)
         .copied()
         .collect();
@@ -242,9 +242,9 @@ where
     // Build an inverted index for the centroids
     let mut inverted_index = vec![Vec::new(); dataset.dim()];
 
-    for (i, &centroid_id) in centroid_ids.iter().enumerate() {
-        for (&c, &score) in dataset.iter_vector(centroid_id) {
-            inverted_index[c.as_()].push((i, score));
+    for (centroid_id, &centroid_doc_id) in centroid_doc_ids.iter().enumerate() {
+        for (&c, &score) in dataset.iter_vector(centroid_doc_id) {
+            inverted_index[c.as_()].push((centroid_id, score));
         }
     }
 
@@ -252,7 +252,7 @@ where
         doc_ids,
         &inverted_index,
         dataset,
-        &centroid_ids,
+        &centroid_doc_ids,
         &HashSet::new(),
         doc_cut,
     );
@@ -266,12 +266,14 @@ where
 
     for group in centroid_assignments.chunk_by(
         // group by centroid_id
-        |&(centroid_id_a, _doc_id_a), &(centroid_id_b, _doc_id_b)| centroid_id_a == centroid_id_b,
+        |&(centroid_doc_id_a, _doc_id_a), &(centroid_doc_id_b, _doc_id_b)| {
+            centroid_doc_id_a == centroid_doc_id_b
+        },
     ) {
-        let centroid_id = group[0].0;
+        let centroid_doc_id = group[0].0;
         if group.len() <= min_cluster_size {
             to_be_reassigned.extend(group.iter().map(|(_centroid_id, doc_id)| doc_id));
-            removed_centroids.insert(centroid_id);
+            removed_centroids.insert(centroid_doc_id);
         } else {
             final_assignments.extend(group.iter());
         }
@@ -287,7 +289,7 @@ where
         to_be_reassigned.as_slice(),
         &inverted_index,
         dataset,
-        &centroid_ids,
+        &centroid_doc_ids,
         &removed_centroids,
         doc_cut,
     );
