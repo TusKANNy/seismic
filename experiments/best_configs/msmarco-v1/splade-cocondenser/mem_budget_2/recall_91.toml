@@ -10,10 +10,10 @@ build = true
 metric = "RR@10"
 
 [folder]
-data = ""
-index = ""
-qrels_path = ""
-experiment = ""
+data = "~/knn_datasets/sparse_datasets/msmarco_v1_passage/cocondenser/data"
+index = "~/knn_indexes/sparse_datasets/msmarco_v1_passage/cocondenser/indexes"
+qrels_path = "~/knn_datasets/sparse_datasets/msmarco_v1_passage/qrels.dev.small.tsv"
+experiment = "."
 
 [filename]
 dataset = "documents.bin"
