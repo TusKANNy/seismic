@@ -111,8 +111,21 @@ This will generate a ```data``` directory at the ```/path/to/output``` path, wit
 If you download the NQ dataset from the HuggingFace repo, you need to specify ```--input-format nq``` as it uses a slightly different format. 
 
 
-### Resources
-Check out our `docs` folder for more detailed guide on use to use Seismic directly in Rust, replicate the results of our paper, or use Seismic with your custom collection. 
+### 🪏 Resources
+Check out our `docs` folder for detailed guides:
+
+- **[BestResults.md](docs/BestResults.md)** - Guide to replicate optimized configurations.
+- **[RustUsage.md](docs/RustUsage.md)** - Using Seismic directly in Rust.
+- **[PythonUsage.md](docs/PythonUsage.md)** - Python API usage.
+- **[RunExperiments.md](docs/RunExperiments.md)** - Running custom experiments.
+- **[TomlInstructions.md](docs/TomlInstructions.md)** - TOML configuration reference.
+
+
+### 🏆 Best Results 
+
+Seismic is an approximate algorithm designed for high-performance retrieval over learned sparse representations. We provide **pre-optimized configurations** for several common datasets, e.g., MsMarco. Check the detailed documentation in [docs/BestResults.md](docs/BestResults.md) and the available optimized configuratios in [experiments/best_configs](experiments/best_configs).
+ 
+
 
 
 ### <a name="bib">📚 Bibliography</a>
