@@ -123,7 +123,7 @@ Check out our `docs` folder for detailed guides:
 
 ### 🏆 Best Results 
 
-Seismic is an approximate algorithm designed for high-performance retrieval over learned sparse representations. We provide **pre-optimized configurations** for several common datasets, e.g., MsMarco. Check the detailed documentation in [docs/BestResults.md](docs/BestResults.md) and the available optimized configuratios in [experiments/best_configs](experiments/best_configs).
+Seismic is an approximate algorithm designed for high-performance retrieval over learned sparse representations. We provide **pre-optimized configurations** for several common datasets, e.g., MsMarco. Check the detailed documentation in [docs/BestResults.md](docs/BestResults.md) and the available optimized configurations in [experiments/best_configs](experiments/best_configs).
  
 
 
@@ -131,7 +131,7 @@ Seismic is an approximate algorithm designed for high-performance retrieval over
 ### <a name="bib">📚 Bibliography</a>
 1. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, and Rossano Venturini. "*Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations*." Proc. ACM SIGIR. 2024. 
 2. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, and Rossano Venturini. "*Pairing Clustered Inverted Indexes with κ-NN Graphs for Fast Approximate Retrieval over Learned Sparse Representations*."  Proc. ACM CIKM. 2024.
-3. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini, and Leonardo Venuta. "*Investigating the Scalability of Approximate Sparse Retrieval Algorithms to Massive Datasets*." Proc. ECIR. 2025. *To Appear*. 
+3. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini, and Leonardo Venuta. "*Investigating the Scalability of Approximate Sparse Retrieval Algorithms to Massive Datasets*." Proc. ECIR. 2025. 
 
 
 ### Citation License
