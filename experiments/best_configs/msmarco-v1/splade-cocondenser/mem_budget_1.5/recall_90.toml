@@ -34,7 +34,7 @@ kmeans-pruning-factor = 0.0
 max-fraction = 6.0
 min-cluster-size = 2
 pruning-strategy = "global-threshold"
-value-type = "f32"
+value-type = "f16"
 
 [query]
 
