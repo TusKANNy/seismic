@@ -9,6 +9,7 @@
 //! of a sparse dataset: a mutable [`SparseDatasetMut`] and its immutable counterpart [`SparseDataset`].
 //! Conversion between the two representations is straightforward, as both implement the [`From`] trait.
 
+use indicatif::ProgressIterator;
 use itertools::Itertools;
 use rayon::iter::plumbing::ProducerCallback;
 use serde::{Deserialize, Serialize};
@@ -643,7 +644,7 @@ where
 
         let mut adj = HollowSymmetricMatrix::new(self.dim());
 
-        for (components, _) in self.dataset_iter() {
+        for (components, _) in self.dataset_iter().progress_count(self.len() as u64) {
             for (i, c1) in components.iter().map(|&c| c.as_()).enumerate() {
                 // Skip the components where c2 <= c1, since the matrix is symmetrical. Remember that the components are ordered.
                 for c2 in components.iter().map(|c| c.as_()).skip(i + 1) {

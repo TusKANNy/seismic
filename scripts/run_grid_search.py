@@ -97,6 +97,14 @@ def main(experiment_config_filename):
         experiment_config["name"] = f"building_combination_{i}"
 
         experiment_config["query"] = query_combinations
+        
+        # Copy build/compile commands if they exist
+        if "compile-command" in config_data:
+            experiment_config["compile-command"] = config_data["compile-command"]
+        if "build-command" in config_data:
+            experiment_config["build-command"] = config_data["build-command"]
+        if "query-command" in config_data:
+            experiment_config["query-command"] = config_data["query-command"]
 
         experiment_config["indexing_parameters"] = building_config
         with open(os.path.join(grid_folder, f"building_combination_{i}.json"), "w") as f:
