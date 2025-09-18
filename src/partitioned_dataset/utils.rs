@@ -1,7 +1,11 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::assert_unchecked;
 use std::time::Instant;
 
+use crate::sparse_dataset::SparseDatasetGeneric;
+use crate::utils::{read_from_path, write_to_path};
 use crate::{ComponentType, partitioned_dataset::fitting_integer::*};
+use crate::{SpaceUsage, ValueType};
 use metis::Graph;
 use num_traits::PrimInt;
 use num_traits::{One, Zero};
@@ -88,6 +92,38 @@ impl MetisParams {
         println!("{} secs", elapsed.as_secs());
 
         result
+    }
+}
+
+/// Load the dataset's adjacency matrix
+///
+/// Hash the dataset's components and offsets so that its adjacency can be cached (as it's a very long operation)
+pub fn build_or_load_metis_params<C, V, O, AC, AV>(
+    dataset: &SparseDatasetGeneric<C, V, O, AC, AV>,
+) -> MetisParams
+where
+    C: ComponentType,
+    V: ValueType,
+    O: AsRef<[usize]> + SpaceUsage + Hash,
+    AC: AsRef<[C]> + SpaceUsage + Hash,
+    AV: AsRef<[V]> + SpaceUsage,
+{
+    let mut s = DefaultHasher::new();
+    dataset.components().hash(&mut s);
+    dataset.offsets().hash(&mut s);
+    let hash = s.finish();
+    let filename = format!("cached_adjacency_{}", hash);
+    if !std::fs::exists(filename.as_str()).is_ok_and(|b| b) {
+        println!("Adjacency matrix not cached. Creating.");
+        let params = dataset.adjacency_matrix_metis();
+
+        println!("Saving ... {}", filename);
+        write_to_path(&params, filename.as_str()).unwrap();
+
+        params
+    } else {
+        println!("Loading adjacency matrix {}.", filename.as_str());
+        read_from_path(filename.as_str()).unwrap()
     }
 }
 

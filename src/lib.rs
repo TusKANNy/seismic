@@ -15,6 +15,7 @@
 )]
 #![doc = include_str!("../README.md")]
 
+use compressed_intvec::variable::Storable;
 use fixed::FixedU8;
 use fixed::FixedU16;
 use num_traits::PrimInt;
@@ -30,6 +31,7 @@ pub use sparse_dataset::SparseDataset;
 pub use sparse_dataset::SparseDatasetMut;
 pub use sparse_dataset::SparseDatasetTrait;
 
+pub mod compressed_dataset;
 pub mod partitioned_dataset;
 
 pub mod inverted_index;
@@ -91,7 +93,8 @@ pub trait ComponentType = Unsigned
     + Hash
     + Eq
     + Ord
-    + Pod;
+    + Pod
+    + Storable;
 
 #[cfg(feature = "pyo3")]
 pub mod pylib;
