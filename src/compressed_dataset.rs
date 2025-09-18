@@ -4,6 +4,7 @@ use std::ops::Range;
 
 use co_sort::*;
 use compressed_intvec::prelude::{UIntVec, VariableCodecSpec};
+use itertools::Itertools;
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::prelude::ParallelSlice;
 use serde::{Deserialize, Serialize};
@@ -165,6 +166,32 @@ where
             };
             self.get_with_offset_iter(start, end - start)
         })
+    }
+}
+
+impl<C, V> SparseDatasetCompressed<C, V>
+where
+    C: ComponentType,
+    V: ValueType,
+{
+    pub fn search<D: ComponentType, W: ValueType>(
+        &self,
+        query: impl Iterator<Item = (D, W)>,
+        k: usize,
+    ) -> Vec<(f32, usize)> {
+        let prepared_query = self.prepare_query(query);
+
+        self.offsets
+            .as_ref()
+            .array_windows()
+            .map(|&[o1, o2]| {
+                let len = o2 - o1;
+                self.dot_product_from_offset::<D, W>(&prepared_query, o1, len)
+            })
+            .enumerate()
+            .map(|(i, s)| (s, i))
+            .k_largest_by(k, |a, b| a.0.partial_cmp(&b.0).unwrap())
+            .collect()
     }
 }
 
