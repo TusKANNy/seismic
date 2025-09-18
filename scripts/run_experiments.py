@@ -646,7 +646,21 @@ def main(experiment_config_filename):
         print()
         print(colored("ERROR: Configuration data is empty.", "red"))
         sys.exit(1)
-    run_experiment(config_data)
+    
+    try:
+        run_experiment(config_data)
+    except Exception as e:
+        print()
+        print(colored("ERROR: Experiment execution failed!", "red"))
+        print(colored(f"Error details: {str(e)}", "red"))
+        print(colored(f"Error type: {type(e).__name__}", "yellow"))
+        
+        # Print traceback for debugging
+        import traceback
+        print(colored("Full traceback:", "yellow"))
+        traceback.print_exc()
+        
+
 
 
 if __name__ == "__main__":
