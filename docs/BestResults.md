@@ -70,6 +70,6 @@ Use the `run_experiments` script to execute your configuration:
 
 ```bash
 # Build and run the experiment
-python scripts/run_experiments.py --config my_experiment.toml
+python scripts/run_experiments.py --exp my_experiment.toml
 ```
 This will create a directory in `folder.experiment` containing the detail of the execution, including a `report.tsv` file with results in terms of effectiveness, efficiency, and memory consumpution. 
