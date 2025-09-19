@@ -1,7 +1,6 @@
 # 🏆 Best Results: Optimized Configurations Guide
 
 
-
 For each dataset and memory budget, we provide **optimal TOML configuration files** that represent the **fastest configuration capable of reaching a specific recall target** while respecting the given memory constraints.
 
 These configurations are the result of extensive grid search experiments to find the perfect balance between:
@@ -70,6 +69,6 @@ Use the `run_experiments` script to execute your configuration:
 
 ```bash
 # Build and run the experiment
-python scripts/run_experiments.py --exp my_experiment.toml
+python3 scripts/run_experiments.py --exp my_experiment.toml
 ```
-This will create a directory in `folder.experiment` containing the detail of the execution, including a `report.tsv` file with results in terms of effectiveness, efficiency, and memory consumpution. 
+This will create a directory in `folder.experiment` containing the details of the execution, including a `report.tsv` file with results in terms of effectiveness, efficiency, and memory consumpution. 
