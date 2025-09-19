@@ -59,7 +59,7 @@ Edit the copied TOML file to specify your data paths:
 [folder]
 data = "/path/to/your/data/directory"           # Directory containing documents.bin, queries.bin
 index = "/path/to/your/index/directory"         # Directory where index will be stored  
-qrels_path = "/path/to/your/qrels.dev.tsv"     # Ground truth relevance file
+qrels_path = "/path/to/your/qrels.dev.tsv"      # Ground truth relevance file
 experiment = "/path/to/output/directory"        # Directory for experiment results
 ```
 
