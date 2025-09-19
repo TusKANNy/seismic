@@ -1,5 +1,6 @@
 #![allow(refining_impl_trait)]
 #![feature(array_windows)]
+#![allow(internal_features)]
 #![feature(core_intrinsics)]
 #![feature(float_algebraic)]
 #![feature(gen_blocks)]
