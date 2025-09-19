@@ -114,20 +114,18 @@ If you download the NQ dataset from the HuggingFace repo, you need to specify ``
 ### 🪏 Resources
 Check out our `docs` folder for detailed guides:
 
-- **[BestResults.md](docs/BestResults.md)** - Guide to replicate optimized configurations.
-- **[RustUsage.md](docs/RustUsage.md)** - Using Seismic directly in Rust.
-- **[PythonUsage.md](docs/PythonUsage.md)** - Python API usage.
-- **[RunExperiments.md](docs/RunExperiments.md)** - Running custom experiments.
+- **[BestResults.md](docs/BestResults.md)** - A detailed guide on how to replicate results with optimized configurations.
+- **[RustUsage.md](docs/RustUsage.md)** - How to use Seismic directly in Rust.
+- **[PythonUsage.md](docs/PythonUsage.md)** - How to use the Seismic Python API.
+- **[RunExperiments.md](docs/RunExperiments.md)** - How to run custom experiments.
 - **[TomlInstructions.md](docs/TomlInstructions.md)** - TOML configuration reference.
 
 
 ### 🏆 Best Results 
 
 Seismic is an approximate algorithm designed for high-performance retrieval over learned sparse representations. We provide **pre-optimized configurations** for several common datasets, e.g., MsMarco. Check the detailed documentation in [docs/BestResults.md](docs/BestResults.md) and the available optimized configurations in [experiments/best_configs](experiments/best_configs).
+
  
-
-
-
 ### <a name="bib">📚 Bibliography</a>
 1. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, and Rossano Venturini. "*Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations*." Proc. ACM SIGIR. 2024. 
 2. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, and Rossano Venturini. "*Pairing Clustered Inverted Indexes with κ-NN Graphs for Fast Approximate Retrieval over Learned Sparse Representations*."  Proc. ACM CIKM. 2024.
@@ -137,7 +135,7 @@ Seismic is an approximate algorithm designed for high-performance retrieval over
 ### Citation License
 The source code in this repository is subject to the following citation license:
 
-By downloading and using this software, you agree to cite the under-noted paper in any kind of material you produce where it was used to conduct a search or experimentation, whether be it a research paper, dissertation, article, poster, presentation, or documentation. By using this software, you have agreed to the citation license.
+By downloading and using this software, you agree to cite the under-noted papers in any kind of material you produce where it was used to conduct a search or experimentation, whether be it a research paper, dissertation, article, poster, presentation, or documentation. By using this software, you have agreed to the citation license.
 
 SIGIR 2024
 ```bibtex
