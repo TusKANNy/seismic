@@ -1,4 +1,5 @@
 #![feature(array_windows)]
+#![allow(internal_features)]
 #![feature(core_intrinsics)]
 #![feature(float_algebraic)]
 #![feature(trait_alias)]
