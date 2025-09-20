@@ -28,9 +28,7 @@ use rayon::iter::plumbing::{Consumer, Producer, UnindexedConsumer, bridge};
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
 
 use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
-use crate::partitioned_dataset::utils::HollowSymmetricMatrix;
-use crate::partitioned_dataset::utils::*;
-use crate::utils::prefetch_read_slice;
+use crate::utils::{HollowSymmetricMatrix, MetisParams, prefetch_read_slice};
 use crate::{ComponentType, SpaceUsage, ValueType};
 
 pub trait SparseDatasetTrait: SpaceUsage {

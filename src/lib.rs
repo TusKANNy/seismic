@@ -30,8 +30,6 @@ pub use sparse_dataset::SparseDataset;
 pub use sparse_dataset::SparseDatasetMut;
 pub use sparse_dataset::SparseDatasetTrait;
 
-pub mod partitioned_dataset;
-
 pub mod inverted_index;
 pub use inverted_index::InvertedIndex;
 
@@ -92,6 +90,9 @@ pub trait ComponentType = Unsigned
     + Eq
     + Ord
     + Pod;
+
+#[cfg(feature = "partitioned-dataset")]
+pub mod partitioned_dataset;
 
 #[cfg(feature = "pyo3")]
 pub mod pylib;

@@ -1,95 +1,9 @@
 use std::hint::assert_unchecked;
-use std::time::Instant;
 
+use crate::ValueType;
 use crate::{ComponentType, partitioned_dataset::fitting_integer::*};
-use metis::Graph;
+use num_traits::One;
 use num_traits::PrimInt;
-use num_traits::{One, Zero};
-use serde::{Deserialize, Serialize};
-
-/// A symmetrical matrix where the diagonal components are 0. Only the upper part of the matrix is stored.
-pub struct HollowSymmetricMatrix<T: Zero + Copy> {
-    dim: usize,
-    data: Box<[T]>,
-}
-
-impl<T: Zero + Copy> HollowSymmetricMatrix<T> {
-    pub fn new(dim: usize) -> Self {
-        let size = (dim * (dim - 1)) / 2;
-        let data = vec![T::zero(); size].into_boxed_slice();
-        Self { dim, data }
-    }
-
-    /// # Safety
-    /// - `j > i`
-    /// - `i < self.dim && j < self.dim`
-    pub unsafe fn get_unchecked(&self, i: usize, j: usize) -> &T {
-        unsafe {
-            assert_unchecked(j > i);
-            let index = i * self.dim + j - ((i + 2) * (i + 1)) / 2;
-            self.data.get_unchecked(index)
-        }
-    }
-
-    /// # Safety
-    /// - `j > i`
-    /// - `i < self.dim && j < self.dim`
-    pub unsafe fn get_unchecked_mut(&mut self, i: usize, j: usize) -> &mut T {
-        unsafe {
-            assert_unchecked(j > i);
-            let index = i * self.dim + j - ((i + 2) * (i + 1)) / 2;
-            self.data.get_unchecked_mut(index)
-        }
-    }
-
-    /// Iterates the specified row (how it's supposed to be, not how it's represented).
-    /// The diagonal element is skipped.
-    pub fn iter_row(&self, i: usize) -> impl Iterator<Item = (usize, &T)> {
-        let before = (0..i).map(move |j| (j, unsafe { self.get_unchecked(j, i) }));
-        let after = ((i + 1)..self.dim).map(move |j| (j, unsafe { self.get_unchecked(i, j) }));
-        before.chain(after)
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct MetisParams {
-    pub adjncy: Box<[i32]>,
-    pub weights: Box<[i32]>,
-    pub xadj: Box<[i32]>,
-}
-
-impl MetisParams {
-    pub fn build_partitions<const N_PARTITIONS: usize>(
-        &self,
-    ) -> Vec<FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>>
-    where
-        (): Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>,
-    {
-        print!("\tBuilding partitions ");
-        let time = Instant::now();
-
-        let mut part = vec![0; self.xadj.len() - 1];
-
-        Graph::new(1, N_PARTITIONS as i32, &self.xadj, &self.adjncy)
-            .unwrap()
-            .set_adjwgt(&self.weights)
-            .part_recursive(part.as_mut_slice())
-            .unwrap();
-
-        let result = part
-            .into_iter()
-            .map(|p| {
-                FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_i32(p)
-                    .unwrap()
-            })
-            .collect();
-
-        let elapsed = time.elapsed();
-        println!("{} secs", elapsed.as_secs());
-
-        result
-    }
-}
 
 pub fn map_components<const N_PARTITIONS: usize, const N_COMPONENT_BITS: usize>(
     partitions: &[FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>],
