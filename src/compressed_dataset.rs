@@ -257,6 +257,74 @@ where
     }
 }
 
+impl<C, V> SparseDatasetCompressed<C, V>
+where
+    C: ComponentType,
+    V: ValueType,
+{
+    pub fn space_usage_byte_components(&self) -> usize {
+        size_of_val(self.components.as_limbs())
+    }
+
+    pub fn from_dataset_f32_with_codec<O, AC, AV>(
+        dataset: SparseDatasetGeneric<C, f32, O, AC, AV>,
+        codec: VariableCodecSpec,
+    ) -> Self
+    where
+        O: AsRef<[usize]> + SpaceUsage + Into<Box<[usize]>> + Hash,
+        AC: AsRef<[C]> + SpaceUsage + Into<Box<[C]>> + Hash,
+        AV: AsRef<[f32]> + SpaceUsage + Into<Box<[f32]>>,
+    {
+        let metis_params = build_or_load_metis_params(&dataset);
+
+        // Use partitioning so that components that often appear together have a close id
+        let mut partitions = metis_params.build_partitions::<32>().into_boxed_slice();
+
+        let dim = dataset.dim();
+        let (offsets, components, values) = dataset.destroy();
+        let mut component_ids: Box<[C]> = (0..dim).map(|c| C::from_usize(c).unwrap()).collect();
+        co_sort_stable![partitions, component_ids];
+        let mut component_mapping = vec![C::zero(); dim].into_boxed_slice();
+        for (i, c) in component_ids.into_iter().enumerate() {
+            component_mapping[c.as_()] = C::from_usize(i).unwrap();
+        }
+
+        let mut components = components.into();
+        let mut values: Box<_> = values
+            .into()
+            .into_iter()
+            .map(V::from_f32_saturating)
+            .collect();
+        let offsets = offsets.into();
+
+        for &[start, end] in offsets.array_windows() {
+            let comps = unsafe { components.get_unchecked_mut(start..end) };
+            let vals = unsafe { values.get_unchecked_mut(start..end) };
+            for c in comps.iter_mut() {
+                *c = component_mapping[c.as_()];
+            }
+            co_sort!(comps, vals);
+
+            // For better compression, store the component differences
+            for i in (1..comps.len()).rev() {
+                comps[i] = comps[i] - comps[i - 1];
+            }
+        }
+
+        Self {
+            dim,
+            offsets,
+            components: UIntVec::<C>::builder()
+                .k(64) // Sample every 2nd element
+                .codec(codec)
+                .build(components.as_ref())
+                .unwrap(),
+            values,
+            component_mapping,
+        }
+    }
+}
+
 impl<C, V> SpaceUsage for SparseDatasetCompressed<C, V>
 where
     C: ComponentType,
