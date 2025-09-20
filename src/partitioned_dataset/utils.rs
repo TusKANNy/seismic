@@ -5,7 +5,7 @@ use crate::{ComponentType, partitioned_dataset::fitting_integer::*};
 use num_traits::One;
 use num_traits::PrimInt;
 
-pub fn map_components<const N_PARTITIONS: usize, const N_COMPONENT_BITS: usize>(
+pub(super) fn map_components<const N_PARTITIONS: usize, const N_COMPONENT_BITS: usize>(
     partitions: &[FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>],
 ) -> Box<[FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS }>]>
 where
@@ -47,7 +47,7 @@ where
 }
 
 /// Given an array of `bool`s representing the adctive partitions, generates a bitset representing it.
-pub(crate) fn gen_active_partitions<const N_PARTITIONS: usize>(
+pub(super) fn gen_active_partitions<const N_PARTITIONS: usize>(
     active_partitions_iter: [bool; N_PARTITIONS],
 ) -> FittingArray<N_PARTITIONS>
 where
@@ -72,7 +72,7 @@ where
 }
 
 #[inline]
-pub(crate) fn partitions_len_array<const N_PARTITIONS: usize, F: Fn(C) -> usize, C>(
+pub(super) fn partitions_len_array<const N_PARTITIONS: usize, F: Fn(C) -> usize, C>(
     components: impl Iterator<Item = C>,
     partitioning_function: F,
 ) -> [usize; N_PARTITIONS] {
@@ -88,6 +88,6 @@ pub(crate) fn partitions_len_array<const N_PARTITIONS: usize, F: Fn(C) -> usize,
 }
 
 #[inline]
-pub(crate) fn count_ones_array<T: PrimInt>(arr: &[T]) -> u32 {
+pub(super) fn count_ones_array<T: PrimInt>(arr: &[T]) -> u32 {
     arr.iter().map(|n| n.count_ones()).sum()
 }
