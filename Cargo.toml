@@ -76,6 +76,8 @@ rustc-hash = "2.1.1"
 toolkit = { git = "https://github.com/rossanoventurini/toolkit.git" }
 mem_dbg = "0.3.0"
 
+rgb = { git = "https://github.com/JMMackenzie/enhanced-graph-bisection.git" }
+
 [[bin]]
 name = "perf_inverted_index"
 path = "src/bin/perf_inverted_index.rs"

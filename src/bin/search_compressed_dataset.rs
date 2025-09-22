@@ -1,6 +1,8 @@
 use clap::Parser;
 use compressed_intvec::prelude::VariableCodecSpec;
 use indicatif::ProgressIterator;
+use seismic::sparse_dataset::{SparseDatasetGeneric, SparseDatasetMutTrait};
+use seismic::{ComponentType, SparseDataset, ValueType};
 use seismic::{
     FixedU16Q, SpaceUsage, SparseDatasetTrait, compressed_dataset::SparseDatasetCompressed,
     sparse_dataset::SparseDatasetMut,
@@ -8,6 +10,8 @@ use seismic::{
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
+
+use rgb::forward::Doc;
 
 #[derive(Debug)]
 struct PerformanceMetrics {
@@ -128,6 +132,57 @@ fn write_metrics_to_tsv(metrics: &PerformanceMetrics, log_path: &str) -> std::io
     Ok(())
 }
 
+fn permute_index_components<C, V, O, AC, AV>(
+    dataset: &SparseDatasetGeneric<C, V, O, AC, AV>,
+    //) -> (SparseDataset<C, V>, Vec<usize>)
+) -> Box<[C]>
+where
+    C: ComponentType,
+    V: ValueType,
+    O: AsRef<[usize]> + SpaceUsage,
+    AC: AsRef<[C]> + SpaceUsage,
+    AV: AsRef<[V]> + SpaceUsage,
+{
+    // One Doc for each component. RGB's terminology is the opposite of what we need in Seismic
+    let mut components = Vec::with_capacity(dataset.dim());
+    for component_id in 0..dataset.dim() {
+        components.push(Doc {
+            terms: Vec::with_capacity(256), // initial estimate for uniq terms in doc
+            org_id: component_id as u32,
+            gain: 0.0,
+            leaf_id: -1,
+        });
+    }
+
+    for (doc_id, (doc_components, _values)) in dataset.dataset_iter().enumerate() {
+        for &component_id in doc_components.iter() {
+            components[component_id.as_()].terms.push(doc_id as u32);
+        }
+    }
+
+    rgb::recursive_graph_bisection(&mut components, dataset.dim(), 20, 16, 100, 10, 1, true, 1);
+
+    let mut perm = vec![C::default(); components.len()];
+    for (new_id, comp) in components.iter().enumerate() {
+        perm[comp.org_id as usize] = C::from_usize(new_id).unwrap();
+    }
+
+    // let mut new_dataset = SparseDatasetMut::<C, V>::new();
+
+    // for (doc_components, doc_values) in dataset.dataset_iter() {
+    //     let mut new_vec = Vec::with_capacity(doc_components.len());
+    //     for (&component_id, &value) in doc_components.iter().zip(doc_values.iter()) {
+    //         new_vec.push((C::from_usize(perm[component_id.as_()]).unwrap(), value));
+    //     }
+    //     new_vec.sort_by_key(|(c, _)| *c);
+
+    //     new_dataset.push_iterator(new_vec.into_iter());
+    // }
+
+    // (new_dataset.into(), perm)
+
+    perm.into_boxed_slice()
+}
 pub fn main() {
     let args = Args::parse();
 
@@ -195,9 +250,15 @@ pub fn main() {
         "\nConverting to compressed dataset using {:?} codec...",
         codec
     );
+
+    println!("Permuting components for better compression using graph bisection...");
+
+    let permutation = permute_index_components(&dataset_generic);
+
     let dataset_compressed = SparseDatasetCompressed::<u16, FixedU16Q>::from_dataset_f32_with_codec(
         dataset_generic,
         codec,
+        Some(permutation),
     );
 
     println!("\n=== Compressed Dataset Info ===");

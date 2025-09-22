@@ -271,25 +271,32 @@ where
     pub fn from_dataset_f32_with_codec<O, AC, AV>(
         dataset: SparseDatasetGeneric<C, f32, O, AC, AV>,
         codec: VariableCodecSpec,
+        permutation: Option<Box<[C]>>,
     ) -> Self
     where
         O: AsRef<[usize]> + SpaceUsage + Into<Box<[usize]>> + Hash,
         AC: AsRef<[C]> + SpaceUsage + Into<Box<[C]>> + Hash,
         AV: AsRef<[f32]> + SpaceUsage + Into<Box<[f32]>>,
     {
-        let metis_params = build_or_load_metis_params(&dataset);
-
-        // Use partitioning so that components that often appear together have a close id
-        let mut partitions = metis_params.build_partitions::<32>().into_boxed_slice();
-
         let dim = dataset.dim();
+        let permutation = permutation.unwrap_or_else(|| {
+            println!("No permutation provided, computing one metis...");
+            let metis_params = build_or_load_metis_params(&dataset);
+
+            // Use partitioning so that components that often appear together have a close id
+            let mut partitions = metis_params.build_partitions::<32>().into_boxed_slice();
+
+            let mut component_ids: Box<[C]> = (0..dim).map(|c| C::from_usize(c).unwrap()).collect();
+            co_sort_stable![partitions, component_ids];
+
+            let mut component_mapping = vec![C::zero(); dim].into_boxed_slice();
+            for (i, c) in component_ids.into_iter().enumerate() {
+                component_mapping[c.as_()] = C::from_usize(i).unwrap();
+            }
+            component_mapping
+        });
+
         let (offsets, components, values) = dataset.destroy();
-        let mut component_ids: Box<[C]> = (0..dim).map(|c| C::from_usize(c).unwrap()).collect();
-        co_sort_stable![partitions, component_ids];
-        let mut component_mapping = vec![C::zero(); dim].into_boxed_slice();
-        for (i, c) in component_ids.into_iter().enumerate() {
-            component_mapping[c.as_()] = C::from_usize(i).unwrap();
-        }
 
         let mut components = components.into();
         let mut values: Box<_> = values
@@ -303,7 +310,7 @@ where
             let comps = unsafe { components.get_unchecked_mut(start..end) };
             let vals = unsafe { values.get_unchecked_mut(start..end) };
             for c in comps.iter_mut() {
-                *c = component_mapping[c.as_()];
+                *c = permutation[c.as_()];
             }
             co_sort!(comps, vals);
 
@@ -323,7 +330,7 @@ where
                 .build(components.as_ref())
                 .unwrap(),
             values,
-            component_mapping,
+            component_mapping: permutation,
         }
     }
 }

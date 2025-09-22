@@ -49,10 +49,10 @@ if [[ ! -f "$BINARY" ]]; then
 fi
 
 # Array of codecs to test
-#CODECS=("gamma" "delta" "v-byte-le" "v-byte-be" "zeta")
+CODECS=("zeta" "gamma" "delta")
 
 
-CODECS=("v-byte-le" "v-byte-be")
+#CODECS=("v-byte-le" "v-byte-be")
 echo "========================================="
 echo "Starting compression codec benchmark"
 echo "========================================="
