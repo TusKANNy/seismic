@@ -7,6 +7,7 @@ use std::{
 
 use bytemuck::{Pod, try_cast_slice};
 use co_sort::*;
+use itertools::Itertools;
 use num_traits::{FromPrimitive, One, PrimInt, ToBytes, ToPrimitive};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -474,6 +475,61 @@ where
             self.get_with_offset_iter(start, end - start)
         })
     }
+}
+
+impl<const N_PARTITIONS: usize, const N_COMPONENT_BITS: usize, V>
+    SparseDatasetPartitioned<N_PARTITIONS, N_COMPONENT_BITS, V>
+where
+    (): Fit<N_PARTITIONS>
+        + Fit<N_COMPONENT_BITS>
+        + Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS }>,
+    [(); size_of::<FittingInteger<N_COMPONENT_BITS>>()]: Sized,
+    [(); N_PARTITIONS.div_ceil(size_of::<FittingInteger<N_PARTITIONS>>() * 8)]: Sized,
+    V: ValueType,
+{
+    /// Performs a k-nearest neighbor search on the dataset.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - An iterator of (component, value) pairs representing the query vector
+    /// * `k` - The number of nearest neighbors to return
+    ///
+    /// # Returns
+    ///
+    /// A vector of (score, document_id) pairs sorted by score in descending order.
+    /// The score represents the dot product similarity between the query and each document.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let query = vec![(0, 1.0), (2, 0.5)];
+    /// let results = dataset.search(query.into_iter(), 10);
+    /// ```
+    pub fn search<D: ComponentType, W: ValueType>(
+        &self,
+        query: impl Iterator<Item = (D, W)>,
+        k: usize,
+    ) -> Vec<(f32, usize)> {
+        let prepared_query = self.prepare_query(query);
+
+        self.offsets
+            .as_ref()
+            .array_windows()
+            .map(|&[o1, o2]| {
+                let len = o2 - o1;
+                self.dot_product_from_offset::<D, W>(&prepared_query, o1, len)
+            })
+            .enumerate()
+            .map(|(i, s)| (s, i))
+            .k_largest_by(k, |a, b| a.0.partial_cmp(&b.0).unwrap())
+            .collect()
+    }
+
+    pub fn space_usage_byte_components(&self) -> usize {
+        self.component_mapping.space_usage_byte()
+    }
+
+
 }
 
 impl<const N_PARTITIONS: usize, const N_COMPONENT_BITS: usize, C, V, O, AC, AV>

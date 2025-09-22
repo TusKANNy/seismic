@@ -17,6 +17,8 @@ use crate::{
 };
 use crate::{FromDatasetGenericF32, SpaceUsage};
 
+use mem_dbg::{MemSize, SizeFlags};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SparseDatasetCompressed<C, V>
 where
@@ -263,7 +265,7 @@ where
     V: ValueType,
 {
     pub fn space_usage_byte_components(&self) -> usize {
-        size_of_val(self.components.as_limbs())
+        self.components.mem_size(SizeFlags::CAPACITY)
     }
 
     pub fn from_dataset_f32_with_codec<O, AC, AV>(
@@ -310,12 +312,13 @@ where
                 comps[i] = comps[i] - comps[i - 1];
             }
         }
-
+        let k_sampling = 128;
+        println!("Using k={k_sampling} for sampling in compressed intvec");
         Self {
             dim,
             offsets,
             components: UIntVec::<C>::builder()
-                .k(64) // Sample every 2nd element
+                .k(k_sampling)
                 .codec(codec)
                 .build(components.as_ref())
                 .unwrap(),
@@ -334,7 +337,8 @@ where
     fn space_usage_byte(&self) -> usize {
         self.dim.space_usage_byte()
             + self.offsets.space_usage_byte()
-            + size_of_val(self.components.as_limbs())
+            //+ size_of_val(self.components.as_limbs())
+            + self.components.mem_size(SizeFlags::CAPACITY)
             + self.values.space_usage_byte()
     }
 }

@@ -1,10 +1,13 @@
 use clap::Parser;
-use compressed_intvec::prelude::VariableCodecSpec;
+
 use indicatif::ProgressIterator;
+
+use seismic::partitioned_dataset::dataset::SparseDatasetPartitioned;
 use seismic::{
-    FixedU16Q, SpaceUsage, SparseDatasetTrait, compressed_dataset::SparseDatasetCompressed,
+    FixedU16Q, FromDatasetGenericF32, SpaceUsage, SparseDatasetTrait,
     sparse_dataset::SparseDatasetMut,
 };
+
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
@@ -12,8 +15,6 @@ use std::time::Instant;
 #[derive(Debug)]
 struct PerformanceMetrics {
     dataset_name: String,
-    codec_type: String,
-    codec_args: String,
     num_documents: usize,
     num_dimensions: usize,
     total_nnz: usize,
@@ -29,18 +30,9 @@ struct PerformanceMetrics {
     avg_time_per_document_ns: f64,
 }
 
-#[derive(clap::ValueEnum, Default, Debug, Clone)]
-pub enum CompressionAlgorithmClap {
-    #[default]
-    Zeta,
-    Gamma,
-    Delta,
-    VByteLe,
-    VByteBe,
-}
-
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
+
 struct Args {
     /// The path of the input file
     #[clap(short, long, value_parser)]
@@ -63,29 +55,10 @@ struct Args {
     #[clap(short, long, value_parser)]
     log_path: Option<String>,
 
-    /// The codec to use for compression (e.g., "zeta", "gamma", "delta")
-    #[clap(short, long, value_parser)]
-    #[arg(default_value = "zeta")]
-    codec: CompressionAlgorithmClap,
-
     /// The number of queries to use for evaluation
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 10)]
     n_queries: usize,
-
-    /// K value for Zeta codec (only if codec is "zeta")
-    #[clap(short, long, value_parser)]
-    zeta_k: Option<u64>,
-}
-
-fn codec_args_to_string(codec: &VariableCodecSpec) -> String {
-    match codec {
-        VariableCodecSpec::Zeta { k } => match k {
-            Some(value) => format!("k={}", value),
-            _ => "k=auto".to_string(),
-        },
-        _ => "none".to_string(), // For codecs without parameters like Gamma, Delta, VByte, etc.
-    }
 }
 
 fn write_metrics_to_tsv(metrics: &PerformanceMetrics, log_path: &str) -> std::io::Result<()> {
@@ -99,17 +72,15 @@ fn write_metrics_to_tsv(metrics: &PerformanceMetrics, log_path: &str) -> std::io
     if !file_exists {
         writeln!(
             file,
-            "dataset_name\tcodec_type\tcodec_args\tnum_documents\tnum_dimensions\ttotal_nnz\tavg_components_per_doc\toriginal_memory_bytes\tcompressed_memory_bytes\tcomponent_memory_bytes\tcompression_ratio\tnum_queries\tk_results\ttotal_search_time_ms\tavg_time_per_query_ms\tavg_time_per_document_ns"
+            "dataset_name\tnum_documents\tnum_dimensions\ttotal_nnz\tavg_components_per_doc\toriginal_memory_bytes\tcompressed_memory_bytes\tcomponent_memory_bytes\tcompression_ratio\tnum_queries\tk_results\ttotal_search_time_ms\tavg_time_per_query_ms\tavg_time_per_document_ns"
         )?;
     }
 
     // Write data
     writeln!(
         file,
-        "{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{:.6}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}",
+        "{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{:.6}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}",
         metrics.dataset_name,
-        metrics.codec_type,
-        metrics.codec_args,
         metrics.num_documents,
         metrics.num_dimensions,
         metrics.total_nnz,
@@ -129,6 +100,9 @@ fn write_metrics_to_tsv(metrics: &PerformanceMetrics, log_path: &str) -> std::io
 }
 
 pub fn main() {
+    const N_PARTITIONS: usize = 128;
+    const N_COMPONENT_BITS: usize = 8;
+
     let args = Args::parse();
 
     let input_file = match args.input_file {
@@ -139,7 +113,6 @@ pub fn main() {
         }
     };
 
-    // === Write results to file ===
     let output_path = match args.output_path {
         Some(path) => path,
         _ => {
@@ -157,14 +130,6 @@ pub fn main() {
     };
 
     let n_queries = args.n_queries;
-
-    let codec = match args.codec {
-        CompressionAlgorithmClap::Zeta => VariableCodecSpec::Zeta { k: args.zeta_k },
-        CompressionAlgorithmClap::Gamma => VariableCodecSpec::Gamma,
-        CompressionAlgorithmClap::Delta => VariableCodecSpec::Delta,
-        CompressionAlgorithmClap::VByteLe => VariableCodecSpec::VByteLe,
-        CompressionAlgorithmClap::VByteBe => VariableCodecSpec::VByteBe,
-    };
 
     println!("Reading the queries...");
     let queries = SparseDatasetMut::<u16, f32>::read_bin_file(&args.query_file.unwrap()).unwrap();
@@ -191,41 +156,33 @@ pub fn main() {
     let generic_memory_usage = dataset_generic.space_usage_byte();
     println!("Memory usage: {} bytes", generic_memory_usage);
 
-    println!(
-        "\nConverting to compressed dataset using {:?} codec...",
-        codec
-    );
-    let dataset_compressed = SparseDatasetCompressed::<u16, FixedU16Q>::from_dataset_f32_with_codec(
-        dataset_generic,
-        codec,
-    );
+    let partitioned_dataset =
+        SparseDatasetPartitioned::<N_PARTITIONS, N_COMPONENT_BITS, FixedU16Q>::from_dataset_f32(
+            dataset_generic,
+        );
 
-    println!("\n=== Compressed Dataset Info ===");
-    println!("Number of Vectors: {}", dataset_compressed.len());
-    println!("Number of Dimensions: {}", dataset_compressed.dim());
+    println!("\n=== Partitioned Dataset Info ===");
+    println!("Number of Vectors: {}", partitioned_dataset.len());
+    println!("Number of Dimensions: {}", partitioned_dataset.dim());
     println!(
         "Avg number of components: {:.2}",
-        dataset_compressed.nnz() as f32 / dataset_compressed.len() as f32
+        partitioned_dataset.nnz() as f32 / partitioned_dataset.len() as f32
     );
-    println!("Total non-zero components: {}", dataset_compressed.nnz());
+    println!("Total non-zero components: {}", partitioned_dataset.nnz());
     println!(
         "Memory usage: {} bytes",
-        dataset_compressed.space_usage_byte()
+        partitioned_dataset.space_usage_byte()
     );
 
-    let component_memory_usage = dataset_compressed.space_usage_byte_components();
-
-    println!("Component memory usage: {} bytes", component_memory_usage);
-
-    // === Compressed Dataset Performance Test ===
-    println!("\n=== Compressed Dataset Search Performance ===");
+    // === Partitioned Dataset Performance Test ===
+    println!("\n=== Partitioned Dataset Search Performance ===");
     let start = Instant::now();
-    let results_compressed: Vec<_> = queries
+    let results_partitioned: Vec<_> = queries
         .dataset_iter()
         .take(n_queries)
         .progress_count(n_queries as u64)
         .map(|(query_components, query_values)| {
-            dataset_compressed.search(
+            partitioned_dataset.search(
                 query_components
                     .iter()
                     .zip(query_values)
@@ -235,56 +192,55 @@ pub fn main() {
         })
         .collect();
 
-    let duration_compressed = start.elapsed();
+    let duration_partitioned = start.elapsed();
 
     println!(
-        "Total time taken with compressed dataset: {:?}",
-        duration_compressed
+        "Total time taken with partitioned dataset: {:?}",
+        duration_partitioned
     );
     println!(
-        "Time per query with compressed dataset: {:?}",
-        duration_compressed / results_compressed.len() as u32
+        "Time per query with partitioned dataset: {:?}",
+        duration_partitioned / results_partitioned.len() as u32
     );
     println!(
-        "Average time per document with compressed dataset: {:?}",
-        duration_compressed / (results_compressed.len() as u32 * dataset_compressed.len() as u32)
+        "Average time per document with partitioned dataset: {:?}",
+        duration_partitioned
+            / (results_partitioned.len() as u32 * partitioned_dataset.len() as u32)
     );
 
     println!(
-        "Compressed Dataset - Time per query: {:?}",
-        duration_compressed / results_compressed.len() as u32
+        "Partitioned Dataset - Time per query: {:?}",
+        duration_partitioned / results_partitioned.len() as u32
     );
 
-    let memory_ratio = generic_memory_usage as f64 / dataset_compressed.space_usage_byte() as f64;
+    let memory_ratio = generic_memory_usage as f64 / partitioned_dataset.space_usage_byte() as f64;
     println!(
         "Memory compression ratio: {:.2}x (FP uses {:.2}x more memory)",
         memory_ratio, memory_ratio
     );
 
+    // Note: partitioned dataset might not have space_usage_byte_components method
+    let component_memory_usage = 0; // placeholder
+
     // Collect metrics for TSV logging
     let metrics = PerformanceMetrics {
         dataset_name: input_file.clone(),
-        codec_type: format!("{:?}", codec)
-            .split(' ')
-            .next()
-            .unwrap()
-            .to_string(),
-        codec_args: codec_args_to_string(&codec),
-        num_documents: dataset_compressed.len(),
-        num_dimensions: dataset_compressed.dim(),
-        total_nnz: dataset_compressed.nnz(),
-        avg_components_per_doc: dataset_compressed.nnz() as f32 / dataset_compressed.len() as f32,
+
+        num_documents: partitioned_dataset.len(),
+        num_dimensions: partitioned_dataset.dim(),
+        total_nnz: partitioned_dataset.nnz(),
+        avg_components_per_doc: partitioned_dataset.nnz() as f32 / partitioned_dataset.len() as f32,
         original_memory_bytes: generic_memory_usage,
-        compressed_memory_bytes: dataset_compressed.space_usage_byte(),
+        compressed_memory_bytes: partitioned_dataset.space_usage_byte(),
         component_memory_bytes: component_memory_usage,
         compression_ratio: memory_ratio,
-        num_queries: results_compressed.len(),
+        num_queries: results_partitioned.len(),
         k_results: k,
-        total_search_time_ms: duration_compressed.as_secs_f64() * 1000.0,
-        avg_time_per_query_ms: (duration_compressed.as_micros() as f64)
-            / results_compressed.len() as f64,
-        avg_time_per_document_ns: (duration_compressed.as_nanos() as f64)
-            / (results_compressed.len() as f64 * dataset_compressed.len() as f64),
+        total_search_time_ms: duration_partitioned.as_secs_f64() * 1000.0,
+        avg_time_per_query_ms: (duration_partitioned.as_micros() as f64)
+            / results_partitioned.len() as f64,
+        avg_time_per_document_ns: (duration_partitioned.as_nanos() as f64)
+            / (results_partitioned.len() as f64 * partitioned_dataset.len() as f64),
     };
 
     // Write metrics to TSV log
@@ -299,8 +255,8 @@ pub fn main() {
 
     let mut output_file = File::create(output_path).unwrap();
 
-    // Write results from compressed dataset search (not timed separately)
-    for (query_id, result) in results_compressed.iter().enumerate() {
+    // Write results from partitioned dataset search
+    for (query_id, result) in results_partitioned.iter().enumerate() {
         for (idx, (score, doc_id)) in result.iter().enumerate() {
             writeln!(
                 &mut output_file,
