@@ -281,19 +281,20 @@ where
         let dim = dataset.dim();
         let permutation = permutation.unwrap_or_else(|| {
             println!("No permutation provided, computing one metis...");
-            let metis_params = build_or_load_metis_params(&dataset);
+            (0..dim).map(|c| C::from_usize(c).unwrap()).collect()
+            // let metis_params = build_or_load_metis_params(&dataset);
 
-            // Use partitioning so that components that often appear together have a close id
-            let mut partitions = metis_params.build_partitions::<32>().into_boxed_slice();
+            // // Use partitioning so that components that often appear together have a close id
+            // let mut partitions = metis_params.build_partitions::<32>().into_boxed_slice();
 
-            let mut component_ids: Box<[C]> = (0..dim).map(|c| C::from_usize(c).unwrap()).collect();
-            co_sort_stable![partitions, component_ids];
+            // let mut component_ids: Box<[C]> = (0..dim).map(|c| C::from_usize(c).unwrap()).collect();
+            // co_sort_stable![partitions, component_ids];
 
-            let mut component_mapping = vec![C::zero(); dim].into_boxed_slice();
-            for (i, c) in component_ids.into_iter().enumerate() {
-                component_mapping[c.as_()] = C::from_usize(i).unwrap();
-            }
-            component_mapping
+            // let mut component_mapping = vec![C::zero(); dim].into_boxed_slice();
+            // for (i, c) in component_ids.into_iter().enumerate() {
+            //     component_mapping[c.as_()] = C::from_usize(i).unwrap();
+            // }
+            // component_mapping
         });
 
         let (offsets, components, values) = dataset.destroy();
