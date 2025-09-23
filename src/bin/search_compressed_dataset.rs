@@ -1,8 +1,8 @@
 use clap::Parser;
 use compressed_intvec::prelude::VariableCodecSpec;
 use indicatif::ProgressIterator;
-use seismic::sparse_dataset::{SparseDatasetGeneric, SparseDatasetMutTrait};
-use seismic::{ComponentType, SparseDataset, ValueType};
+use seismic::sparse_dataset::SparseDatasetGeneric;
+use seismic::{ComponentType, ValueType};
 use seismic::{
     FixedU16Q, SpaceUsage, SparseDatasetTrait, compressed_dataset::SparseDatasetCompressed,
     sparse_dataset::SparseDatasetMut,
@@ -18,6 +18,7 @@ struct PerformanceMetrics {
     dataset_name: String,
     codec_type: String,
     codec_args: String,
+    bisection: bool,
     num_documents: usize,
     num_dimensions: usize,
     total_nnz: usize,
@@ -80,6 +81,10 @@ struct Args {
     /// K value for Zeta codec (only if codec is "zeta")
     #[clap(short, long, value_parser)]
     zeta_k: Option<u64>,
+
+    /// Whether to permute index components for better compression
+    #[clap(short, long, value_parser, default_value_t = false)]
+    bisection: bool,
 }
 
 fn codec_args_to_string(codec: &VariableCodecSpec) -> String {
@@ -103,17 +108,18 @@ fn write_metrics_to_tsv(metrics: &PerformanceMetrics, log_path: &str) -> std::io
     if !file_exists {
         writeln!(
             file,
-            "dataset_name\tcodec_type\tcodec_args\tnum_documents\tnum_dimensions\ttotal_nnz\tavg_components_per_doc\toriginal_memory_bytes\tcompressed_memory_bytes\tcomponent_memory_bytes\tcompression_ratio\tnum_queries\tk_results\ttotal_search_time_ms\tavg_time_per_query_ms\tavg_time_per_document_ns"
+            "dataset_name\tcodec_type\tcodec_args\tbisection\tnum_documents\tnum_dimensions\ttotal_nnz\tavg_components_per_doc\toriginal_memory_bytes\tcompressed_memory_bytes\tcomponent_memory_bytes\tcompression_ratio\tnum_queries\tk_results\ttotal_search_time_us\tavg_time_per_query_us\tavg_time_per_document_ns"
         )?;
     }
 
     // Write data
     writeln!(
         file,
-        "{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{:.6}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}",
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{:.6}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}",
         metrics.dataset_name,
         metrics.codec_type,
         metrics.codec_args,
+        metrics.bisection,
         metrics.num_documents,
         metrics.num_dimensions,
         metrics.total_nnz,
@@ -253,12 +259,16 @@ pub fn main() {
 
     println!("Permuting components for better compression using graph bisection...");
 
-    let permutation = permute_index_components(&dataset_generic);
+    let permutation = if args.bisection {
+        Some(permute_index_components(&dataset_generic))
+    } else {
+        None
+    };
 
     let dataset_compressed = SparseDatasetCompressed::<u16, FixedU16Q>::from_dataset_f32_with_codec(
         dataset_generic,
         codec,
-        Some(permutation),
+        permutation,
     );
 
     println!("\n=== Compressed Dataset Info ===");
@@ -331,6 +341,7 @@ pub fn main() {
             .unwrap()
             .to_string(),
         codec_args: codec_args_to_string(&codec),
+        bisection: args.bisection,
         num_documents: dataset_compressed.len(),
         num_dimensions: dataset_compressed.dim(),
         total_nnz: dataset_compressed.nnz(),

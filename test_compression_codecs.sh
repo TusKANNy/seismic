@@ -42,14 +42,11 @@ mkdir -p "$LOG_DIR"
 # Path to the binary
 BINARY="./target/release/search_compressed_dataset"
 
-# Check if binary exists
-if [[ ! -f "$BINARY" ]]; then
-    echo "Binary not found at $BINARY. Building..."
-    cargo build --release --bin search_compressed_dataset
-fi
-
 # Array of codecs to test
-CODECS=("zeta" "gamma" "delta")
+CODECS=("zeta" "gamma" "delta" "v-byte-le" "v-byte-be")
+
+# Array of bisection modes to test
+BISECTION_MODES=("false" "true")
 
 
 #CODECS=("v-byte-le" "v-byte-be")
@@ -61,51 +58,64 @@ echo "Query file: $QUERY_FILE"
 echo "Output directory: $OUTPUT_DIR"
 echo "Log directory: $LOG_DIR"
 echo "Codecs to test: ${CODECS[*]}"
+echo "Bisection modes: ${BISECTION_MODES[*]}"
 echo "K results: $DEFAULT_K"
 echo "Number of queries: $DEFAULT_N_QUERIES"
 echo "========================================="
 echo
 
-# Test each codec
+# Test each codec with each bisection mode
 for codec in "${CODECS[@]}"; do
-    echo "Testing codec: $codec"
-    
-    output_file="$OUTPUT_DIR/results_${codec}.tsv"
-    log_file="$LOG_DIR/${codec}.tsv"
-    
-    # Remove existing log file for this codec to start fresh
-    if [[ -f "$log_file" ]]; then
-        echo "Removing existing log file for $codec: $log_file"
-        rm "$log_file"
-    fi
-    
-    # Build command based on codec
-    cmd="$BINARY"
-    cmd+=" --input-file $INPUT_FILE"
-    cmd+=" --query-file $QUERY_FILE"
-    cmd+=" -k $DEFAULT_K"
-    cmd+=" -o $output_file"
-    cmd+=" -l $log_file"
-    cmd+=" -c $codec"
-    cmd+=" --n-queries $DEFAULT_N_QUERIES"
-    
-    # For zeta, we don't specify --zeta-k to use auto mode (None)
-    # This is already the default behavior
-    
-    echo "Running: $cmd"
-    
-    # Execute the command
-    if eval "$cmd"; then
-        echo "✅ Successfully tested $codec codec"
-        echo "   Results saved to: $output_file"
-        echo "   Log saved to: $log_file"
-    else
-        echo "❌ Failed to test $codec codec"
-        # Continue with next codec instead of exiting        ./test_compression_codecs.sh /data2/knn_datasets/sparse_datasets/msmarco_v1_passage/cocondenser/data/documents.bin /data2/knn_datasets/sparse_datasets/msmarco_v1_passage/cocondenser/data/queries.bin ./my_results ./my_codec_logs
-        continue
-    fi
-    
-    echo "---"
+    for bisection in "${BISECTION_MODES[@]}"; do
+        bisection_label=""
+        if [[ "$bisection" == "true" ]]; then
+            bisection_label="_bisection"
+        fi
+        
+        echo "Testing codec: $codec with bisection=$bisection"
+        
+        output_file="$OUTPUT_DIR/results_${codec}${bisection_label}.tsv"
+        log_file="$LOG_DIR/${codec}${bisection_label}.tsv"
+        
+        # Remove existing log file for this codec to start fresh
+        if [[ -f "$log_file" ]]; then
+            echo "Removing existing log file for $codec$bisection_label: $log_file"
+            rm "$log_file"
+        fi
+        
+        # Build command based on codec
+        cmd="$BINARY"
+        cmd+=" --input-file $INPUT_FILE"
+        cmd+=" --query-file $QUERY_FILE"
+        cmd+=" -k $DEFAULT_K"
+        cmd+=" -o $output_file"
+        cmd+=" -l $log_file"
+        cmd+=" -c $codec"
+        cmd+=" --n-queries $DEFAULT_N_QUERIES"
+        
+        # Add bisection flag if true
+        if [[ "$bisection" == "true" ]]; then
+            cmd+=" --bisection"
+        fi
+        
+        # For zeta, we don't specify --zeta-k to use auto mode (None)
+        # This is already the default behavior
+        
+        echo "Running: $cmd"
+        
+        # Execute the command
+        if eval "$cmd"; then
+            echo "✅ Successfully tested $codec codec with bisection=$bisection"
+            echo "   Results saved to: $output_file"
+            echo "   Log saved to: $log_file"
+        else
+            echo "❌ Failed to test $codec codec with bisection=$bisection"
+            # Continue with next codec instead of exiting
+            continue
+        fi
+        
+        echo "---"
+    done
 done
 
 echo
@@ -114,5 +124,6 @@ echo "Benchmark completed!"
 echo "========================================="
 echo "Results summary:"
 echo "- Output files: $OUTPUT_DIR/results_*.tsv"
-echo "- Benchmark log: $LOG_FILE"
+echo "- Log files: $LOG_DIR/*.tsv"
+echo "- Tested combinations: ${#CODECS[@]} codecs × ${#BISECTION_MODES[@]} bisection modes = $((${#CODECS[@]} * ${#BISECTION_MODES[@]})) total experiments"
 echo
