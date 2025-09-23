@@ -160,7 +160,7 @@ where
         }
     }
 
-    rgb::recursive_graph_bisection(&mut components, dataset.dim(), 20, 16, 100, 10, 1, true, 1);
+    rgb::recursive_graph_bisection(&mut components, dataset.len(), 20, 16, 100, 10, 1, true, 1);
 
     let mut perm = vec![C::default(); components.len()];
     for (new_id, comp) in components.iter().enumerate() {
