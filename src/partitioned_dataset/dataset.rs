@@ -2,7 +2,6 @@ use std::{
     hash::Hash,
     hint::{assert_unchecked, black_box},
     marker::PhantomData,
-    ops::Range,
 };
 
 use bytemuck::{Pod, try_cast_slice};
@@ -421,8 +420,8 @@ where
         })
     }
 
-    fn offset_to_id(&self, offset: usize) -> usize {
-        self.offsets.as_ref().binary_search(&offset).unwrap()
+    fn offsets(&self) -> &[usize] {
+        &self.offsets
     }
 
     fn dim(&self) -> usize {
@@ -431,23 +430,6 @@ where
 
     fn nnz(&self) -> usize {
         self.nnz
-    }
-
-    fn len(&self) -> usize {
-        self.offsets.as_ref().len() - 1
-    }
-
-    fn offset_range(&self, id: usize) -> std::ops::Range<usize> {
-        let offsets = self.offsets.as_ref();
-        assert!(id < offsets.len() - 1, "{id} is out of range");
-
-        // Safety: safe accesses due to the check above
-        unsafe {
-            Range {
-                start: *offsets.get_unchecked(id),
-                end: *offsets.get_unchecked(id + 1),
-            }
-        }
     }
 
     fn prefetch_with_offset(&self, offset: usize, len: usize) {
