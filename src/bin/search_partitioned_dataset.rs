@@ -2,19 +2,60 @@ use clap::Parser;
 
 use indicatif::ProgressIterator;
 
+use seismic::PermutationStrategy;
 use seismic::partitioned_dataset::dataset::SparseDatasetPartitioned;
-use seismic::{
-    FixedU16Q, FromDatasetGenericF32, SpaceUsage, SparseDatasetTrait,
-    sparse_dataset::SparseDatasetMut,
-};
+use seismic::{FixedU16Q, SpaceUsage, SparseDatasetTrait, sparse_dataset::SparseDatasetMut};
 
+use core::fmt::Display;
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
 
+#[derive(clap::ValueEnum, Default, Debug, Clone)]
+pub enum CompressionAlgorithmClap {
+    #[default]
+    Zeta,
+    Gamma,
+    Delta,
+    VByteLe,
+    VByteBe,
+}
+
+#[derive(clap::ValueEnum, Default, Debug, Clone, Copy)]
+pub enum PermutationStrategyClap {
+    #[default]
+    None,
+    Metis,
+    GraphBisection,
+}
+
+impl Display for PermutationStrategyClap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            PermutationStrategyClap::None => "none",
+            PermutationStrategyClap::Metis => "metis",
+            PermutationStrategyClap::GraphBisection => "graph_bisection",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl PermutationStrategyClap {
+    fn to_permutation_strategy(&self) -> PermutationStrategy {
+        match self {
+            PermutationStrategyClap::None => PermutationStrategy::None,
+            PermutationStrategyClap::Metis => PermutationStrategy::Metis,
+            PermutationStrategyClap::GraphBisection => PermutationStrategy::GraphBisection,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct PerformanceMetrics {
     dataset_name: String,
+    permutation_strategy: String,
+    n_partitions: usize,
+    n_component_bits: usize,
     num_documents: usize,
     num_dimensions: usize,
     total_nnz: usize,
@@ -59,6 +100,10 @@ struct Args {
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 10)]
     n_queries: usize,
+
+    /// Whether to permute index components for better compression
+    #[clap(short, long, value_parser)]
+    permutation: Option<PermutationStrategyClap>,
 }
 
 fn write_metrics_to_tsv(metrics: &PerformanceMetrics, log_path: &str) -> std::io::Result<()> {
@@ -72,15 +117,18 @@ fn write_metrics_to_tsv(metrics: &PerformanceMetrics, log_path: &str) -> std::io
     if !file_exists {
         writeln!(
             file,
-            "dataset_name\tnum_documents\tnum_dimensions\ttotal_nnz\tavg_components_per_doc\toriginal_memory_bytes\tcompressed_memory_bytes\tcomponent_memory_bytes\tcompression_ratio\tnum_queries\tk_results\ttotal_search_time_ms\tavg_time_per_query_ms\tavg_time_per_document_ns"
+            "dataset_name\tpermutation_strategy\tn_partitions\tn_component_bits\tnum_documents\tnum_dimensions\ttotal_nnz\tavg_components_per_doc\toriginal_memory_bytes\tcompressed_memory_bytes\tcomponent_memory_bytes\tcompression_ratio\tnum_queries\tk_results\ttotal_search_time_ms\tavg_time_per_query_ms\tavg_time_per_document_ns"
         )?;
     }
 
     // Write data
     writeln!(
         file,
-        "{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{:.6}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}",
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{:.6}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}",
         metrics.dataset_name,
+        metrics.permutation_strategy,
+        metrics.n_partitions,
+        metrics.n_component_bits,
         metrics.num_documents,
         metrics.num_dimensions,
         metrics.total_nnz,
@@ -156,9 +204,20 @@ pub fn main() {
     let generic_memory_usage = dataset_generic.space_usage_byte();
     println!("Memory usage: {} bytes", generic_memory_usage);
 
+    let permutation_strategy = args
+        .permutation
+        .unwrap_or(PermutationStrategyClap::None)
+        .to_permutation_strategy();
+
+    println!("Permutation strategy: {:?}", permutation_strategy);
+
+    // Save a copy for logging before it gets moved
+    let permutation_strategy_string = format!("{:?}", permutation_strategy);
+
     let partitioned_dataset =
-        SparseDatasetPartitioned::<N_PARTITIONS, N_COMPONENT_BITS, FixedU16Q>::from_dataset_f32(
+        SparseDatasetPartitioned::<N_PARTITIONS, N_COMPONENT_BITS, FixedU16Q>::from_dataset_f32_with_permutation(
             dataset_generic,
+            permutation_strategy
         );
 
     println!("\n=== Partitioned Dataset Info ===");
@@ -225,7 +284,9 @@ pub fn main() {
     // Collect metrics for TSV logging
     let metrics = PerformanceMetrics {
         dataset_name: input_file.clone(),
-
+        permutation_strategy: permutation_strategy_string,
+        n_partitions: N_PARTITIONS,
+        n_component_bits: N_COMPONENT_BITS,
         num_documents: partitioned_dataset.len(),
         num_dimensions: partitioned_dataset.dim(),
         total_nnz: partitioned_dataset.nnz(),

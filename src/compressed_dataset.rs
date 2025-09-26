@@ -3,38 +3,50 @@ use std::hint::assert_unchecked;
 use std::ops::Range;
 
 use co_sort::*;
-use compressed_intvec::prelude::{UIntVec, VariableCodecSpec};
+use compressed_intvec::prelude::VariableCodecSpec;
 use itertools::Itertools;
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::prelude::ParallelSlice;
 use serde::{Deserialize, Serialize};
+use toolkit::{SVBEncodable, StreamVByteRandomAccess};
 
 use crate::partitioned_dataset::utils::build_or_load_metis_params;
 use crate::sparse_dataset::SparseDatasetGeneric;
 use crate::{
-    ComponentType, SparseDatasetTrait, ValueType, distances::dot_product_dense_sparse,
-    utils::prefetch_read_slice,
+    ComponentType, SparseDatasetTrait, ValueType,
+    distances::dot_product_dense_sparse,
+    utils::{manage_permutation_cache, prefetch_read_slice},
 };
 use crate::{FromDatasetGenericF32, SpaceUsage};
 
 use mem_dbg::{MemSize, SizeFlags};
+use rgb::forward::Doc;
+
+#[derive(Debug, Clone)]
+pub enum PermutationStrategy {
+    None,
+    Metis,
+    GraphBisection,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SparseDatasetCompressed<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + SVBEncodable,
     V: ValueType,
 {
     dim: usize,
     offsets: Box<[usize]>,
-    components: UIntVec<C>,
-    values: Box<[V]>,
+    //components: UIntVec<C>,
+    pub components: StreamVByteRandomAccess<C>,
+    pub values: Box<[V]>,
     component_mapping: Box<[C]>,
 }
 
 impl<C, V> SparseDatasetTrait for SparseDatasetCompressed<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + SVBEncodable + num_traits::ops::bytes::FromBytes,
+    <C as num_traits::ops::bytes::FromBytes>::Bytes: Sized + Default,
     V: ValueType,
 {
     type Component = C;
@@ -48,12 +60,12 @@ where
         len: usize,
     ) -> impl Iterator<Item = (Self::Component, Self::Value)> {
         unsafe { assert_unchecked(len > 0) };
-        let mut reader = self.components.seq_reader();
-        gen move {
-            for i in offset..(offset + len) {
-                unsafe { yield (reader.get_unchecked(i), *self.values.get_unchecked(i)) }
-            }
-        }
+
+        // The fastest according to the benchmark
+        let reader = self.components.iter_range(offset, len);
+        let values_slice = unsafe { self.values.get_unchecked(offset..offset + len) };
+
+        reader.zip(values_slice.iter().copied())
     }
 
     fn prepare_query<D: ComponentType, W: ValueType>(
@@ -173,7 +185,8 @@ where
 
 impl<C, V> SparseDatasetCompressed<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + SVBEncodable + num_traits::ops::bytes::FromBytes,
+    <C as num_traits::ops::bytes::FromBytes>::Bytes: Sized + Default,
     V: ValueType,
 {
     pub fn search<D: ComponentType, W: ValueType>(
@@ -197,10 +210,46 @@ where
     }
 }
 
+pub fn permute_graph_bisection<C, O, AC, AV>(
+    dataset: &SparseDatasetGeneric<C, f32, O, AC, AV>,
+) -> Box<[C]>
+where
+    C: ComponentType,
+    O: AsRef<[usize]> + SpaceUsage,
+    AC: AsRef<[C]> + SpaceUsage,
+    AV: AsRef<[f32]> + SpaceUsage,
+{
+    // One Doc for each component. RGB's terminology is the opposite of what we need in Seismic
+    let mut components = Vec::with_capacity(dataset.dim());
+    for component_id in 0..dataset.dim() {
+        components.push(Doc {
+            terms: Vec::with_capacity(256), // initial estimate for uniq terms in doc
+            org_id: component_id as u32,
+            gain: 0.0,
+            leaf_id: -1,
+        });
+    }
+
+    for (doc_id, (doc_components, _values)) in dataset.dataset_iter().enumerate() {
+        for &component_id in doc_components.iter() {
+            components[component_id.as_()].terms.push(doc_id as u32);
+        }
+    }
+
+    rgb::recursive_graph_bisection(&mut components, dataset.len(), 20, 16, 100, 10, 1, true, 1);
+
+    let mut perm = vec![C::default(); components.len()];
+    for (new_id, comp) in components.iter().enumerate() {
+        perm[comp.org_id as usize] = C::from_usize(new_id).unwrap();
+    }
+
+    perm.into_boxed_slice()
+}
+
 impl<C, V, O, AC, AV> FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
     for SparseDatasetCompressed<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + SVBEncodable,
     V: ValueType,
     O: AsRef<[usize]> + SpaceUsage + Into<Box<[usize]>> + Hash,
     AC: AsRef<[C]> + SpaceUsage + Into<Box<[C]>> + Hash,
@@ -245,14 +294,16 @@ where
         }
 
         // TODO: do we need a generic for the compressor type?
+        let block_size = 128;
         Self {
             dim,
             offsets,
-            components: UIntVec::<C>::builder()
-                .k(64) // Sample every 2nd element
-                .codec(VariableCodecSpec::Zeta { k: None })
-                .build(components.as_ref())
-                .unwrap(),
+            // components: UIntVec::<C>::builder()
+            //     .k(64) // Sample every 2nd element
+            //     .codec(VariableCodecSpec::Zeta { k: None })
+            //     .build(components.as_ref())
+            //     .unwrap(),
+            components: StreamVByteRandomAccess::new(components.as_ref(), block_size),
             values,
             component_mapping,
         }
@@ -261,7 +312,7 @@ where
 
 impl<C, V> SparseDatasetCompressed<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + SVBEncodable,
     V: ValueType,
 {
     pub fn space_usage_byte_components(&self) -> usize {
@@ -270,8 +321,8 @@ where
 
     pub fn from_dataset_f32_with_codec<O, AC, AV>(
         dataset: SparseDatasetGeneric<C, f32, O, AC, AV>,
-        codec: VariableCodecSpec,
-        permutation: Option<Box<[C]>>,
+        _codec: VariableCodecSpec,
+        permutation_strategy: PermutationStrategy,
     ) -> Self
     where
         O: AsRef<[usize]> + SpaceUsage + Into<Box<[usize]>> + Hash,
@@ -279,23 +330,53 @@ where
         AV: AsRef<[f32]> + SpaceUsage + Into<Box<[f32]>>,
     {
         let dim = dataset.dim();
-        let permutation = permutation.unwrap_or_else(|| {
-            println!("No permutation provided, computing one metis...");
-            (0..dim).map(|c| C::from_usize(c).unwrap()).collect()
-            // let metis_params = build_or_load_metis_params(&dataset);
 
-            // // Use partitioning so that components that often appear together have a close id
-            // let mut partitions = metis_params.build_partitions::<32>().into_boxed_slice();
+        let permutation = match permutation_strategy {
+            PermutationStrategy::None => {
+                println!("No permutation strategy, using identity permutation...");
 
-            // let mut component_ids: Box<[C]> = (0..dim).map(|c| C::from_usize(c).unwrap()).collect();
-            // co_sort_stable![partitions, component_ids];
+                (0..dim).map(|c| C::from_usize(c).unwrap()).collect()
+            }
+            PermutationStrategy::Metis => {
+                println!("Using METIS permutation strategy...");
+                let metis_params = build_or_load_metis_params(&dataset);
 
-            // let mut component_mapping = vec![C::zero(); dim].into_boxed_slice();
-            // for (i, c) in component_ids.into_iter().enumerate() {
-            //     component_mapping[c.as_()] = C::from_usize(i).unwrap();
-            // }
-            // component_mapping
-        });
+                // Use partitioning so that components that often appear together have a close id
+                let mut partitions = metis_params.build_partitions::<32>().into_boxed_slice();
+
+                let mut component_ids: Box<[C]> =
+                    (0..dim).map(|c| C::from_usize(c).unwrap()).collect();
+                co_sort_stable![partitions, component_ids];
+
+                let mut component_mapping = vec![C::zero(); dim].into_boxed_slice();
+                for (i, c) in component_ids.into_iter().enumerate() {
+                    component_mapping[c.as_()] = C::from_usize(i).unwrap();
+                }
+
+                component_mapping
+            }
+            PermutationStrategy::GraphBisection => {
+                println!("Using Graph Bisection permutation strategy...");
+                let perm = permute_graph_bisection(&dataset);
+
+                perm
+            }
+        };
+
+        let permutation_name = match permutation_strategy {
+            PermutationStrategy::Metis => "metis",
+            PermutationStrategy::GraphBisection => "graph_bisection",
+            _ => "none",
+        };
+
+        if permutation_name != "none" {
+            if let Err(e) = manage_permutation_cache(&permutation, permutation_name, "./") {
+                eprintln!(
+                    "Warning: Failed to cache Graph Bisection permutation: {}",
+                    e
+                );
+            }
+        }
 
         let (offsets, components, values) = dataset.destroy();
 
@@ -321,15 +402,12 @@ where
             }
         }
         let k_sampling = 128;
+        let block_size = 128;
         println!("Using k={k_sampling} for sampling in compressed intvec");
         Self {
             dim,
             offsets,
-            components: UIntVec::<C>::builder()
-                .k(k_sampling)
-                .codec(codec)
-                .build(components.as_ref())
-                .unwrap(),
+            components: StreamVByteRandomAccess::new(components.as_ref(), block_size),
             values,
             component_mapping: permutation,
         }
@@ -338,7 +416,7 @@ where
 
 impl<C, V> SpaceUsage for SparseDatasetCompressed<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + SVBEncodable,
     V: ValueType,
 {
     /// Returns the size of the dataset in bytes.

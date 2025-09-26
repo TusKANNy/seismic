@@ -1,19 +1,23 @@
 use std::{
+    fs::File,
     hash::Hash,
     hint::{assert_unchecked, black_box},
+    io::Write,
     marker::PhantomData,
     ops::Range,
 };
 
 use bytemuck::{Pod, try_cast_slice};
 use co_sort::*;
-use itertools::Itertools;
+use itertools::{Itertools, partition};
 use num_traits::{FromPrimitive, One, PrimInt, ToBytes, ToPrimitive};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ComponentType, FromDatasetGenericF32, SpaceUsage, SparseDatasetTrait, ValueType,
+    ComponentType, FromDatasetGenericF32, PermutationStrategy, SpaceUsage, SparseDatasetTrait,
+    ValueType,
+    compressed_dataset::permute_graph_bisection,
     distances::dot_product_dense_sparse,
     partitioned_dataset::{fitting_integer::*, utils::*},
     sparse_dataset::SparseDatasetGeneric,
@@ -529,7 +533,148 @@ where
         self.component_mapping.space_usage_byte()
     }
 
+    pub fn from_dataset_f32_with_permutation<C, O, AC, AV>(
+        dataset: SparseDatasetGeneric<C, f32, O, AC, AV>,
+        permutation_strategy: PermutationStrategy,
+    ) -> Self
+    where
+        (): Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>,
+        C: ComponentType,
+        O: AsRef<[usize]> + SpaceUsage + IntoIterator<Item = usize> + Hash,
+        AC: AsRef<[C]> + SpaceUsage + IntoIterator<Item = C> + Hash,
+        AV: AsRef<[f32]> + SpaceUsage + IntoIterator<Item = f32>,
+    {
+        let dim = dataset.dim();
+        let nnz = dataset.nnz();
 
+        let partitions = match permutation_strategy {
+            PermutationStrategy::Metis => {
+                let metis_params = build_or_load_metis_params(&dataset);
+
+                let partitions = metis_params
+                    .build_partitions::<N_PARTITIONS>()
+                    .into_boxed_slice();
+                partitions
+            }
+
+            PermutationStrategy::GraphBisection => {
+                let perm = permute_graph_bisection(&dataset);
+
+                println!("Graph Bisection Permutation: {:?}", &perm[0..20]);
+                let elements_per_partition = dataset.dim() / N_PARTITIONS + 1;
+
+                println!(
+                    "Graph Bisection Partitions: {:?}",
+                    perm.iter()
+                        .take(20)
+                        .map(|p| p.as_() / elements_per_partition)
+                        .collect::<Vec<_>>()
+                );
+
+                perm.iter()
+                    .map(|&p| FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_usize(p.as_() / elements_per_partition).unwrap())
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice()
+            }
+            PermutationStrategy::None => {
+                let elements_per_partition = dataset.dim() / N_PARTITIONS + 1;
+
+                let partitions: Box<
+                    [FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>],
+                > = (0..dim)
+                    .map(|i| {
+                        FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_usize(i / elements_per_partition).unwrap()
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                partitions
+            }
+        };
+
+        // let partitions_to_save = partitions
+        //     .iter()
+        //     .map(|p| p.to_usize().unwrap())
+        //     .collect::<Vec<_>>();
+
+        // let filename = "saved_partitions.txt";
+
+        // let mut file = File::create(&filename).expect("Unable to create file");
+
+        // for &item in partitions_to_save.iter() {
+        //     let _ = writeln!(file, "{}", item);
+        // }
+
+        let component_mapping: Box<
+            [FittingInteger<
+                { N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS },
+            >],
+        > = map_components::<N_PARTITIONS, N_COMPONENT_BITS>(&partitions);
+
+        let mut postings_u8 = Vec::new();
+
+        let (orig_offsets, orig_components, orig_values) = dataset.destroy();
+
+        // Does not reallocate if `C` and `FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS }`
+        // are of the same size.
+        let mut converted_components: Vec<
+            FittingInteger<
+                { N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS },
+            >,
+        > = orig_components
+            .into_iter()
+            .map(|c| unsafe { *component_mapping.get_unchecked(c.as_()) })
+            .collect();
+        let inflated_dim = converted_components.iter().max().unwrap().as_() + 1;
+
+        let mut values: Vec<V> = orig_values
+            .into_iter()
+            .map(V::from_f32_saturating)
+            .collect();
+
+        let offsets: Box<[usize]> = std::iter::once(0)
+            .chain(orig_offsets.into_iter().map_windows(|&[start, end]| {
+                let c = unsafe { converted_components.get_unchecked_mut(start..end) };
+                let v = unsafe { values.get_unchecked_mut(start..end) };
+
+                if c.len() < 256 {
+                    PostingView::<N_PARTITIONS, N_COMPONENT_BITS, V, u8>::push_posting(
+                        &mut postings_u8,
+                        c,
+                        v,
+                    );
+                } else {
+                    PostingView::<N_PARTITIONS, N_COMPONENT_BITS, V, u16>::push_posting(
+                        &mut postings_u8,
+                        c,
+                        v,
+                    );
+                }
+                postings_u8.len() / size_of::<usize>()
+            }))
+            .collect();
+
+        // I hate that I have to reallocate to guarantee alignment, Rust is currently really bad at these kinds of things.
+        let mut postings = Vec::with_capacity(postings_u8.len() / size_of::<usize>());
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                postings_u8.as_mut_ptr(),
+                postings.spare_capacity_mut().as_mut_ptr() as *mut u8,
+                postings_u8.len(),
+            );
+            postings.set_len(postings.capacity());
+        };
+        let postings = postings.into_boxed_slice();
+
+        Self {
+            dim,
+            inflated_dim,
+            nnz,
+            offsets,
+            postings,
+            component_mapping,
+            phantom_data: PhantomData,
+        }
+    }
 }
 
 impl<const N_PARTITIONS: usize, const N_COMPONENT_BITS: usize, C, V, O, AC, AV>

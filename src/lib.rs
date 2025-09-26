@@ -20,6 +20,7 @@ use fixed::FixedU8;
 use fixed::FixedU16;
 use num_traits::PrimInt;
 use num_traits::{AsPrimitive, FromPrimitive, ToPrimitive, Unsigned, Zero};
+use toolkit::SVBEncodable;
 
 pub mod sparse_dataset;
 use std::fmt::Debug;
@@ -32,6 +33,7 @@ pub use sparse_dataset::SparseDatasetMut;
 pub use sparse_dataset::SparseDatasetTrait;
 
 pub mod compressed_dataset;
+pub use compressed_dataset::PermutationStrategy;
 pub mod partitioned_dataset;
 
 pub mod inverted_index;

@@ -1,24 +1,22 @@
 use clap::Parser;
 use compressed_intvec::prelude::VariableCodecSpec;
+use core::fmt::Display;
 use indicatif::ProgressIterator;
-use seismic::sparse_dataset::SparseDatasetGeneric;
-use seismic::{ComponentType, ValueType};
 use seismic::{
-    FixedU16Q, SpaceUsage, SparseDatasetTrait, compressed_dataset::SparseDatasetCompressed,
+    FixedU16Q, SparseDatasetTrait, compressed_dataset::SparseDatasetCompressed,
     sparse_dataset::SparseDatasetMut,
 };
+use seismic::{PermutationStrategy, SpaceUsage};
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
-
-use rgb::forward::Doc;
 
 #[derive(Debug)]
 struct PerformanceMetrics {
     dataset_name: String,
     codec_type: String,
     codec_args: String,
-    bisection: bool,
+    permutation: String,
     num_documents: usize,
     num_dimensions: usize,
     total_nnz: usize,
@@ -42,6 +40,35 @@ pub enum CompressionAlgorithmClap {
     Delta,
     VByteLe,
     VByteBe,
+}
+
+#[derive(clap::ValueEnum, Default, Debug, Clone, Copy)]
+pub enum PermutationStrategyClap {
+    #[default]
+    None,
+    Metis,
+    GraphBisection,
+}
+
+impl Display for PermutationStrategyClap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            PermutationStrategyClap::None => "none",
+            PermutationStrategyClap::Metis => "metis",
+            PermutationStrategyClap::GraphBisection => "graph_bisection",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl PermutationStrategyClap {
+    fn to_permutation_strategy(&self) -> PermutationStrategy {
+        match self {
+            PermutationStrategyClap::None => PermutationStrategy::None,
+            PermutationStrategyClap::Metis => PermutationStrategy::Metis,
+            PermutationStrategyClap::GraphBisection => PermutationStrategy::GraphBisection,
+        }
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -83,8 +110,8 @@ struct Args {
     zeta_k: Option<u64>,
 
     /// Whether to permute index components for better compression
-    #[clap(short, long, value_parser, default_value_t = false)]
-    bisection: bool,
+    #[clap(short, long, value_parser)]
+    permutation: Option<PermutationStrategyClap>,
 }
 
 fn codec_args_to_string(codec: &VariableCodecSpec) -> String {
@@ -108,7 +135,7 @@ fn write_metrics_to_tsv(metrics: &PerformanceMetrics, log_path: &str) -> std::io
     if !file_exists {
         writeln!(
             file,
-            "dataset_name\tcodec_type\tcodec_args\tbisection\tnum_documents\tnum_dimensions\ttotal_nnz\tavg_components_per_doc\toriginal_memory_bytes\tcompressed_memory_bytes\tcomponent_memory_bytes\tcompression_ratio\tnum_queries\tk_results\ttotal_search_time_us\tavg_time_per_query_us\tavg_time_per_document_ns"
+            "dataset_name\tcodec_type\tcodec_args\tpermutation\tnum_documents\tnum_dimensions\ttotal_nnz\tavg_components_per_doc\toriginal_memory_bytes\tcompressed_memory_bytes\tcomponent_memory_bytes\tcompression_ratio\tnum_queries\tk_results\ttotal_search_time_us\tavg_time_per_query_us\tavg_time_per_document_ns"
         )?;
     }
 
@@ -119,7 +146,7 @@ fn write_metrics_to_tsv(metrics: &PerformanceMetrics, log_path: &str) -> std::io
         metrics.dataset_name,
         metrics.codec_type,
         metrics.codec_args,
-        metrics.bisection,
+        metrics.permutation,
         metrics.num_documents,
         metrics.num_dimensions,
         metrics.total_nnz,
@@ -136,58 +163,6 @@ fn write_metrics_to_tsv(metrics: &PerformanceMetrics, log_path: &str) -> std::io
     )?;
 
     Ok(())
-}
-
-fn permute_index_components<C, V, O, AC, AV>(
-    dataset: &SparseDatasetGeneric<C, V, O, AC, AV>,
-    //) -> (SparseDataset<C, V>, Vec<usize>)
-) -> Box<[C]>
-where
-    C: ComponentType,
-    V: ValueType,
-    O: AsRef<[usize]> + SpaceUsage,
-    AC: AsRef<[C]> + SpaceUsage,
-    AV: AsRef<[V]> + SpaceUsage,
-{
-    // One Doc for each component. RGB's terminology is the opposite of what we need in Seismic
-    let mut components = Vec::with_capacity(dataset.dim());
-    for component_id in 0..dataset.dim() {
-        components.push(Doc {
-            terms: Vec::with_capacity(256), // initial estimate for uniq terms in doc
-            org_id: component_id as u32,
-            gain: 0.0,
-            leaf_id: -1,
-        });
-    }
-
-    for (doc_id, (doc_components, _values)) in dataset.dataset_iter().enumerate() {
-        for &component_id in doc_components.iter() {
-            components[component_id.as_()].terms.push(doc_id as u32);
-        }
-    }
-
-    rgb::recursive_graph_bisection(&mut components, dataset.len(), 20, 16, 100, 10, 1, true, 1);
-
-    let mut perm = vec![C::default(); components.len()];
-    for (new_id, comp) in components.iter().enumerate() {
-        perm[comp.org_id as usize] = C::from_usize(new_id).unwrap();
-    }
-
-    // let mut new_dataset = SparseDatasetMut::<C, V>::new();
-
-    // for (doc_components, doc_values) in dataset.dataset_iter() {
-    //     let mut new_vec = Vec::with_capacity(doc_components.len());
-    //     for (&component_id, &value) in doc_components.iter().zip(doc_values.iter()) {
-    //         new_vec.push((C::from_usize(perm[component_id.as_()]).unwrap(), value));
-    //     }
-    //     new_vec.sort_by_key(|(c, _)| *c);
-
-    //     new_dataset.push_iterator(new_vec.into_iter());
-    // }
-
-    // (new_dataset.into(), perm)
-
-    perm.into_boxed_slice()
 }
 pub fn main() {
     let args = Args::parse();
@@ -257,18 +232,17 @@ pub fn main() {
         codec
     );
 
-    println!("Permuting components for better compression using graph bisection...");
+    let permutation_strategy = args
+        .permutation
+        .unwrap_or(PermutationStrategyClap::None)
+        .to_permutation_strategy();
 
-    let permutation = if args.bisection {
-        Some(permute_index_components(&dataset_generic))
-    } else {
-        None
-    };
+    // Extract base filename for permutation caching
 
     let dataset_compressed = SparseDatasetCompressed::<u16, FixedU16Q>::from_dataset_f32_with_codec(
         dataset_generic,
         codec,
-        permutation,
+        permutation_strategy,
     );
 
     println!("\n=== Compressed Dataset Info ===");
@@ -291,11 +265,22 @@ pub fn main() {
     // === Compressed Dataset Performance Test ===
     println!("\n=== Compressed Dataset Search Performance ===");
     let start = Instant::now();
+    let start_tracker = Instant::now();
     let results_compressed: Vec<_> = queries
         .dataset_iter()
         .take(n_queries)
+        .enumerate()
         .progress_count(n_queries as u64)
-        .map(|(query_components, query_values)| {
+        .map(|(i, (query_components, query_values))| {
+            if i > 0 {
+                println!(
+                    "Processing query {}/{} (Elapsed: per query {:?})",
+                    i + 1,
+                    n_queries,
+                    start_tracker.elapsed() / (i as u32)
+                );
+            }
+
             dataset_compressed.search(
                 query_components
                     .iter()
@@ -341,7 +326,10 @@ pub fn main() {
             .unwrap()
             .to_string(),
         codec_args: codec_args_to_string(&codec),
-        bisection: args.bisection,
+        permutation: args
+            .permutation
+            .unwrap_or(PermutationStrategyClap::None)
+            .to_string(),
         num_documents: dataset_compressed.len(),
         num_dimensions: dataset_compressed.dim(),
         total_nnz: dataset_compressed.nnz(),

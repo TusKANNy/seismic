@@ -45,8 +45,10 @@ BINARY="./target/release/search_compressed_dataset"
 # Array of codecs to test
 CODECS=("zeta" "gamma" "delta" "v-byte-le" "v-byte-be")
 
-# Array of bisection modes to test
-BISECTION_MODES=("false" "true")
+# Array of permutation strategies to test
+#PERMUTATION_MODES=("none" "metis" "graph-bisection")
+PERMUTATION_MODES=("metis")
+
 
 
 #CODECS=("v-byte-le" "v-byte-be")
@@ -58,28 +60,28 @@ echo "Query file: $QUERY_FILE"
 echo "Output directory: $OUTPUT_DIR"
 echo "Log directory: $LOG_DIR"
 echo "Codecs to test: ${CODECS[*]}"
-echo "Bisection modes: ${BISECTION_MODES[*]}"
+echo "Permutation modes: ${PERMUTATION_MODES[*]}"
 echo "K results: $DEFAULT_K"
 echo "Number of queries: $DEFAULT_N_QUERIES"
 echo "========================================="
 echo
 
-# Test each codec with each bisection mode
+# Test each codec with each permutation mode
 for codec in "${CODECS[@]}"; do
-    for bisection in "${BISECTION_MODES[@]}"; do
-        bisection_label=""
-        if [[ "$bisection" == "true" ]]; then
-            bisection_label="_bisection"
+    for permutation in "${PERMUTATION_MODES[@]}"; do
+        permutation_label=""
+        if [[ "$permutation" != "none" ]]; then
+            permutation_label="_${permutation}"
         fi
         
-        echo "Testing codec: $codec with bisection=$bisection"
+        echo "Testing codec: $codec with permutation=$permutation"
         
-        output_file="$OUTPUT_DIR/results_${codec}${bisection_label}.tsv"
-        log_file="$LOG_DIR/${codec}${bisection_label}.tsv"
+        output_file="$OUTPUT_DIR/results_${codec}${permutation_label}.tsv"
+        log_file="$LOG_DIR/${codec}${permutation_label}.tsv"
         
         # Remove existing log file for this codec to start fresh
         if [[ -f "$log_file" ]]; then
-            echo "Removing existing log file for $codec$bisection_label: $log_file"
+            echo "Removing existing log file for $codec$permutation_label: $log_file"
             rm "$log_file"
         fi
         
@@ -93,23 +95,23 @@ for codec in "${CODECS[@]}"; do
         cmd+=" -c $codec"
         cmd+=" --n-queries $DEFAULT_N_QUERIES"
         
-        # Add bisection flag if true
-        if [[ "$bisection" == "true" ]]; then
-            cmd+=" --bisection"
-        fi
+        # Add permutation strategy
+        cmd+=" --permutation $permutation"
         
         # For zeta, we don't specify --zeta-k to use auto mode (None)
         # This is already the default behavior
         
-        echo "Running: $cmd"
+        echo "Running: GAIN=approx_1 $cmd"
         
-        # Execute the command
+        # Execute the command with environment variable
+        export GAIN=approx_1
+        echo "Environment variable GAIN set to: $GAIN"
         if eval "$cmd"; then
-            echo "✅ Successfully tested $codec codec with bisection=$bisection"
+            echo "✅ Successfully tested $codec codec with permutation=$permutation"
             echo "   Results saved to: $output_file"
             echo "   Log saved to: $log_file"
         else
-            echo "❌ Failed to test $codec codec with bisection=$bisection"
+            echo "❌ Failed to test $codec codec with permutation=$permutation"
             # Continue with next codec instead of exiting
             continue
         fi
@@ -125,5 +127,5 @@ echo "========================================="
 echo "Results summary:"
 echo "- Output files: $OUTPUT_DIR/results_*.tsv"
 echo "- Log files: $LOG_DIR/*.tsv"
-echo "- Tested combinations: ${#CODECS[@]} codecs × ${#BISECTION_MODES[@]} bisection modes = $((${#CODECS[@]} * ${#BISECTION_MODES[@]})) total experiments"
+echo "- Tested combinations: ${#CODECS[@]} codecs × ${#PERMUTATION_MODES[@]} permutation modes = $((${#CODECS[@]} * ${#PERMUTATION_MODES[@]})) total experiments"
 echo

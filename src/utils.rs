@@ -1,9 +1,12 @@
 use core::hash::Hash;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
 use std::{
     cmp::{Ordering, Reverse},
     collections::{BinaryHeap, HashSet},
     fs::File,
-    io::{BufReader, BufWriter},
+    io::{BufReader, BufWriter, Write},
+    path::Path,
 };
 //use std::time::Instant;
 
@@ -554,4 +557,60 @@ where
     final_assignments.sort();
 
     final_assignments
+}
+
+/// Manages permutation caching with hash-based file storage
+///
+/// This function calculates a hash of the permutation and checks if a cached version exists.
+/// If not found, it saves the permutation to a file with the appropriate extension.
+///
+/// # Parameters
+/// - `permutation`: The permutation array to process
+/// - `method_name`: String identifier for the permutation method (e.g., "metis", "graph_bisection")  
+/// - `base_filename`: Base filename (without extension) for the dataset
+///
+/// # Returns
+/// - `Result<String, std::io::Error>`: Path to the permutation file (existing or newly created)
+pub fn manage_permutation_cache<C>(
+    permutation: &[C],
+    method_name: &str,
+    base_filename: &str,
+) -> Result<String, std::io::Error>
+where
+    C: ComponentType,
+{
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+    use std::io::Write;
+    use std::path::Path;
+
+    // Calculate hash of the permutation
+    let mut hasher = DefaultHasher::new();
+    for item in permutation.iter() {
+        item.hash(&mut hasher);
+    }
+    let perm_hash = hasher.finish();
+
+    // Create filename with hash and method extension
+    let filename = format!("{}_{}_{:016x}.txt", base_filename, method_name, perm_hash);
+
+    // Check if file already exists
+    if Path::new(&filename).exists() {
+        println!("Found cached permutation: {}", filename);
+        return Ok(filename);
+    }
+
+    // Save permutation to file
+
+    let mut file = File::create(&filename)?;
+
+    for &item in permutation.iter() {
+        let _ = writeln!(file, "{}", item.as_());
+    }
+
+    println!(
+        "Permutation successfully saved with hash: {:016x}",
+        perm_hash
+    );
+    Ok(filename)
 }
