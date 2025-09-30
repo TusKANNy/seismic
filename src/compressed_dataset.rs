@@ -8,7 +8,8 @@ use itertools::Itertools;
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::prelude::ParallelSlice;
 use serde::{Deserialize, Serialize};
-use toolkit::{SVBEncodable, StreamVByteRandomAccess};
+
+use toolkit::stream_vbyte::StreamVByteRandomAccess;
 
 use crate::partitioned_dataset::utils::build_or_load_metis_params;
 use crate::sparse_dataset::SparseDatasetGeneric;
@@ -32,20 +33,20 @@ pub enum PermutationStrategy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SparseDatasetCompressed<C, V>
 where
-    C: ComponentType + SVBEncodable,
+    C: ComponentType,
     V: ValueType,
 {
     dim: usize,
     offsets: Box<[usize]>,
     //components: UIntVec<C>,
-    pub components: StreamVByteRandomAccess<C>,
+    pub components: StreamVByteRandomAccess,
     pub values: Box<[V]>,
     component_mapping: Box<[C]>,
 }
 
 impl<C, V> SparseDatasetTrait for SparseDatasetCompressed<C, V>
 where
-    C: ComponentType + SVBEncodable + num_traits::ops::bytes::FromBytes,
+    C: ComponentType + num_traits::ops::bytes::FromBytes,
     <C as num_traits::ops::bytes::FromBytes>::Bytes: Sized + Default,
     V: ValueType,
 {
@@ -60,12 +61,15 @@ where
         len: usize,
     ) -> impl Iterator<Item = (Self::Component, Self::Value)> {
         unsafe { assert_unchecked(len > 0) };
+        let mut buffer = vec![0u32; len];
+        self.components.get_range(&mut buffer, offset..offset + len);
 
-        // The fastest according to the benchmark
-        let reader = self.components.iter_range(offset, len);
         let values_slice = unsafe { self.values.get_unchecked(offset..offset + len) };
 
-        reader.zip(values_slice.iter().copied())
+        buffer
+            .into_iter()
+            .map(|c| C::from(c as usize).unwrap())
+            .zip(values_slice.iter().copied())
     }
 
     fn prepare_query<D: ComponentType, W: ValueType>(
@@ -185,7 +189,7 @@ where
 
 impl<C, V> SparseDatasetCompressed<C, V>
 where
-    C: ComponentType + SVBEncodable + num_traits::ops::bytes::FromBytes,
+    C: ComponentType + num_traits::ops::bytes::FromBytes,
     <C as num_traits::ops::bytes::FromBytes>::Bytes: Sized + Default,
     V: ValueType,
 {
@@ -249,7 +253,7 @@ where
 impl<C, V, O, AC, AV> FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
     for SparseDatasetCompressed<C, V>
 where
-    C: ComponentType + SVBEncodable,
+    C: ComponentType,
     V: ValueType,
     O: AsRef<[usize]> + SpaceUsage + Into<Box<[usize]>> + Hash,
     AC: AsRef<[C]> + SpaceUsage + Into<Box<[C]>> + Hash,
@@ -278,6 +282,8 @@ where
             .collect();
         let offsets = offsets.into();
 
+        let mut components_u32: Vec<u32> = Vec::with_capacity(components.len());
+        components_u32.resize(components.len(), 0);
         for &[start, end] in offsets.array_windows() {
             let comps = unsafe { components.get_unchecked_mut(start..end) };
             let vals = unsafe { values.get_unchecked_mut(start..end) };
@@ -288,7 +294,7 @@ where
 
             // For better compression, store the component differences
             for i in (1..comps.len()).rev() {
-                comps[i] = comps[i] - comps[i - 1];
+                components_u32[i] = (comps[i] - comps[i - 1]).as_() as u32;
             }
             // TODO: Completely adjust dot_product
         }
@@ -303,7 +309,7 @@ where
             //     .codec(VariableCodecSpec::Zeta { k: None })
             //     .build(components.as_ref())
             //     .unwrap(),
-            components: StreamVByteRandomAccess::new(components.as_ref(), block_size),
+            components: StreamVByteRandomAccess::new(components_u32.as_ref(), block_size),
             values,
             component_mapping,
         }
@@ -312,7 +318,7 @@ where
 
 impl<C, V> SparseDatasetCompressed<C, V>
 where
-    C: ComponentType + SVBEncodable,
+    C: ComponentType,
     V: ValueType,
 {
     pub fn space_usage_byte_components(&self) -> usize {
@@ -387,6 +393,8 @@ where
             .map(V::from_f32_saturating)
             .collect();
         let offsets = offsets.into();
+        let mut components_u32: Vec<u32> = Vec::with_capacity(components.len());
+        components_u32.resize(components.len(), 0);
 
         for &[start, end] in offsets.array_windows() {
             let comps = unsafe { components.get_unchecked_mut(start..end) };
@@ -398,7 +406,7 @@ where
 
             // For better compression, store the component differences
             for i in (1..comps.len()).rev() {
-                comps[i] = comps[i] - comps[i - 1];
+                components_u32[i] = (comps[i] - comps[i - 1]).as_() as u32;
             }
         }
         let k_sampling = 128;
@@ -407,7 +415,7 @@ where
         Self {
             dim,
             offsets,
-            components: StreamVByteRandomAccess::new(components.as_ref(), block_size),
+            components: StreamVByteRandomAccess::new(components_u32.as_ref(), block_size),
             values,
             component_mapping: permutation,
         }
@@ -416,7 +424,7 @@ where
 
 impl<C, V> SpaceUsage for SparseDatasetCompressed<C, V>
 where
-    C: ComponentType + SVBEncodable,
+    C: ComponentType,
     V: ValueType,
 {
     /// Returns the size of the dataset in bytes.

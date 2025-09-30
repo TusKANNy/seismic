@@ -227,10 +227,10 @@ pub fn main() {
     let generic_memory_usage = dataset_generic.space_usage_byte();
     println!("Memory usage: {} bytes", generic_memory_usage);
 
-    println!(
-        "\nConverting to compressed dataset using {:?} codec...",
-        codec
-    );
+    // println!(
+    //     "\nConverting to compressed dataset using {:?} codec...",
+    //     codec
+    // );
 
     let permutation_strategy = args
         .permutation
