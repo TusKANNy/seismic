@@ -19,94 +19,94 @@ struct Args {
 }
 
 pub fn main() {
-    let args = Args::parse();
+    // let args = Args::parse();
 
-    let input_file = args.input_file.expect("Input file is required");
-    let output_prefix = args.output_prefix;
+    // let input_file = args.input_file.expect("Input file is required");
+    // let output_prefix = args.output_prefix;
 
-    let dataset = SparseDataset::<u16, f32>::from_dataset_f32(
-        SparseDatasetMut::<u16, f32>::read_bin_file(&input_file).unwrap(),
-    );
+    // let dataset = SparseDataset::<u16, f32>::from_dataset_f32(
+    //     SparseDatasetMut::<u16, f32>::read_bin_file(&input_file).unwrap(),
+    // );
 
-    let mut inverted_index: HashMap<u16, Vec<f32>> = HashMap::new();
+    // let mut inverted_index: HashMap<u16, Vec<f32>> = HashMap::new();
 
-    for document in dataset.iter().progress_count(dataset.len() as u64) {
-        let (components, values) = document;
-        for (component, value) in components.iter().zip(values.iter()) {
-            inverted_index
-                .entry(*component)
-                .or_insert_with(Vec::new)
-                .push(*value);
-        }
-    }
+    // for document in dataset.iter().progress_count(dataset.len() as u64) {
+    //     let (components, values) = document;
+    //     for (component, value) in components.iter().zip(values.iter()) {
+    //         inverted_index
+    //             .entry(*component)
+    //             .or_insert_with(Vec::new)
+    //             .push(*value);
+    //     }
+    // }
 
-    // Sort components for consistent output
-    let mut components: Vec<u16> = inverted_index.keys().cloned().collect();
-    components.sort();
+    // // Sort components for consistent output
+    // let mut components: Vec<u16> = inverted_index.keys().cloned().collect();
+    // components.sort();
 
-    // Build arrays: component counts and all values
-    let mut component_counts: Vec<u32> = Vec::new();
-    let mut all_values: Vec<f32> = Vec::new();
+    // // Build arrays: component counts and all values
+    // let mut component_counts: Vec<u32> = Vec::new();
+    // let mut all_values: Vec<f32> = Vec::new();
 
-    println!("Building arrays...");
-    for component in components.iter().progress() {
-        let values = &inverted_index[component];
-        component_counts.push(values.len() as u32);
-        all_values.extend_from_slice(values);
-    }
+    // println!("Building arrays...");
+    // for component in components.iter().progress() {
+    //     let values = &inverted_index[component];
+    //     component_counts.push(values.len() as u32);
+    //     all_values.extend_from_slice(values);
+    // }
 
-    println!("Computing the quantization bins");
+    // println!("Computing the quantization bins");
 
-    let mut quantization_bins =
-        HashMap::<u16, (f32, f32, f32, f32)>::with_capacity(components.len());
-    let nbits = 8.0;
-    for &component in components.iter().progress_count(components.len() as u64) {
-        let s = &inverted_index[&component];
-        let min = s.iter().cloned().fold(f32::INFINITY, f32::min);
-        let max = s.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        // Calculate scale using the formula: scale = (max/min)^(1/2^nbits)
-        let scale = (max / min).powf(1.0 / (2.0_f32.powf(nbits)));
-        let mean = s.iter().sum::<f32>() / s.len() as f32;
-        quantization_bins.insert(component, (min, max, scale, mean));
-    }
+    // let mut quantization_bins =
+    //     HashMap::<u16, (f32, f32, f32, f32)>::with_capacity(components.len());
+    // let nbits = 8.0;
+    // for &component in components.iter().progress_count(components.len() as u64) {
+    //     let s = &inverted_index[&component];
+    //     let min = s.iter().cloned().fold(f32::INFINITY, f32::min);
+    //     let max = s.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    //     // Calculate scale using the formula: scale = (max/min)^(1/2^nbits)
+    //     let scale = (max / min).powf(1.0 / (2.0_f32.powf(nbits)));
+    //     let mean = s.iter().sum::<f32>() / s.len() as f32;
+    //     quantization_bins.insert(component, (min, max, scale, mean));
+    // }
 
-    // Save quantization bins as JSON
-    let bins_file = format!("{}_quantization_bins.json", output_prefix);
-    save_quantization_bins_json(&quantization_bins, &bins_file)
-        .expect("Failed to save quantization bins");
+    // // Save quantization bins as JSON
+    // let bins_file = format!("{}_quantization_bins.json", output_prefix);
+    // save_quantization_bins_json(&quantization_bins, &bins_file)
+    //     .expect("Failed to save quantization bins");
 
-    // Save component counts as binary (NumPy compatible)
-    let counts_file = format!("{}_counts.npy", output_prefix);
-    save_npy_u32(&component_counts, &counts_file).expect("Failed to save counts");
+    // // Save component counts as binary (NumPy compatible)
+    // let counts_file = format!("{}_counts.npy", output_prefix);
+    // save_npy_u32(&component_counts, &counts_file).expect("Failed to save counts");
 
-    // Save all values as binary (NumPy compatible)
-    let values_file = format!("{}_values.npy", output_prefix);
-    save_npy_f32(&all_values, &values_file).expect("Failed to save values");
+    // // Save all values as binary (NumPy compatible)
+    // let values_file = format!("{}_values.npy", output_prefix);
+    // save_npy_f32(&all_values, &values_file).expect("Failed to save values");
 
-    println!(
-        "Saved inverted index with {} components:",
-        inverted_index.len()
-    );
-    println!(
-        "  - {}_counts.npy ({} component counts)",
-        output_prefix,
-        component_counts.len()
-    );
-    println!(
-        "  - {}_values.npy ({} values)",
-        output_prefix,
-        all_values.len()
-    );
-    println!(
-        "  - {}_quantization_bins.json ({} quantization bins)",
-        output_prefix,
-        quantization_bins.len()
-    );
+    // println!(
+    //     "Saved inverted index with {} components:",
+    //     inverted_index.len()
+    // );
+    // println!(
+    //     "  - {}_counts.npy ({} component counts)",
+    //     output_prefix,
+    //     component_counts.len()
+    // );
+    // println!(
+    //     "  - {}_values.npy ({} values)",
+    //     output_prefix,
+    //     all_values.len()
+    // );
+    // println!(
+    //     "  - {}_quantization_bins.json ({} quantization bins)",
+    //     output_prefix,
+    //     quantization_bins.len()
+    // );
 
-    println!(
-        "Quantization bins computed for {} components",
-        quantization_bins.len()
-    );
+    // println!(
+    //     "Quantization bins computed for {} components",
+    //     quantization_bins.len()
+    // );
 }
 
 fn save_npy_u32(data: &[u32], filename: &str) -> std::io::Result<()> {
