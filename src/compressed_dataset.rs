@@ -62,12 +62,14 @@ where
     ) -> impl Iterator<Item = (Self::Component, Self::Value)> {
         unsafe { assert_unchecked(len > 0) };
         let mut buffer = vec![0u32; len];
-        self.components.get_range(&mut buffer, offset..offset + len);
+        self.components
+            .get_range(&mut buffer[..len], offset..offset + len);
 
         let values_slice = unsafe { self.values.get_unchecked(offset..offset + len) };
 
         buffer
             .into_iter()
+            .take(len)
             .map(|c| C::from(c as usize).unwrap())
             .zip(values_slice.iter().copied())
     }
@@ -291,13 +293,17 @@ where
                 *c = component_mapping[c.as_()];
             }
             co_sort!(comps, vals);
-
+            components_u32[start] = comps[0].as_() as u32;
             // For better compression, store the component differences
-            for i in (1..comps.len()).rev() {
-                components_u32[i] = (comps[i] - comps[i - 1]).as_() as u32;
+            for i in 1..comps.len() {
+                components_u32[start + i] = (comps[i] - comps[i - 1]).as_() as u32;
             }
             // TODO: Completely adjust dot_product
         }
+        println!(
+            "Components u32 after differences: {:?}",
+            &components_u32[..64]
+        );
 
         // TODO: do we need a generic for the compressor type?
         let block_size = 128;
@@ -404,11 +410,16 @@ where
             }
             co_sort!(comps, vals);
 
+            components_u32[start] = comps[0].as_() as u32;
             // For better compression, store the component differences
-            for i in (1..comps.len()).rev() {
-                components_u32[i] = (comps[i] - comps[i - 1]).as_() as u32;
+            for i in 1..comps.len() {
+                components_u32[start + i] = (comps[i] - comps[i - 1]).as_() as u32;
             }
         }
+        println!(
+            "Components u32 after differences: {:?}",
+            &components_u32[..64]
+        );
         let k_sampling = 128;
         let block_size = 128;
         println!("Using k={k_sampling} for sampling in compressed intvec");
