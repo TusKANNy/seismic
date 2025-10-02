@@ -43,3 +43,5 @@ Thumbs.db
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
+
+cached_adjacency*
