@@ -1,10 +1,9 @@
 use clap::Parser;
-use compressed_intvec::prelude::VariableCodecSpec;
 use core::fmt::Display;
 use indicatif::ProgressIterator;
 use seismic::{FixedU16Q, SparseDatasetTrait, sparse_dataset::SparseDatasetMut};
 
-use seismic::{PermutationStrategy, SpaceUsage, StreamVByteDataset};
+use seismic::{BaselineStreamVByteDataset, PermutationStrategy, SpaceUsage};
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
@@ -93,16 +92,6 @@ struct Args {
     /// Whether to permute index components for better compression
     #[clap(short, long, value_parser)]
     permutation: Option<PermutationStrategyClap>,
-}
-
-fn codec_args_to_string(codec: &VariableCodecSpec) -> String {
-    match codec {
-        VariableCodecSpec::Zeta { k } => match k {
-            Some(value) => format!("k={}", value),
-            _ => "k=auto".to_string(),
-        },
-        _ => "none".to_string(), // For codecs without parameters like Gamma, Delta, VByte, etc.
-    }
 }
 
 fn write_metrics_to_tsv(metrics: &PerformanceMetrics, log_path: &str) -> std::io::Result<()> {
@@ -198,20 +187,13 @@ pub fn main() {
     let generic_memory_usage = dataset_generic.space_usage_byte();
     println!("Memory usage: {} bytes", generic_memory_usage);
 
-    // println!(
-    //     "\nConverting to compressed dataset using {:?} codec...",
-    //     codec
-    // );
-
     let permutation_strategy = args
         .permutation
         .unwrap_or(PermutationStrategyClap::None)
         .to_permutation_strategy();
 
-    // Extract base filename for permutation caching
-
     let dataset_compressed =
-        StreamVByteDataset::<u16, FixedU16Q>::from_dataset_f32_with_permutation(
+        BaselineStreamVByteDataset::<u16, FixedU16Q>::from_dataset_f32_with_permutation(
             dataset_generic,
             permutation_strategy,
         );

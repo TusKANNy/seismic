@@ -1,12 +1,10 @@
 use core::hash::Hash;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hasher;
+
 use std::{
     cmp::{Ordering, Reverse},
     collections::{BinaryHeap, HashSet},
     fs::File,
-    io::{BufReader, BufWriter, Write},
-    path::Path,
+    io::{BufReader, BufWriter},
 };
 //use std::time::Instant;
 

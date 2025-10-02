@@ -35,8 +35,8 @@ pub mod compressed_dataset;
 pub use compressed_dataset::PermutationStrategy;
 pub mod partitioned_dataset;
 
-pub mod streamvbyte_dataset;
-pub use crate::streamvbyte_dataset::dataset::StreamVByteDataset;
+pub mod baseline_streamvbyte_dataset;
+pub use crate::baseline_streamvbyte_dataset::dataset::BaselineStreamVByteDataset;
 
 pub mod inverted_index;
 pub use inverted_index::InvertedIndex;

@@ -3,7 +3,6 @@ use std::hint::assert_unchecked;
 use std::ops::Range;
 
 use co_sort::*;
-use compressed_intvec::prelude::VariableCodecSpec;
 use itertools::Itertools;
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::prelude::ParallelSlice;
@@ -23,10 +22,8 @@ use crate::{FromDatasetGenericF32, PermutationStrategy, SpaceUsage};
 use mem_dbg::{MemSize, SizeFlags};
 use rgb::forward::Doc;
 
-const STREAMVBYTE_BS: usize = 16;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StreamVByteDataset<C, V>
+pub struct BaselineStreamVByteDataset<C, V>
 where
     C: ComponentType,
     V: ValueType,
@@ -39,7 +36,7 @@ where
     component_mapping: Box<[C]>,
 }
 
-impl<C, V> SparseDatasetTrait for StreamVByteDataset<C, V>
+impl<C, V> SparseDatasetTrait for BaselineStreamVByteDataset<C, V>
 where
     C: ComponentType + num_traits::ops::bytes::FromBytes,
     <C as num_traits::ops::bytes::FromBytes>::Bytes: Sized + Default,
@@ -83,85 +80,19 @@ where
         vec
     }
 
-    // fn dot_product_from_offset<D: ComponentType, W: ValueType>(
-    //     &self,
-    //     prepared_query: &Self::PreparedQuery<D, W>,
-    //     offset: usize,
-    //     len: usize,
-    // ) -> f32 {
-    //     let cv = self
-    //         .get_with_offset_iter(offset, len)
-    //         .scan(0, |acc, (c, v)| {
-    //             *acc += c.as_();
-    //             Some((*acc, v.to_f32().unwrap()))
-    //         });
-    //     dot_product_dense_sparse(prepared_query, cv)
-    // }
-
     fn dot_product_from_offset<D: ComponentType, W: ValueType>(
         &self,
         prepared_query: &Self::PreparedQuery<D, W>,
         offset: usize,
         len: usize,
     ) -> f32 {
-        //TODO: we don't want this buffer here.
-        let mut buffer = vec![0u32; len];
-
-        let mut total_accumulator = 0usize;
-        let mut total_dot_product = 0f32;
-
-        let mut current_offset = offset;
-        let end_offset = offset + len;
-
-        while current_offset + STREAMVBYTE_BS <= end_offset {
-            self.components
-                .get_range(&mut buffer, current_offset..current_offset + STREAMVBYTE_BS);
-
-            let mut current_acc = total_accumulator;
-            unsafe { buffer.get_unchecked(..STREAMVBYTE_BS) }
-                .iter()
-                .zip(unsafe {
-                    self.values
-                        .get_unchecked(current_offset..current_offset + STREAMVBYTE_BS)
-                })
-                .for_each(|(&c, &v)| {
-                    current_acc += c as usize;
-                    total_dot_product = total_dot_product.algebraic_add(
-                        unsafe { prepared_query.get_unchecked(current_acc) }
-                            .to_f32()
-                            .unwrap()
-                            .algebraic_mul(v.to_f32().unwrap()),
-                    );
-                });
-
-            total_accumulator = current_acc;
-            // total_dot_product +=
-            //     dot_product_dense_sparse(prepared_query, current_components.into_iter());
-
-            current_offset += STREAMVBYTE_BS;
-        }
-
-        if current_offset < end_offset {
-            let remaining = end_offset - current_offset;
-            self.components
-                .get_range(&mut buffer[..remaining], current_offset..end_offset);
-
-            let mut current_acc = total_accumulator;
-            buffer[..remaining]
-                .iter()
-                .zip(unsafe { self.values.get_unchecked(current_offset..end_offset) })
-                .for_each(|(&c, &v)| {
-                    current_acc += c as usize;
-                    total_dot_product = total_dot_product.algebraic_add(
-                        unsafe { prepared_query.get_unchecked(current_acc) }
-                            .to_f32()
-                            .unwrap()
-                            .algebraic_mul(v.to_f32().unwrap()),
-                    );
-                });
-        }
-
-        total_dot_product
+        let cv = self
+            .get_with_offset_iter(offset, len)
+            .scan(0, |acc, (c, v)| {
+                *acc += c.as_();
+                Some((*acc, v.to_f32().unwrap()))
+            });
+        dot_product_dense_sparse(prepared_query, cv)
     }
 
     fn len(&self) -> usize {
@@ -252,7 +183,7 @@ where
     }
 }
 
-impl<C, V> StreamVByteDataset<C, V>
+impl<C, V> BaselineStreamVByteDataset<C, V>
 where
     C: ComponentType + num_traits::ops::bytes::FromBytes,
     <C as num_traits::ops::bytes::FromBytes>::Bytes: Sized + Default,
@@ -316,7 +247,7 @@ where
 }
 
 impl<C, V, O, AC, AV> FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
-    for StreamVByteDataset<C, V>
+    for BaselineStreamVByteDataset<C, V>
 where
     C: ComponentType,
     V: ValueType,
@@ -385,7 +316,7 @@ where
     }
 }
 
-impl<C, V> StreamVByteDataset<C, V>
+impl<C, V> BaselineStreamVByteDataset<C, V>
 where
     C: ComponentType,
     V: ValueType,
@@ -495,7 +426,7 @@ where
     }
 }
 
-impl<C, V> SpaceUsage for StreamVByteDataset<C, V>
+impl<C, V> SpaceUsage for BaselineStreamVByteDataset<C, V>
 where
     C: ComponentType,
     V: ValueType,
@@ -529,7 +460,8 @@ mod tests {
                 .map(|(c, v)| c.into_iter().zip(v).collect_vec()),
         );
 
-        let compressed_dataset = StreamVByteDataset::<u16, FixedU16Q>::from_dataset_f32(dataset);
+        let compressed_dataset =
+            BaselineStreamVByteDataset::<u16, FixedU16Q>::from_dataset_f32(dataset);
 
         let query = [(0_usize, 1.0), (1, 2.0)];
         let prepared_query = compressed_dataset.prepare_query(query.into_iter());

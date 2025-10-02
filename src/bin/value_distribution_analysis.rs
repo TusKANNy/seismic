@@ -1,22 +1,22 @@
-use clap::Parser;
-use indicatif::ProgressIterator;
-use seismic::*;
-use serde_json;
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::Write;
+// use clap::Parser;
+// use indicatif::ProgressIterator;
+// use seismic::*;
+// use serde_json;
+// use std::collections::HashMap;
+// use std::fs::File;
+// use std::io::Write;
 
-#[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    /// The path of the input file
-    #[clap(short, long, value_parser)]
-    input_file: Option<String>,
+// #[derive(Parser, Debug)]
+// #[clap(author, version, about, long_about = None)]
+// struct Args {
+//     /// The path of the input file
+//     #[clap(short, long, value_parser)]
+//     input_file: Option<String>,
 
-    /// The output prefix for the inverted index files
-    #[clap(short, long, value_parser, default_value = "inverted_index")]
-    output_prefix: String,
-}
+//     /// The output prefix for the inverted index files
+//     #[clap(short, long, value_parser, default_value = "inverted_index")]
+//     output_prefix: String,
+// }
 
 pub fn main() {
     // let args = Args::parse();
@@ -109,82 +109,82 @@ pub fn main() {
     // );
 }
 
-fn save_npy_u32(data: &[u32], filename: &str) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut file = File::create(filename)?;
+// fn save_npy_u32(data: &[u32], filename: &str) -> std::io::Result<()> {
+//     use std::io::Write;
+//     let mut file = File::create(filename)?;
 
-    // NumPy header for u32 array
-    let header = format!(
-        "{{'descr': '<u4', 'fortran_order': False, 'shape': ({},), }}",
-        data.len()
-    );
-    let header_len = header.len();
-    let padding = (16 - (header_len + 1) % 16) % 16;
-    let padded_header = format!("{}{}", header, " ".repeat(padding));
+//     // NumPy header for u32 array
+//     let header = format!(
+//         "{{'descr': '<u4', 'fortran_order': False, 'shape': ({},), }}",
+//         data.len()
+//     );
+//     let header_len = header.len();
+//     let padding = (16 - (header_len + 1) % 16) % 16;
+//     let padded_header = format!("{}{}", header, " ".repeat(padding));
 
-    // Magic number + version
-    file.write_all(b"\x93NUMPY")?;
-    file.write_all(&[1, 0])?; // version 1.0
-    file.write_all(&(padded_header.len() as u16).to_le_bytes())?;
-    file.write_all(padded_header.as_bytes())?;
+//     // Magic number + version
+//     file.write_all(b"\x93NUMPY")?;
+//     file.write_all(&[1, 0])?; // version 1.0
+//     file.write_all(&(padded_header.len() as u16).to_le_bytes())?;
+//     file.write_all(padded_header.as_bytes())?;
 
-    // Data
-    for &value in data {
-        file.write_all(&value.to_le_bytes())?;
-    }
+//     // Data
+//     for &value in data {
+//         file.write_all(&value.to_le_bytes())?;
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
-fn save_npy_f32(data: &[f32], filename: &str) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut file = File::create(filename)?;
+// fn save_npy_f32(data: &[f32], filename: &str) -> std::io::Result<()> {
+//     use std::io::Write;
+//     let mut file = File::create(filename)?;
 
-    // NumPy header for f32 array
-    let header = format!(
-        "{{'descr': '<f4', 'fortran_order': False, 'shape': ({},), }}",
-        data.len()
-    );
-    let header_len = header.len();
-    let padding = (16 - (header_len + 1) % 16) % 16;
-    let padded_header = format!("{}{}", header, " ".repeat(padding));
+//     // NumPy header for f32 array
+//     let header = format!(
+//         "{{'descr': '<f4', 'fortran_order': False, 'shape': ({},), }}",
+//         data.len()
+//     );
+//     let header_len = header.len();
+//     let padding = (16 - (header_len + 1) % 16) % 16;
+//     let padded_header = format!("{}{}", header, " ".repeat(padding));
 
-    // Magic number + version
-    file.write_all(b"\x93NUMPY")?;
-    file.write_all(&[1, 0])?; // version 1.0
-    file.write_all(&(padded_header.len() as u16).to_le_bytes())?;
-    file.write_all(padded_header.as_bytes())?;
+//     // Magic number + version
+//     file.write_all(b"\x93NUMPY")?;
+//     file.write_all(&[1, 0])?; // version 1.0
+//     file.write_all(&(padded_header.len() as u16).to_le_bytes())?;
+//     file.write_all(padded_header.as_bytes())?;
 
-    // Data
-    for &value in data {
-        file.write_all(&value.to_le_bytes())?;
-    }
+//     // Data
+//     for &value in data {
+//         file.write_all(&value.to_le_bytes())?;
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
-fn save_quantization_bins_json(
-    quantization_bins: &HashMap<u16, (f32, f32, f32, f32)>,
-    filename: &str,
-) -> std::io::Result<()> {
-    let mut file = File::create(filename)?;
+// fn save_quantization_bins_json(
+//     quantization_bins: &HashMap<u16, (f32, f32, f32, f32)>,
+//     filename: &str,
+// ) -> std::io::Result<()> {
+//     let mut file = File::create(filename)?;
 
-    // Create a JSON object with component IDs as keys and bins as values
-    let mut json_data = serde_json::Map::new();
+//     // Create a JSON object with component IDs as keys and bins as values
+//     let mut json_data = serde_json::Map::new();
 
-    for (&component_id, &(min, max, scale, mean)) in quantization_bins.iter() {
-        let bin_data = serde_json::json!({
-            "min": min,
-            "max": max,
-            "scale": scale,
-            "mean": mean
-        });
-        json_data.insert(component_id.to_string(), bin_data);
-    }
+//     for (&component_id, &(min, max, scale, mean)) in quantization_bins.iter() {
+//         let bin_data = serde_json::json!({
+//             "min": min,
+//             "max": max,
+//             "scale": scale,
+//             "mean": mean
+//         });
+//         json_data.insert(component_id.to_string(), bin_data);
+//     }
 
-    let json_object = serde_json::Value::Object(json_data);
-    let json_string = serde_json::to_string_pretty(&json_object)?;
-    file.write_all(json_string.as_bytes())?;
+//     let json_object = serde_json::Value::Object(json_data);
+//     let json_string = serde_json::to_string_pretty(&json_object)?;
+//     file.write_all(json_string.as_bytes())?;
 
-    Ok(())
-}
+//     Ok(())
+// }

@@ -3,13 +3,11 @@ use std::hint::assert_unchecked;
 use std::ops::Range;
 
 use co_sort::*;
-use compressed_intvec::prelude::VariableCodecSpec;
+use compressed_intvec::prelude::{UIntVec, VariableCodecSpec};
 use itertools::Itertools;
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::prelude::ParallelSlice;
 use serde::{Deserialize, Serialize};
-
-use toolkit::stream_vbyte::StreamVByteRandomAccess;
 
 use crate::partitioned_dataset::utils::build_or_load_metis_params;
 use crate::sparse_dataset::SparseDatasetGeneric;
@@ -38,16 +36,14 @@ where
 {
     dim: usize,
     offsets: Box<[usize]>,
-    //components: UIntVec<C>,
-    pub components: StreamVByteRandomAccess,
-    pub values: Box<[V]>,
+    components: UIntVec<C>,
+    values: Box<[V]>,
     component_mapping: Box<[C]>,
 }
 
 impl<C, V> SparseDatasetTrait for SparseDatasetCompressed<C, V>
 where
-    C: ComponentType + num_traits::ops::bytes::FromBytes,
-    <C as num_traits::ops::bytes::FromBytes>::Bytes: Sized + Default,
+    C: ComponentType,
     V: ValueType,
 {
     type Component = C;
@@ -61,17 +57,12 @@ where
         len: usize,
     ) -> impl Iterator<Item = (Self::Component, Self::Value)> {
         unsafe { assert_unchecked(len > 0) };
-        let mut buffer = vec![0u32; len];
-        self.components
-            .get_range(&mut buffer[..len], offset..offset + len);
-
-        let values_slice = unsafe { self.values.get_unchecked(offset..offset + len) };
-
-        buffer
-            .into_iter()
-            .take(len)
-            .map(|c| C::from(c as usize).unwrap())
-            .zip(values_slice.iter().copied())
+        let mut reader = self.components.seq_reader();
+        gen move {
+            for i in offset..(offset + len) {
+                unsafe { yield (reader.get_unchecked(i), *self.values.get_unchecked(i)) }
+            }
+        }
     }
 
     fn prepare_query<D: ComponentType, W: ValueType>(
@@ -191,8 +182,7 @@ where
 
 impl<C, V> SparseDatasetCompressed<C, V>
 where
-    C: ComponentType + num_traits::ops::bytes::FromBytes,
-    <C as num_traits::ops::bytes::FromBytes>::Bytes: Sized + Default,
+    C: ComponentType,
     V: ValueType,
 {
     pub fn search<D: ComponentType, W: ValueType>(
@@ -284,8 +274,6 @@ where
             .collect();
         let offsets = offsets.into();
 
-        let mut components_u32: Vec<u32> = Vec::with_capacity(components.len());
-        components_u32.resize(components.len(), 0);
         for &[start, end] in offsets.array_windows() {
             let comps = unsafe { components.get_unchecked_mut(start..end) };
             let vals = unsafe { values.get_unchecked_mut(start..end) };
@@ -293,29 +281,21 @@ where
                 *c = component_mapping[c.as_()];
             }
             co_sort!(comps, vals);
-            components_u32[start] = comps[0].as_() as u32;
             // For better compression, store the component differences
-            for i in 1..comps.len() {
-                components_u32[start + i] = (comps[i] - comps[i - 1]).as_() as u32;
+            for i in (1..comps.len()).rev() {
+                comps[i] = comps[i] - comps[i - 1];
             }
             // TODO: Completely adjust dot_product
         }
-        println!(
-            "Components u32 after differences: {:?}",
-            &components_u32[..64]
-        );
 
-        // TODO: do we need a generic for the compressor type?
-        let block_size = 128;
         Self {
             dim,
             offsets,
-            // components: UIntVec::<C>::builder()
-            //     .k(64) // Sample every 2nd element
-            //     .codec(VariableCodecSpec::Zeta { k: None })
-            //     .build(components.as_ref())
-            //     .unwrap(),
-            components: StreamVByteRandomAccess::new(components_u32.as_ref(), block_size),
+            components: UIntVec::<C>::builder()
+                .k(128) // Sample every 2nd element
+                .codec(VariableCodecSpec::Zeta { k: None })
+                .build(components.as_ref())
+                .unwrap(),
             values,
             component_mapping,
         }
@@ -333,7 +313,7 @@ where
 
     pub fn from_dataset_f32_with_codec<O, AC, AV>(
         dataset: SparseDatasetGeneric<C, f32, O, AC, AV>,
-        _codec: VariableCodecSpec,
+        codec: VariableCodecSpec,
         permutation_strategy: PermutationStrategy,
     ) -> Self
     where
@@ -399,8 +379,6 @@ where
             .map(V::from_f32_saturating)
             .collect();
         let offsets = offsets.into();
-        let mut components_u32: Vec<u32> = Vec::with_capacity(components.len());
-        components_u32.resize(components.len(), 0);
 
         for &[start, end] in offsets.array_windows() {
             let comps = unsafe { components.get_unchecked_mut(start..end) };
@@ -410,23 +388,22 @@ where
             }
             co_sort!(comps, vals);
 
-            components_u32[start] = comps[0].as_() as u32;
-            // For better compression, store the component differences
-            for i in 1..comps.len() {
-                components_u32[start + i] = (comps[i] - comps[i - 1]).as_() as u32;
+            for i in (1..comps.len()).rev() {
+                comps[i] = comps[i] - comps[i - 1];
             }
         }
-        println!(
-            "Components u32 after differences: {:?}",
-            &components_u32[..64]
-        );
+
         let k_sampling = 128;
-        let block_size = 128;
+
         println!("Using k={k_sampling} for sampling in compressed intvec");
         Self {
             dim,
             offsets,
-            components: StreamVByteRandomAccess::new(components_u32.as_ref(), block_size),
+            components: UIntVec::<C>::builder()
+                .k(k_sampling)
+                .codec(codec)
+                .build(components.as_ref())
+                .unwrap(),
             values,
             component_mapping: permutation,
         }

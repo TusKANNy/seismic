@@ -1,15 +1,13 @@
 use std::{
-    fs::File,
     hash::Hash,
     hint::{assert_unchecked, black_box},
-    io::Write,
     marker::PhantomData,
     ops::Range,
 };
 
 use bytemuck::{Pod, try_cast_slice};
 use co_sort::*;
-use itertools::{Itertools, partition};
+use itertools::Itertools;
 use num_traits::{FromPrimitive, One, PrimInt, ToBytes, ToPrimitive};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
