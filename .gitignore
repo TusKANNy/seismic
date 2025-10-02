@@ -41,4 +41,5 @@ build/
 # Windows
 Thumbs.db
 
-*.ipynb_checkpoints/*
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
