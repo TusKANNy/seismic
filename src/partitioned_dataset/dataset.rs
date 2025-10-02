@@ -5,7 +5,6 @@ use std::{
 };
 
 use bytemuck::{Pod, try_cast_slice};
-use co_sort::*;
 use num_traits::{FromPrimitive, One, PrimInt, ToBytes, ToPrimitive};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -102,7 +101,10 @@ where
         >],
         values: &mut [V],
     ) {
-        co_sort![converted_components, values];
+        let mut permutation = permutation::sort_unstable(&converted_components);
+        permutation.apply_slice_in_place(values);
+        converted_components.sort_unstable();
+
         let partitions_len: [_; N_PARTITIONS] =
             partitions_len_array(converted_components.iter(), |c| {
                 c.unsigned_shr(N_COMPONENT_BITS as u32).as_()

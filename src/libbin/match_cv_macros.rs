@@ -48,6 +48,24 @@ macro_rules! match_component_value {
 }
 
 #[macro_export]
+macro_rules! match_component {
+    ($component:expr, $macro_name:ident) => {
+        match $component {
+            "u16" => {
+                $macro_name!(u16);
+            }
+            "u32" => {
+                $macro_name!(u32);
+            }
+            _ => {
+                eprintln!("Error: component-type must be either 'u16' or 'u32'");
+                std::process::exit(1);
+            }
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! match_value {
     ($value:expr, $macro_name:ident) => {
         use half::bf16;

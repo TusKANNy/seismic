@@ -36,7 +36,6 @@ serde = { version = "1.0", features = ["derive"] }
 bincode = { version = "2.0", features = ["serde"] }
 bytemuck = { version = "1.23", features = ["min_const_generics"] }
 clap = { version = "4.5", features = ["derive"] }
-co_sort = "0.2"
 envparse = "0.1"
 rayon = "1.11"
 # TODO: f16 available in nightly, but not supported by crates: https://github.com/rust-num/num-traits/pull/333
@@ -57,6 +56,7 @@ itertools = "0.14"
 rand = "0.9"
 rand_chacha = "0.9"
 metis = "0.2"
+permutation = "0.4"
 pyo3 = { version = "0.26", features = ["extension-module"], optional = true }
 numpy = { version = "0.26", optional = true }
 indicatif = { version = "0.18", features = ["rayon"] }

@@ -141,6 +141,31 @@ impl PackedPostingBlock {
     }
 }
 
+pub(crate) fn quantize<T: ValueType>(values: &[T]) -> (f32, f32, Vec<u8>) {
+    assert!(!values.is_empty());
+
+    const MAX_QUANT: f32 = u8::MAX as f32;
+
+    // Compute min and max values in the vector
+    let (min, max) = values
+        .iter()
+        .minmax_by(|a, b| a.partial_cmp(b).unwrap())
+        .into_option()
+        .unwrap();
+
+    let (min, max) = (min.to_f32().unwrap(), max.to_f32().unwrap());
+
+    // Quantization splits the range [min, max] into n_classes blocks of equal size (max-min)/n_clasess.
+    // (Exponential quantization could be possible as well.)
+    let quant = (max - min) / MAX_QUANT;
+    let quantized_values = values
+        .iter()
+        .map(|&v| ((v.to_f32().unwrap() - min) / quant).round() as u8)
+        .collect();
+
+    (min, quant, quantized_values)
+}
+
 /// Computes the size of the intersection of two unsorted lists of integers.
 pub fn intersection<T: Eq + Hash + Clone>(s: &[T], groundtruth: &[T]) -> usize {
     let s_set: HashSet<_> = s.iter().cloned().collect();
