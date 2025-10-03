@@ -419,8 +419,7 @@ where
     fn space_usage_byte(&self) -> usize {
         self.dim.space_usage_byte()
             + self.offsets.space_usage_byte()
-            //+ size_of_val(self.components.as_limbs())
-            + self.components.mem_size(SizeFlags::CAPACITY)
+            + self.components.mem_size(SizeFlags::CAPACITY) // CAPACITY but data structures inside components are shrinked to fit.
             + self.values.space_usage_byte()
     }
 }

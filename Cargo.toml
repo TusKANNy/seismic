@@ -88,6 +88,3 @@ path = "src/bin/perf_inverted_index.rs"
 [profile.release]
 lto = true
 
-[[bench]]
-name = "get_with_offset_iter_bench"
-harness = false
