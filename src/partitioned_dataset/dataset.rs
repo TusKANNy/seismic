@@ -7,6 +7,7 @@ use std::{
 use bytemuck::{Pod, try_cast_slice};
 use num_traits::{FromPrimitive, One, PrimInt, ToBytes, ToPrimitive};
 use rayon::prelude::*;
+use rusty_perm::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -101,9 +102,9 @@ where
         >],
         values: &mut [V],
     ) {
-        let mut permutation = permutation::sort_unstable(&converted_components);
-        permutation.apply_slice_in_place(values);
-        converted_components.sort_unstable();
+        let permutation = PermD::from_sort(&*converted_components);
+        permutation.apply(values).unwrap();
+        permutation.apply(converted_components).unwrap();
 
         let partitions_len: [_; N_PARTITIONS] =
             partitions_len_array(converted_components.iter(), |c| {

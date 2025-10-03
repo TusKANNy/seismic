@@ -56,8 +56,8 @@ itertools = "0.14"
 rand = "0.9"
 rand_chacha = "0.9"
 metis = "0.2"
-permutation = "0.4"
 pyo3 = { version = "0.26", features = ["extension-module"], optional = true }
+rusty-perm = "0.2"
 numpy = { version = "0.26", optional = true }
 indicatif = { version = "0.18", features = ["rayon"] }
 
