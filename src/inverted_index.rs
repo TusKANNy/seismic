@@ -1,7 +1,5 @@
 use crate::sparse_dataset::SparseDatasetStableTrait;
-use crate::utils::{
-    KHeap, PackedPostingBlock, ScoredItem, prefetch_read_slice, read_from_path, write_to_path,
-};
+use crate::utils::{KHeap, PackedPostingBlock, ScoredItem, read_from_path, write_to_path};
 use crate::{
     ComponentType, FromDatasetGenericF32, QuantizedSummary, SpaceUsage, SparseDataset,
     SparseDatasetMut, SparseDatasetTrait, ValueType,
@@ -570,21 +568,13 @@ impl<C: ComponentType> PostingList<C> {
         // let mut entered = 0;
         // let mut evaluated_docs = 0;
 
-        let mut iter = dots.into_iter().enumerate();
-        let mut next_block =
-            iter.find(|&(_, dot)| !(heap.len() == k && dot < heap_factor * heap.peek().score));
+        for (block_id, dot) in dots.into_iter().enumerate() {
+            if heap.len() == k && dot < heap_factor * heap.peek().score {
+                continue;
+            }
 
-        while let Some((block_id, _)) = next_block {
             let packed_posting_block = &self.packed_postings
                 [self.block_offsets[block_id]..self.block_offsets[block_id + 1]];
-
-            // entered += 1;
-            // evaluated_docs += packed_posting_block.len();
-
-            prefetch_read_slice(packed_posting_block);
-
-            next_block =
-                iter.find(|&(_, dot)| !(heap.len() == k && dot < heap_factor * heap.peek().score));
 
             self.evaluate_posting_block(
                 prepared_query,
@@ -621,18 +611,13 @@ impl<C: ComponentType> PostingList<C> {
             .sorted_unstable_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap())
             .collect();
 
-        let mut iter = dots.into_iter();
-        let mut next_block =
-            iter.find(|&(_, dot)| !(heap.len() == k && dot < heap_factor * heap.peek().score));
+        for (block_id, dot) in dots {
+            if heap.len() == k && dot < heap_factor * heap.peek().score {
+                continue;
+            }
 
-        while let Some((block_id, _)) = next_block {
             let packed_posting_block = &self.packed_postings
                 [self.block_offsets[block_id]..self.block_offsets[block_id + 1]];
-
-            prefetch_read_slice(packed_posting_block);
-
-            next_block =
-                iter.find(|&(_, dot)| !(heap.len() == k && dot < heap_factor * heap.peek().score));
 
             self.evaluate_posting_block(
                 prepared_query,

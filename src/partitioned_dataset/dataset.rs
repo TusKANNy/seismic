@@ -15,7 +15,7 @@ use crate::{
     distances::dot_product_dense_sparse,
     partitioned_dataset::{fitting_integer::*, utils::*},
     sparse_dataset::SparseDatasetGeneric,
-    utils::{build_or_load_metis_params, prefetch_read_slice},
+    utils::{build_or_load_metis_params, prefetch_read},
 };
 
 trait Offset = PrimInt + FromPrimitive + ToPrimitive + Pod;
@@ -437,7 +437,8 @@ where
 
     fn prefetch_with_offset(&self, offset: usize, len: usize) {
         let posting = unsafe { self.postings.get_unchecked(offset..offset + len) };
-        prefetch_read_slice(posting);
+
+        prefetch_read(posting.as_ptr());
     }
 
     fn iter(&self) -> impl Iterator<Item = impl Iterator<Item = (Self::Component, Self::Value)>> {

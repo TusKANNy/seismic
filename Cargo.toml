@@ -10,9 +10,7 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["prefetch"]
 partitioned-dataset = []
-prefetch = []
 pyo3 = ["dep:pyo3", "dep:numpy"]
 
 [lib]
