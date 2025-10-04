@@ -40,16 +40,10 @@ impl SparseDatasetTrait for SparseDatasetStreamVbyte {
         &self,
         offset: usize,
         len: usize,
-    ) -> impl Iterator<Item = (Self::Component, Self::Value)> {
-        let stream_view = unsafe { self.get_stream_vbyte_from_offset(offset, len) };
-        stream_view
-            .iter_with_prefix_sum()
-            .flat_map(move |(c, v)| {
-                c.to_array()
-                    .into_iter()
-                    .zip(v.to_array().into_iter().map(FixedU8Q::from_bits))
-            })
-            .take(len)
+    ) -> impl Iterator<Item = (Self::Component, Self::Value)> + '_ {
+        let stream_view: StreamVbyte<'_> =
+            unsafe { self.get_stream_vbyte_from_offset(offset, len) };
+        stream_view.iter()
     }
 
     fn prepare_query<D: ComponentType, U: ValueType>(
