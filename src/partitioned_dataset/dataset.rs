@@ -558,16 +558,7 @@ where
             PermutationStrategy::GraphBisection => {
                 let perm = permute_graph_bisection(&dataset);
 
-                println!("Graph Bisection Permutation: {:?}", &perm[0..20]);
                 let elements_per_partition = dataset.dim() / N_PARTITIONS + 1;
-
-                println!(
-                    "Graph Bisection Partitions: {:?}",
-                    perm.iter()
-                        .take(20)
-                        .map(|p| p.as_() / elements_per_partition)
-                        .collect::<Vec<_>>()
-                );
 
                 perm.iter()
                     .map(|&p| FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_usize(p.as_() / elements_per_partition).unwrap())

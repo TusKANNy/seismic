@@ -49,7 +49,7 @@ if [[ ! -f "$BINARY" ]]; then
 fi
 
 
-PERMUTATION_MODES=("metis" "graph-bisection" "none")
+PERMUTATION_MODES=("graph-bisection" "none")
 
 echo "========================================="
 echo "Starting partitioned dataset benchmark"
