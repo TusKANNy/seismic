@@ -5,6 +5,7 @@
 #![feature(gen_blocks)]
 #![feature(generic_const_exprs)]
 #![feature(iter_map_windows)]
+#![feature(portable_simd)]
 #![feature(slice_as_array)]
 #![feature(trait_alias)]
 #![feature(vec_into_chunks)]
@@ -47,6 +48,8 @@ pub use inverted_index_wrapper::SeismicIndex;
 
 pub mod quantized_summary;
 pub use quantized_summary::QuantizedSummary;
+
+pub mod stream_vbyte_dataset;
 
 mod num_marker;
 
@@ -99,6 +102,9 @@ pub trait ComponentType = Unsigned
     + Ord
     + Pod
     + Storable;
+
+#[cfg(feature = "partitioned-dataset")]
+pub mod partitioned_dataset;
 
 #[cfg(feature = "pyo3")]
 pub mod pylib;

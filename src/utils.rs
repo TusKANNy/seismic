@@ -4,15 +4,19 @@ use std::{
     cmp::{Ordering, Reverse},
     collections::{BinaryHeap, HashSet},
     fs::File,
+    hash::{DefaultHasher, Hasher},
+    hint::assert_unchecked,
     io::{BufReader, BufWriter},
+    time::Instant,
 };
 //use std::time::Instant;
 
 use itertools::Itertools;
+use metis::Graph;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::*;
+use crate::{sparse_dataset::SparseDatasetGeneric, *};
 
 pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std::error::Error>> {
     let mut file = BufReader::new(File::open(path)?);
@@ -137,6 +141,31 @@ impl PackedPostingBlock {
             (self.n & (u16::MAX as u64)) as usize,
         )
     }
+}
+
+pub(crate) fn quantize<T: ValueType>(values: &[T]) -> (f32, f32, Vec<u8>) {
+    assert!(!values.is_empty());
+
+    const MAX_QUANT: f32 = u8::MAX as f32;
+
+    // Compute min and max values in the vector
+    let (min, max) = values
+        .iter()
+        .minmax_by(|a, b| a.partial_cmp(b).unwrap())
+        .into_option()
+        .unwrap();
+
+    let (min, max) = (min.to_f32().unwrap(), max.to_f32().unwrap());
+
+    // Quantization splits the range [min, max] into n_classes blocks of equal size (max-min)/n_clasess.
+    // (Exponential quantization could be possible as well.)
+    let quant = (max - min) / MAX_QUANT;
+    let quantized_values = values
+        .iter()
+        .map(|&v| ((v.to_f32().unwrap() - min) / quant).round() as u8)
+        .collect();
+
+    (min, quant, quantized_values)
 }
 
 /// Computes the size of the intersection of two unsorted lists of integers.
@@ -555,6 +584,109 @@ where
     final_assignments.sort();
 
     final_assignments
+}
+
+/// A symmetrical matrix where the diagonal components are 0. Only the upper part of the matrix is stored.
+pub struct HollowSymmetricMatrix<T: Zero + Copy> {
+    dim: usize,
+    data: Box<[T]>,
+}
+
+impl<T: Zero + Copy> HollowSymmetricMatrix<T> {
+    pub fn new(dim: usize) -> Self {
+        let size = (dim * (dim - 1)) / 2;
+        let data = vec![T::zero(); size].into_boxed_slice();
+        Self { dim, data }
+    }
+
+    /// # Safety
+    /// - `j > i`
+    /// - `i < self.dim && j < self.dim`
+    pub unsafe fn get_unchecked(&self, i: usize, j: usize) -> &T {
+        unsafe {
+            assert_unchecked(j > i);
+            let index = i * self.dim + j - ((i + 2) * (i + 1)) / 2;
+            self.data.get_unchecked(index)
+        }
+    }
+
+    /// # Safety
+    /// - `j > i`
+    /// - `i < self.dim && j < self.dim`
+    pub unsafe fn get_unchecked_mut(&mut self, i: usize, j: usize) -> &mut T {
+        unsafe {
+            assert_unchecked(j > i);
+            let index = i * self.dim + j - ((i + 2) * (i + 1)) / 2;
+            self.data.get_unchecked_mut(index)
+        }
+    }
+
+    /// Iterates the specified row (how it's supposed to be, not how it's represented).
+    /// The diagonal element is skipped.
+    pub fn iter_row(&self, i: usize) -> impl Iterator<Item = (usize, &T)> {
+        let before = (0..i).map(move |j| (j, unsafe { self.get_unchecked(j, i) }));
+        let after = ((i + 1)..self.dim).map(move |j| (j, unsafe { self.get_unchecked(i, j) }));
+        before.chain(after)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct MetisParams {
+    pub adjncy: Box<[i32]>,
+    pub weights: Box<[i32]>,
+    pub xadj: Box<[i32]>,
+}
+
+impl MetisParams {
+    pub fn build_partitions(&self, n_partitions: i32) -> Vec<i32> {
+        print!("\tBuilding partitions ");
+        let time = Instant::now();
+
+        let mut part = vec![0; self.xadj.len() - 1];
+
+        Graph::new(1, n_partitions, &self.xadj, &self.adjncy)
+            .unwrap()
+            .set_adjwgt(&self.weights)
+            .part_recursive(part.as_mut_slice())
+            .unwrap();
+
+        let elapsed = time.elapsed();
+        println!("{} secs", elapsed.as_secs());
+
+        part
+    }
+}
+
+/// Load the dataset's adjacency matrix
+///
+/// Hash the dataset's components and offsets so that its adjacency can be cached (as it's a very long operation)
+pub fn build_or_load_metis_params<C, V, O, AC, AV>(
+    dataset: &SparseDatasetGeneric<C, V, O, AC, AV>,
+) -> MetisParams
+where
+    C: ComponentType,
+    V: ValueType,
+    O: AsRef<[usize]> + SpaceUsage + Hash,
+    AC: AsRef<[C]> + SpaceUsage + Hash,
+    AV: AsRef<[V]> + SpaceUsage,
+{
+    let mut s = DefaultHasher::new();
+    dataset.components().hash(&mut s);
+    dataset.offsets().hash(&mut s);
+    let hash = s.finish();
+    let filename = format!("cached_adjacency_{}", hash);
+    if !std::fs::exists(filename.as_str()).is_ok_and(|b| b) {
+        println!("Adjacency matrix not cached. Creating.");
+        let params = dataset.adjacency_matrix_metis();
+
+        println!("Saving ... {}", filename);
+        write_to_path(&params, filename.as_str()).unwrap();
+
+        params
+    } else {
+        println!("Loading adjacency matrix {}.", filename.as_str());
+        read_from_path(filename.as_str()).unwrap()
+    }
 }
 
 /// Manages permutation caching with hash-based file storage

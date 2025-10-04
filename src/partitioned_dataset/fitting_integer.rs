@@ -16,14 +16,14 @@ pub trait Fit<const N: usize> {
     type Integer: ComponentType + FromBytes + ToBytes + One + Serialize + DeserializeOwned;
 }
 
-pub type FittingInteger<const N: usize> = <() as Fit<N>>::Integer;
+pub(super) type FittingInteger<const N: usize> = <() as Fit<N>>::Integer;
 
-pub fn primitive_cast<Src: ToPrimitive, Dst: FromPrimitive>(src: Src) -> Dst {
+pub(super) fn primitive_cast<Src: ToPrimitive, Dst: FromPrimitive>(src: Src) -> Dst {
     // Can't think of any better way to do it...
     unsafe { Dst::from_usize(src.to_usize().unwrap_unchecked()).unwrap_unchecked() }
 }
 
-pub type FittingArray<const N: usize>
+pub(super) type FittingArray<const N: usize>
 where
     (): Fit<N>,
 = [FittingInteger<N>; N.div_ceil(size_of::<FittingInteger<N>>() * 8)];

@@ -1,99 +1,13 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::assert_unchecked;
-use std::time::Instant;
 
+use crate::ValueType;
 use crate::sparse_dataset::SparseDatasetGeneric;
-use crate::utils::{read_from_path, write_to_path};
+use crate::utils::{MetisParams, read_from_path, write_to_path};
 use crate::{ComponentType, partitioned_dataset::fitting_integer::*};
-use crate::{SpaceUsage, ValueType};
-use metis::Graph;
+use crate::{SpaceUsage, SparseDatasetTrait};
+use num_traits::One;
 use num_traits::PrimInt;
-use num_traits::{One, Zero};
-use serde::{Deserialize, Serialize};
-
-/// A symmetrical matrix where the diagonal components are 0. Only the upper part of the matrix is stored.
-pub struct HollowSymmetricMatrix<T: Zero + Copy> {
-    dim: usize,
-    data: Box<[T]>,
-}
-
-impl<T: Zero + Copy> HollowSymmetricMatrix<T> {
-    pub fn new(dim: usize) -> Self {
-        let size = (dim * (dim - 1)) / 2;
-        let data = vec![T::zero(); size].into_boxed_slice();
-        Self { dim, data }
-    }
-
-    /// # Safety
-    /// - `j > i`
-    /// - `i < self.dim && j < self.dim`
-    pub unsafe fn get_unchecked(&self, i: usize, j: usize) -> &T {
-        unsafe {
-            assert_unchecked(j > i);
-            let index = i * self.dim + j - ((i + 2) * (i + 1)) / 2;
-            self.data.get_unchecked(index)
-        }
-    }
-
-    /// # Safety
-    /// - `j > i`
-    /// - `i < self.dim && j < self.dim`
-    pub unsafe fn get_unchecked_mut(&mut self, i: usize, j: usize) -> &mut T {
-        unsafe {
-            assert_unchecked(j > i);
-            let index = i * self.dim + j - ((i + 2) * (i + 1)) / 2;
-            self.data.get_unchecked_mut(index)
-        }
-    }
-
-    /// Iterates the specified row (how it's supposed to be, not how it's represented).
-    /// The diagonal element is skipped.
-    pub fn iter_row(&self, i: usize) -> impl Iterator<Item = (usize, &T)> {
-        let before = (0..i).map(move |j| (j, unsafe { self.get_unchecked(j, i) }));
-        let after = ((i + 1)..self.dim).map(move |j| (j, unsafe { self.get_unchecked(i, j) }));
-        before.chain(after)
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct MetisParams {
-    pub adjncy: Box<[i32]>,
-    pub weights: Box<[i32]>,
-    pub xadj: Box<[i32]>,
-}
-
-impl MetisParams {
-    pub fn build_partitions<const N_PARTITIONS: usize>(
-        &self,
-    ) -> Vec<FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>>
-    where
-        (): Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>,
-    {
-        print!("\tBuilding partitions ");
-        let time = Instant::now();
-
-        let mut part = vec![0; self.xadj.len() - 1];
-
-        Graph::new(1, N_PARTITIONS as i32, &self.xadj, &self.adjncy)
-            .unwrap()
-            .set_adjwgt(&self.weights)
-            .part_recursive(part.as_mut_slice())
-            .unwrap();
-
-        let result = part
-            .into_iter()
-            .map(|p| {
-                FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_i32(p)
-                    .unwrap()
-            })
-            .collect();
-
-        let elapsed = time.elapsed();
-        println!("{} secs", elapsed.as_secs());
-
-        result
-    }
-}
 
 /// Load the dataset's adjacency matrix
 ///
@@ -169,7 +83,7 @@ where
 }
 
 /// Given an array of `bool`s representing the adctive partitions, generates a bitset representing it.
-pub(crate) fn gen_active_partitions<const N_PARTITIONS: usize>(
+pub(super) fn gen_active_partitions<const N_PARTITIONS: usize>(
     active_partitions_iter: [bool; N_PARTITIONS],
 ) -> FittingArray<N_PARTITIONS>
 where
@@ -194,7 +108,7 @@ where
 }
 
 #[inline]
-pub(crate) fn partitions_len_array<const N_PARTITIONS: usize, F: Fn(C) -> usize, C>(
+pub(super) fn partitions_len_array<const N_PARTITIONS: usize, F: Fn(C) -> usize, C>(
     components: impl Iterator<Item = C>,
     partitioning_function: F,
 ) -> [usize; N_PARTITIONS] {
@@ -210,6 +124,6 @@ pub(crate) fn partitions_len_array<const N_PARTITIONS: usize, F: Fn(C) -> usize,
 }
 
 #[inline]
-pub(crate) fn count_ones_array<T: PrimInt>(arr: &[T]) -> u32 {
+pub(super) fn count_ones_array<T: PrimInt>(arr: &[T]) -> u32 {
     arr.iter().map(|n| n.count_ones()).sum()
 }

@@ -2,14 +2,14 @@ use std::{
     hash::Hash,
     hint::{assert_unchecked, black_box},
     marker::PhantomData,
-    ops::Range,
 };
 
 use bytemuck::{Pod, try_cast_slice};
-use co_sort::*;
+
 use itertools::Itertools;
 use num_traits::{FromPrimitive, One, PrimInt, ToBytes, ToPrimitive};
 use rayon::prelude::*;
+use rusty_perm::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -106,7 +106,10 @@ where
         >],
         values: &mut [V],
     ) {
-        co_sort![converted_components, values];
+        let permutation = PermD::from_sort(&*converted_components);
+        permutation.apply(values).unwrap();
+        permutation.apply(converted_components).unwrap();
+
         let partitions_len: [_; N_PARTITIONS] =
             partitions_len_array(converted_components.iter(), |c| {
                 c.unsigned_shr(N_COMPONENT_BITS as u32).as_()
@@ -424,8 +427,8 @@ where
         })
     }
 
-    fn offset_to_id(&self, offset: usize) -> usize {
-        self.offsets.as_ref().binary_search(&offset).unwrap()
+    fn offsets(&self) -> &[usize] {
+        &self.offsets
     }
 
     fn dim(&self) -> usize {
@@ -434,23 +437,6 @@ where
 
     fn nnz(&self) -> usize {
         self.nnz
-    }
-
-    fn len(&self) -> usize {
-        self.offsets.as_ref().len() - 1
-    }
-
-    fn offset_range(&self, id: usize) -> std::ops::Range<usize> {
-        let offsets = self.offsets.as_ref();
-        assert!(id < offsets.len() - 1, "{id} is out of range");
-
-        // Safety: safe accesses due to the check above
-        unsafe {
-            Range {
-                start: *offsets.get_unchecked(id),
-                end: *offsets.get_unchecked(id + 1),
-            }
-        }
     }
 
     fn prefetch_with_offset(&self, offset: usize, len: usize) {
@@ -550,7 +536,7 @@ where
                 let metis_params = build_or_load_metis_params(&dataset);
 
                 let partitions = metis_params
-                    .build_partitions::<N_PARTITIONS>()
+                    .build_partitions(N_PARTITIONS as i32)
                     .into_boxed_slice();
                 partitions
             }
@@ -561,19 +547,15 @@ where
                 let elements_per_partition = dataset.dim() / N_PARTITIONS + 1;
 
                 perm.iter()
-                    .map(|&p| FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_usize(p.as_() / elements_per_partition).unwrap())
+                    .map(|&p| (p.as_() / elements_per_partition) as i32)
                     .collect::<Vec<_>>()
                     .into_boxed_slice()
             }
             PermutationStrategy::None => {
                 let elements_per_partition = dataset.dim() / N_PARTITIONS + 1;
 
-                let partitions: Box<
-                    [FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>],
-                > = (0..dim)
-                    .map(|i| {
-                        FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_usize(i / elements_per_partition).unwrap()
-                    })
+                let partitions = (0..dim)
+                    .map(|i| (i / elements_per_partition) as i32)
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
                 partitions
@@ -593,11 +575,19 @@ where
         //     let _ = writeln!(file, "{}", item);
         // }
 
-        let component_mapping: Box<
-            [FittingInteger<
-                { N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS },
-            >],
-        > = map_components::<N_PARTITIONS, N_COMPONENT_BITS>(&partitions);
+        let converted_partitions = partitions
+            .iter()
+            .map(|&p| {
+                FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_usize(
+                    p.try_into().unwrap(),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+
+        let component_mapping =
+            map_components::<N_PARTITIONS, N_COMPONENT_BITS>(&converted_partitions);
 
         let mut postings_u8 = Vec::new();
 
@@ -689,11 +679,25 @@ where
         let metis_params = build_or_load_metis_params(&dataset);
 
         // Build the partitioned dataset from the adjacency matrix
-        let partitions = metis_params
-            .build_partitions::<N_PARTITIONS>()
+        let partitions: Box<_> = metis_params
+            .build_partitions(N_PARTITIONS as i32)
+            .into_iter()
+            .map(|p| p)
+            .collect();
+
+        let converted_partitions = partitions
+            .iter()
+            .map(|&p| {
+                FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_usize(
+                    p.try_into().unwrap(),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>()
             .into_boxed_slice();
 
-        let component_mapping = map_components::<N_PARTITIONS, N_COMPONENT_BITS>(&partitions);
+        let component_mapping =
+            map_components::<N_PARTITIONS, N_COMPONENT_BITS>(&converted_partitions);
 
         let mut postings_u8 = Vec::new();
 

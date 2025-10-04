@@ -9,8 +9,8 @@ use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::prelude::ParallelSlice;
 use serde::{Deserialize, Serialize};
 
-use crate::partitioned_dataset::utils::build_or_load_metis_params;
 use crate::sparse_dataset::SparseDatasetGeneric;
+use crate::utils::build_or_load_metis_params;
 use crate::{
     ComponentType, SparseDatasetTrait, ValueType,
     distances::dot_product_dense_sparse,
@@ -75,6 +75,10 @@ where
             vec[mapped_component.as_()] = v;
         }
         vec
+    }
+
+    fn offsets(&self) -> &[usize] {
+        &self.offsets
     }
 
     fn dot_product_from_offset<D: ComponentType, W: ValueType>(
@@ -255,7 +259,7 @@ where
         let metis_params = build_or_load_metis_params(&dataset);
 
         // Use partitioning so that components that often appear together have a close id
-        let mut partitions = metis_params.build_partitions::<32>().into_boxed_slice();
+        let mut partitions = metis_params.build_partitions(32).into_boxed_slice();
 
         let dim = dataset.dim();
         let (offsets, components, values) = dataset.destroy();
@@ -334,7 +338,7 @@ where
                 let metis_params = build_or_load_metis_params(&dataset);
 
                 // Use partitioning so that components that often appear together have a close id
-                let mut partitions = metis_params.build_partitions::<32>().into_boxed_slice();
+                let mut partitions = metis_params.build_partitions(32).into_boxed_slice();
 
                 let mut component_ids: Box<[C]> =
                     (0..dim).map(|c| C::from_usize(c).unwrap()).collect();

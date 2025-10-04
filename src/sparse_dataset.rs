@@ -28,9 +28,7 @@ use rayon::iter::plumbing::{Consumer, Producer, UnindexedConsumer, bridge};
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
 
 use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
-use crate::partitioned_dataset::utils::HollowSymmetricMatrix;
-use crate::partitioned_dataset::utils::*;
-use crate::utils::prefetch_read_slice;
+use crate::utils::{HollowSymmetricMatrix, MetisParams, prefetch_read_slice};
 use crate::{ComponentType, SpaceUsage, ValueType};
 
 pub trait SparseDatasetTrait: SpaceUsage {
@@ -81,12 +79,35 @@ pub trait SparseDatasetTrait: SpaceUsage {
         len: usize,
     ) -> f32;
 
+    fn offsets(&self) -> &[usize];
+
     /// Converts the `offset` of a vector within the dataset to its id, i.e., the position
     /// of the vector within the dataset.
     ///
     /// # Panics
     /// Panics if the `offset` is not the first postion of a vector in the dataset.
-    fn offset_to_id(&self, offset: usize) -> usize;
+    #[inline]
+    fn offset_to_id(&self, offset: usize) -> usize {
+        self.offsets().as_ref().binary_search(&offset).unwrap()
+    }
+
+    /// Returns the range of positions of the slice with the given `id`.
+    ///
+    /// ### Panics
+    /// Panics if the `id` is out of range.
+    #[inline]
+    fn offset_range(&self, id: usize) -> Range<usize> {
+        let offsets = self.offsets();
+        assert!(id < offsets.len() - 1, "{id} is out of range");
+
+        // Safety: safe accesses due to the check above
+        unsafe {
+            Range {
+                start: *offsets.get_unchecked(id),
+                end: *offsets.get_unchecked(id + 1),
+            }
+        }
+    }
 
     /// Returns the id of the largest component, i.e., the dimensionality of the vectors in the dataset.
     fn dim(&self) -> usize;
@@ -95,14 +116,33 @@ pub trait SparseDatasetTrait: SpaceUsage {
     fn nnz(&self) -> usize;
 
     /// Returns the number of vectors in the dataset.
-    fn len(&self) -> usize;
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use seismic::SparseDatasetTrait;
+    /// use seismic::SparseDatasetMut;
+    ///
+    /// let data = vec![
+    ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
+    ///                 (vec![1, 3],       vec![4.0, 5.0]),
+    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
+    ///                ];
+    ///
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into();
+    ///
+    /// assert_eq!(dataset.len(), 3);
+    /// ```
+    fn len(&self) -> usize {
+        self.offsets().len() - 1
+    }
 
     /// Checks if the dataset is empty.
     ///
     /// # Examples
     ///
     /// ```
-    /// use crate::seismic::SparseDatasetTrait;
+    /// use seismic::SparseDatasetTrait;
     /// use seismic::SparseDataset;
     ///
     /// let mut dataset = SparseDataset::<u16, f32>::default();
@@ -112,12 +152,6 @@ pub trait SparseDatasetTrait: SpaceUsage {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
-
-    /// Returns the range of positions of the slice with the given `id`.
-    ///
-    /// ### Panics
-    /// Panics if the `id` is out of range.
-    fn offset_range(&self, id: usize) -> Range<usize>;
 
     /// Prefetches the components and values of specified vectors into the CPU cache.
     ///
@@ -142,6 +176,63 @@ pub trait SparseDatasetTrait: SpaceUsage {
     /// * `offset`: The starting index of the vector to prefetch.
     /// * `len`: The length of the vector to prefetch.
     fn prefetch_with_offset(&self, offset: usize, len: usize);
+
+    /// Performs a brute-force search to find the K-nearest neighbors (KNN) of the queried vector.
+    ///
+    /// This method scans the entire dataset to find the K-nearest neighbors of the queried vector.
+    /// It computes the *dot product* between the queried vector and each vector in the dataset and returns
+    /// the indices of the K-nearest neighbors along with their distances.
+    ///
+    /// # Parameters
+    ///
+    /// * `q_components`: The components of the queried vector.
+    /// * `q_values`: The values corresponding to the components of the queried vector.
+    /// * `k`: The number of nearest neighbors to find.
+    ///
+    /// # Returns
+    ///
+    /// A vector containing tuples of distances and indices of the K-nearest neighbors, sorted by decreasing distance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use seismic::SparseDatasetTrait;
+    /// use seismic::SparseDatasetMut;
+    ///
+    /// let data = vec![
+    ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
+    ///                 (vec![1, 3],       vec![4.0, 5.0]),
+    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
+    ///                 ];
+    ///
+    /// let dataset: SparseDatasetMut<u16, f32> = data.into();
+    ///
+    /// let query_components = [0usize, 2];
+    /// let query_values = [1.0, 1.0];
+    /// let k = 2;
+    ///
+    /// let knn = dataset.search(query_components.into_iter().zip(query_values), k);
+    ///
+    /// assert_eq!(knn, vec![(4.0, 2), (3.0, 0)]);
+    /// ```
+    fn search<D: ComponentType, W: ValueType>(
+        &self,
+        query: impl Iterator<Item = (D, W)>,
+        k: usize,
+    ) -> Vec<(f32, usize)> {
+        let prepared_query = self.prepare_query(query);
+
+        self.offsets()
+            .array_windows()
+            .map(|&[o1, o2]| {
+                let len = o2 - o1;
+                self.dot_product_from_offset::<D, W>(&prepared_query, o1, len)
+            })
+            .enumerate()
+            .map(|(i, s)| (s, i))
+            .k_largest_by(k, |a, b| a.0.partial_cmp(&b.0).unwrap())
+            .collect()
+    }
 
     fn iter(&self) -> impl Iterator<Item = impl Iterator<Item = (Self::Component, Self::Value)>>;
 
@@ -265,34 +356,12 @@ where
         }
     }
 
-    /// Returns the number of vectors in the dataset.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::seismic::SparseDatasetTrait;
-    /// use seismic::SparseDatasetMut;
-    ///
-    /// let data = vec![
-    ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
-    ///                 (vec![1, 3],       vec![4.0, 5.0]),
-    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
-    ///                ];
-    ///
-    /// let dataset: SparseDatasetMut<u16, f32> = data.into();
-    ///
-    /// assert_eq!(dataset.len(), 3);
-    /// ```
-    fn len(&self) -> usize {
-        self.offsets.as_ref().len() - 1
-    }
-
     /// Returns the number of components of the dataset, i.e., it returns one plus the ID of the largest component.
     ///
     /// # Examples
     ///
     /// ```
-    /// use crate::seismic::SparseDatasetTrait;
+    /// use seismic::SparseDatasetTrait;
     /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
@@ -317,7 +386,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use crate::seismic::SparseDatasetTrait;
+    /// use seismic::SparseDatasetTrait;
     /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
@@ -334,23 +403,8 @@ where
         self.components.as_ref().len()
     }
 
-    #[inline]
-    fn offset_to_id(&self, offset: usize) -> usize {
-        self.offsets.as_ref().binary_search(&offset).unwrap()
-    }
-
-    #[inline]
-    fn offset_range(&self, id: usize) -> Range<usize> {
-        let offsets = self.offsets.as_ref();
-        assert!(id < offsets.len() - 1, "{id} is out of range");
-
-        // Safety: safe accesses due to the check above
-        unsafe {
-            Range {
-                start: *offsets.get_unchecked(id),
-                end: *offsets.get_unchecked(id + 1),
-            }
-        }
+    fn offsets(&self) -> &[usize] {
+        self.offsets.as_ref()
     }
 
     /// Prefetches the components and values of a vector with the specified offset and length into the CPU cache.
@@ -367,7 +421,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use crate::seismic::SparseDatasetTrait;
+    /// use seismic::SparseDatasetTrait;
     /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
@@ -551,63 +605,6 @@ where
         (v_components, v_values)
     }
 
-    /// Performs a brute-force search to find the K-nearest neighbors (KNN) of the queried vector.
-    ///
-    /// This method scans the entire dataset to find the K-nearest neighbors of the queried vector.
-    /// It computes the *dot product* between the queried vector and each vector in the dataset and returns
-    /// the indices of the K-nearest neighbors along with their distances.
-    ///
-    /// # Parameters
-    ///
-    /// * `q_components`: The components of the queried vector.
-    /// * `q_values`: The values corresponding to the components of the queried vector.
-    /// * `k`: The number of nearest neighbors to find.
-    ///
-    /// # Returns
-    ///
-    /// A vector containing tuples of distances and indices of the K-nearest neighbors, sorted by decreasing distance.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use seismic::SparseDatasetMut;
-    ///
-    /// let data = vec![
-    ///                 (vec![0, 2, 4],    vec![1.0, 2.0, 3.0]),
-    ///                 (vec![1, 3],       vec![4.0, 5.0]),
-    ///                 (vec![0, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0])
-    ///                 ];
-    ///
-    /// let dataset: SparseDatasetMut<u16, f32> = data.into();
-    ///
-    /// let query_components = [0usize, 2];
-    /// let query_values = [1.0, 1.0];
-    /// let k = 2;
-    ///
-    /// let knn = dataset.search(query_components.into_iter().zip(query_values), k);
-    ///
-    /// assert_eq!(knn, vec![(4.0, 2), (3.0, 0)]);
-    /// ```
-    pub fn search<D: ComponentType, W: ValueType>(
-        &self,
-        query: impl Iterator<Item = (D, W)>,
-        k: usize,
-    ) -> Vec<(f32, usize)> {
-        let prepared_query = self.prepare_query(query);
-
-        self.offsets
-            .as_ref()
-            .array_windows()
-            .map(|&[o1, o2]| {
-                let len = o2 - o1;
-                self.dot_product_from_offset::<D, W>(&prepared_query, o1, len)
-            })
-            .enumerate()
-            .map(|(i, s)| (s, i))
-            .k_largest_by(k, |a, b| a.0.partial_cmp(&b.0).unwrap())
-            .collect()
-    }
-
     /// Returns an iterator over the vectors of the dataset.
     ///
     /// This method returns an iterator that yields references to each vector in the dataset.
@@ -678,10 +675,6 @@ where
             weights: weights.into_boxed_slice(),
             xadj,
         }
-    }
-
-    pub fn offsets(&self) -> &O {
-        &self.offsets
     }
 
     pub fn components(&self) -> &AC {
@@ -791,7 +784,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use crate::seismic::SparseDatasetTrait;
+    /// use seismic::SparseDatasetTrait;
     /// use seismic::SparseDatasetMut;
     ///
     /// let dataset: SparseDatasetMut<u16, f64> = SparseDatasetMut::default();
@@ -819,7 +812,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use crate::seismic::SparseDatasetTrait;
+    /// use seismic::SparseDatasetTrait;
     /// use seismic::SparseDatasetMut;
     ///
     /// let mut dataset = SparseDatasetMut::<u16, f32>::default();
@@ -857,7 +850,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use crate::seismic::SparseDatasetTrait;
+    /// use seismic::SparseDatasetTrait;
     /// use seismic::SparseDatasetMut;
     ///
     /// let mut dataset = SparseDatasetMut::<u16, f32>::default();
@@ -939,7 +932,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use crate::seismic::SparseDatasetTrait;
+    /// use seismic::SparseDatasetTrait;
     /// use seismic::SparseDatasetMut;
     ///
     /// let data = vec![
@@ -1002,7 +995,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use crate::seismic::SparseDatasetTrait;
+    /// use seismic::SparseDatasetTrait;
     /// use seismic::{SparseDatasetMut, SparseDataset};
     ///
     /// let mut mutable_dataset = SparseDatasetMut::<u16, f32>::new();

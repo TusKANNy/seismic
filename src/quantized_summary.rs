@@ -1,6 +1,6 @@
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
+use crate::utils::quantize;
 use crate::{ComponentType, SpaceUsage, SparseDataset, SparseDatasetTrait, ValueType};
 
 use rustc_hash::FxHashMap;
@@ -53,8 +53,6 @@ impl<C: ComponentType> SpaceUsage for QuantizedSummary<C> {
 }
 
 impl<C: ComponentType> QuantizedSummary<C> {
-    const N_CLASSES: usize = 256; // we store quantized values in a u8. Number of classes cannot be more than 256
-
     /// Calculate space usage for sparse offset strategy (with component_ids)
     fn estimate_sparse_space(num_components: usize, max_offset: usize) -> usize {
         // Space for component_ids: number of components * size of component type C in bits
@@ -148,30 +146,6 @@ impl<C: ComponentType> QuantizedSummary<C> {
         }
 
         accumulator
-    }
-
-    fn quantize<T: ValueType>(values: &[T]) -> (f32, f32, Vec<u8>) {
-        assert!(!values.is_empty());
-
-        // Compute min and max values in the vector
-        let (min, max) = values
-            .iter()
-            .minmax_by(|a, b| a.partial_cmp(b).unwrap())
-            .into_option()
-            .unwrap();
-
-        let (min, max) = (min.to_f32().unwrap(), max.to_f32().unwrap());
-
-        // Quantization splits the range [min, max] into n_classes blocks of equal size (max-min)/n_clasess.
-        // Max value is likely going to be n_classes - 1, due to rounding errors.
-        // (Exponential quantization could be possible as well.)
-        let quant = (max - min) / (Self::N_CLASSES as f32);
-        let quantized_values = values
-            .iter()
-            .map(|&v| ((v.to_f32().unwrap() - min) / quant) as u8)
-            .collect();
-
-        (min, quant, quantized_values)
     }
 
     /// Print detailed space usage breakdown for this QuantizedSummary
@@ -317,7 +291,7 @@ where
         let mut quants = Vec::with_capacity(inverted_pairs.len());
 
         for (doc_id, (components, values)) in dataset.dataset_iter().enumerate() {
-            let (minimum, quant, current_codes) = Self::quantize(values);
+            let (minimum, quant, current_codes) = quantize(values);
 
             minimums.push(minimum);
             quants.push(quant);

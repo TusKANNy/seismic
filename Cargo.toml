@@ -34,13 +34,15 @@ required-features = ["partitioned-dataset"]
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 bincode = { version = "2.0", features = ["serde"] }
-bytemuck = { version = "1.23", features = ["min_const_generics"] }
+bytemuck = { version = "1.23", features = [
+    "min_const_generics",
+    "nightly_portable_simd",
+] }
 compressed-intvec = { version = "0.5", features = [
     "serde",
     "arch-dependent-storable",
 ] }
 clap = { version = "4.5", features = ["derive"] }
-co_sort = "0.2"
 envparse = "0.1"
 rayon = "1.11"
 # TODO: f16 available in nightly, but not supported by crates: https://github.com/rust-num/num-traits/pull/333
@@ -50,6 +52,8 @@ half = { version = "2.6", features = [
     "std",
     "num-traits",
 ] }
+
+co_sort = "0.2"
 # TODO: use upstream when https://gitlab.com/tspiteri/fixed/-/issues/69 is fixed
 # If it's not getting fixed, prefer using a git patch when https://github.com/rust-lang/cargo/issues/4648 is fixed
 fixed = { git = "https://gitlab.com/tinozzo123/fixed", branch = "fast_to_f32_hack", features = [
@@ -62,6 +66,7 @@ rand = "0.9"
 rand_chacha = "0.9"
 metis = "0.2"
 pyo3 = { version = "0.26", features = ["extension-module"], optional = true }
+rusty-perm = "0.2"
 numpy = { version = "0.26", optional = true }
 indicatif = { version = "0.18", features = ["rayon"] }
 
