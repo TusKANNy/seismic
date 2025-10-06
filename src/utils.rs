@@ -16,14 +16,20 @@ use crate::{ComponentType, SparseDataset, ValueType};
 
 pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std::error::Error>> {
     let mut file = BufReader::new(File::open(path)?);
-    let config = bincode::config::standard();
+    // let config = bincode::config::standard();
+    let config = bincode::config::standard()
+        .with_fixed_int_encoding()  
+        .with_little_endian();
     let result = bincode::serde::decode_from_std_read::<D, _, _>(&mut file, config)?;
     Ok(result)
 }
 
 pub fn write_to_path<E: Serialize>(val: E, path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = BufWriter::new(File::create(path)?);
-    let config = bincode::config::standard();
+    //let config = bincode::config::standard();
+    let config = bincode::config::standard()
+        .with_fixed_int_encoding()  
+        .with_little_endian();
     bincode::serde::encode_into_std_write(val, &mut file, config)?;
     Ok(())
 }
