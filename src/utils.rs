@@ -21,7 +21,7 @@ use crate::{sparse_dataset::SparseDatasetGeneric, *};
 
 pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std::error::Error>> {
     let mut file = BufReader::new(File::open(path)?);
-    //    let config = bincode::config::standard();
+    // let config = bincode::config::standard();
     let config = bincode::config::standard()
         .with_fixed_int_encoding()
         .with_little_endian();
