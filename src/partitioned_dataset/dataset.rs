@@ -15,7 +15,7 @@ use crate::{
     distances::dot_product_dense_sparse,
     partitioned_dataset::{fitting_integer::*, utils::*},
     sparse_dataset::SparseDatasetGeneric,
-    utils::{build_or_load_metis_params, prefetch_read},
+    utils::{permute_graph_bisection, prefetch_read},
 };
 
 trait Offset = PrimInt + FromPrimitive + ToPrimitive + Pod;
@@ -482,15 +482,33 @@ where
         let dim = dataset.dim();
         let nnz = dataset.nnz();
 
-        let metis_params = build_or_load_metis_params(&dataset);
+        // TEMPORARY: Using dummy partitions instead of METIS for testing
+        // TODO: Restore METIS-based partitioning
+        //
+        // Old METIS-based code (commented out temporarily):
+        // let metis_params = build_or_load_metis_params(&dataset);
+        // let partitions: Box<_> = metis_params
+        //     .build_partitions(N_PARTITIONS as i32)
+        //     .into_iter()
+        //     .map(|p| {
+        //         FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_i32(p)
+        //             .unwrap()
+        //     })
+        //     .collect();
 
-        // Build the partitioned dataset from the adjacency matrix
-        let partitions: Box<_> = metis_params
-            .build_partitions(N_PARTITIONS as i32)
-            .into_iter()
-            .map(|p| {
-                FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_i32(p)
-                    .unwrap()
+        // Use graph bisection to compute a permutation that groups related components
+        let perm = permute_graph_bisection(&dataset);
+
+        // Build partitions by grouping consecutive components in the permuted order
+        let elements_per_partition = dim / N_PARTITIONS + 1;
+        let partitions: Box<_> = perm
+            .iter()
+            .map(|&p| {
+                let partition_id = (p.as_() / elements_per_partition) as i32;
+                FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_i32(
+                    partition_id,
+                )
+                .unwrap()
             })
             .collect();
 
@@ -500,8 +518,7 @@ where
 
         let (orig_offsets, orig_components, orig_values) = dataset.destroy();
 
-        // Does not reallocate if `C` and `FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS }`
-        // are of the same size.
+        // Apply the component mapping which includes both the permutation and partition assignment
         let mut converted_components: Vec<_> = orig_components
             .into_iter()
             .map(|c| unsafe { *component_mapping.get_unchecked(c.as_()) })

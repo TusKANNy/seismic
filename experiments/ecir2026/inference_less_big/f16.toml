@@ -13,7 +13,7 @@ n-runs =        1       # Number of runs. PLEASE think carefully how increasing
 #NUMA =          "numactl --physcpubind='0' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
 build =         true   # Need to build the index or the index is already built?
 metric =        "RR@10"
-delete =        true
+delete =        false
 
 [folder] 
 data =          "/data2/cosimorulli/inference_less_big/data"

@@ -22,12 +22,10 @@ crate-type = ["cdylib", "lib"]
 [[bin]]
 name = "convert_inverted_index_partitioned"
 path = "src/bin/convert_inverted_index_partitioned.rs"
-required-features = ["partitioned-dataset"]
 
 [[bin]]
 name = "perf_inverted_index_partitioned"
 path = "src/bin/perf_inverted_index_partitioned.rs"
-required-features = ["partitioned-dataset"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -72,6 +70,9 @@ tar = "0.4"
 rustc-hash = "2.1.1"
 toolkit = { git = "https://github.com/rossanoventurini/toolkit.git" }
 mem_dbg = "0.3.0"
+
+rgb = { git = "https://github.com/JMMackenzie/enhanced-graph-bisection.git" }
+
 
 [[bin]]
 name = "perf_inverted_index"

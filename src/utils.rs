@@ -12,6 +12,7 @@ use std::{
 use itertools::Itertools;
 use metis::Graph;
 use rand::prelude::*;
+use rgb::forward::Doc;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{sparse_dataset::SparseDatasetGeneric, *};
@@ -127,7 +128,7 @@ where
 /// Preferably use #[repr(packed)], if u48 becomes a thing: https://github.com/rust-lang/rfcs/issues/2903
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub(crate) struct PackedPostingBlock {
-    n: u64,
+    pub n: u64,
 }
 
 impl PackedPostingBlock {
@@ -700,4 +701,42 @@ where
         println!("Loading adjacency matrix {}.", filename.as_str());
         read_from_path(filename.as_str()).unwrap()
     }
+}
+
+/// Compute a permutation of components using recursive graph bisection.
+/// Components that often appear together in documents will be grouped close together.
+pub fn permute_graph_bisection<C, O, AC, AV>(
+    dataset: &SparseDatasetGeneric<C, f32, O, AC, AV>,
+) -> Box<[C]>
+where
+    C: ComponentType,
+    O: AsRef<[usize]> + SpaceUsage,
+    AC: AsRef<[C]> + SpaceUsage,
+    AV: AsRef<[f32]> + SpaceUsage,
+{
+    // One Doc for each component. RGB's terminology is the opposite of what we need in Seismic
+    let mut components = Vec::with_capacity(dataset.dim());
+    for component_id in 0..dataset.dim() {
+        components.push(Doc {
+            terms: Vec::with_capacity(256), // initial estimate for uniq terms in doc
+            org_id: component_id as u32,
+            gain: 0.0,
+            leaf_id: -1,
+        });
+    }
+
+    for (doc_id, (doc_components, _values)) in dataset.dataset_iter().enumerate() {
+        for &component_id in doc_components.iter() {
+            components[component_id.as_()].terms.push(doc_id as u32);
+        }
+    }
+
+    rgb::recursive_graph_bisection(&mut components, dataset.len(), 20, 16, 100, 10, 1, true, 1);
+
+    let mut perm = vec![C::default(); components.len()];
+    for (new_id, comp) in components.iter().enumerate() {
+        perm[comp.org_id as usize] = C::from_usize(new_id).unwrap();
+    }
+
+    perm.into_boxed_slice()
 }

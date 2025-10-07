@@ -90,7 +90,6 @@ pub trait ComponentType = Unsigned
     + Ord
     + Pod;
 
-#[cfg(feature = "partitioned-dataset")]
 pub mod partitioned_dataset;
 
 #[cfg(feature = "pyo3")]
