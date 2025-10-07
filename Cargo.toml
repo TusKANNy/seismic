@@ -22,12 +22,10 @@ crate-type = ["cdylib", "lib"]
 [[bin]]
 name = "convert_inverted_index_partitioned"
 path = "src/bin/convert_inverted_index_partitioned.rs"
-required-features = ["partitioned-dataset"]
 
 [[bin]]
 name = "perf_inverted_index_partitioned"
 path = "src/bin/perf_inverted_index_partitioned.rs"
-required-features = ["partitioned-dataset"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

@@ -151,6 +151,9 @@ def build_index(configs, experiment_dir):
     # The converter will add its own suffix and .index.seismic extension
     base_index_for_conversion = base_index_filename.replace(".index.seismic", "")
     
+    
+    
+    
     command_and_params = [conversion_command, f"--index-file {base_index_filename}", f"-o {base_index_for_conversion}"]
 
     # Component type is handled during construction, while values are forced to f32 during construction
@@ -200,9 +203,17 @@ def build_index(configs, experiment_dir):
     
     # Match the format used by convert_inverted_index_partitioned.rs
     # Use the base filename without .index.seismic since the converter adds its own extension
-    base_name_clean = base_index_filename.replace(".index.seismic", "")
-    output_index_file = f"{base_name_clean}.{n_partitions}_part_{seismic_n_compbits}_compbits.index.seismic"
     
+    if is_partitioned:
+        compresssion_kind = build_command[1].rsplit("_", maxsplit=1)[-1]
+        if compresssion_kind == "partitioned":
+    
+            base_name_clean = base_index_filename.replace(".index.seismic", "")
+            output_index_file = f"{base_name_clean}.{n_partitions}_part_{seismic_n_compbits}_compbits.index.seismic"
+        else:
+            base_name_clean = base_index_filename.replace(".index.seismic", "")
+            output_index_file = f"{base_name_clean}_streamvbyte.index.seismic"
+        
     return building_base_index_time + conversion_time, output_index_file
 
 

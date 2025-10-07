@@ -1,47 +1,11 @@
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::assert_unchecked;
 
 use crate::ValueType;
-use crate::sparse_dataset::SparseDatasetGeneric;
-use crate::utils::{MetisParams, read_from_path, write_to_path};
 use crate::{ComponentType, partitioned_dataset::fitting_integer::*};
-use crate::{SpaceUsage, SparseDatasetTrait};
 use num_traits::One;
 use num_traits::PrimInt;
 
-/// Load the dataset's adjacency matrix
-///
-/// Hash the dataset's components and offsets so that its adjacency can be cached (as it's a very long operation)
-pub fn build_or_load_metis_params<C, V, O, AC, AV>(
-    dataset: &SparseDatasetGeneric<C, V, O, AC, AV>,
-) -> MetisParams
-where
-    C: ComponentType,
-    V: ValueType,
-    O: AsRef<[usize]> + SpaceUsage + Hash,
-    AC: AsRef<[C]> + SpaceUsage + Hash,
-    AV: AsRef<[V]> + SpaceUsage,
-{
-    let mut s = DefaultHasher::new();
-    dataset.components().hash(&mut s);
-    dataset.offsets().hash(&mut s);
-    let hash = s.finish();
-    let filename = format!("cached_adjacency_{}", hash);
-    if !std::fs::exists(filename.as_str()).is_ok_and(|b| b) {
-        println!("Adjacency matrix not cached. Creating.");
-        let params = dataset.adjacency_matrix_metis();
-
-        println!("Saving ... {}", filename);
-        write_to_path(&params, filename.as_str()).unwrap();
-
-        params
-    } else {
-        println!("Loading adjacency matrix {}.", filename.as_str());
-        read_from_path(filename.as_str()).unwrap()
-    }
-}
-
-pub fn map_components<const N_PARTITIONS: usize, const N_COMPONENT_BITS: usize>(
+pub(super) fn map_components<const N_PARTITIONS: usize, const N_COMPONENT_BITS: usize>(
     partitions: &[FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>],
 ) -> Box<[FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS }>]>
 where

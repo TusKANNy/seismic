@@ -13,9 +13,8 @@ use serde::{Deserialize, Serialize};
 use crate::sparse_dataset::SparseDatasetGeneric;
 use crate::utils::build_or_load_metis_params;
 use crate::{
-    ComponentType, SparseDatasetTrait, ValueType,
-    distances::dot_product_dense_sparse,
-    utils::{manage_permutation_cache, prefetch_read},
+    ComponentType, SparseDatasetTrait, ValueType, distances::dot_product_dense_sparse,
+    utils::prefetch_read,
 };
 use crate::{FromDatasetGenericF32, SpaceUsage};
 
@@ -367,15 +366,6 @@ where
             PermutationStrategy::GraphBisection => "graph_bisection",
             _ => "none",
         };
-
-        if permutation_name != "none" {
-            if let Err(e) = manage_permutation_cache(&permutation, permutation_name, "./") {
-                eprintln!(
-                    "Warning: Failed to cache Graph Bisection permutation: {}",
-                    e
-                );
-            }
-        }
 
         let (offsets, components, values) = dataset.destroy();
 

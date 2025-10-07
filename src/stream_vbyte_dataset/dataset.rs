@@ -1,14 +1,13 @@
 use std::hash::Hash;
 
 use rayon::prelude::*;
-use rusty_perm::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     ComponentType, FixedU8Q, FromDatasetGenericF32, SpaceUsage, SparseDatasetTrait, ValueType,
     sparse_dataset::SparseDatasetGeneric,
     stream_vbyte_dataset::stream_vbyte::StreamVbyte,
-    utils::{build_or_load_metis_params, prefetch_read},
+    utils::{permute_graph_bisection, prefetch_read},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -127,14 +126,21 @@ where
         let dim = dataset.dim();
         let nnz = dataset.nnz();
 
-        let metis_params = build_or_load_metis_params(&dataset);
+        // TEMPORARY: Using graph bisection instead of METIS for testing
+        // TODO: Restore METIS-based partitioning if needed
+        //
+        // Old METIS-based code (commented out temporarily):
+        // let metis_params = build_or_load_metis_params(&dataset);
+        // let partitions = metis_params.build_partitions(32).into_boxed_slice();
+        // let permutation = PermD::from_sort(partitions.as_ref());
+        // let component_mapping: Box<[u16]> =
+        //     permutation.indices().iter().map(|&n| n as u16).collect();
 
-        // Use partitioning so that components that often appear together have a close id
-        let partitions = metis_params.build_partitions(32).into_boxed_slice();
+        // Use graph bisection to compute a permutation that groups related components
+        let perm = permute_graph_bisection(&dataset);
 
-        let permutation = PermD::from_sort(partitions.as_ref());
-        let component_mapping: Box<[u16]> =
-            permutation.indices().iter().map(|&n| n as u16).collect();
+        // Create a simple mapping from the permutation
+        let component_mapping: Box<[u16]> = perm.iter().map(|&p| p.as_() as u16).collect();
 
         let mut postings_u8 = Vec::new();
 

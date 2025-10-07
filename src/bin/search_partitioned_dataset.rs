@@ -2,9 +2,9 @@ use clap::Parser;
 
 use indicatif::ProgressIterator;
 
-use seismic::PermutationStrategy;
 use seismic::partitioned_dataset::dataset::SparseDatasetPartitioned;
 use seismic::{FixedU16Q, SpaceUsage, SparseDatasetTrait, sparse_dataset::SparseDatasetMut};
+use seismic::{FromDatasetGenericF32, PermutationStrategy};
 
 use core::fmt::Display;
 use std::fs::File;
@@ -215,9 +215,8 @@ pub fn main() {
     let permutation_strategy_string = format!("{:?}", permutation_strategy);
 
     let partitioned_dataset =
-        SparseDatasetPartitioned::<N_PARTITIONS, N_COMPONENT_BITS, FixedU16Q>::from_dataset_f32_with_permutation(
+        SparseDatasetPartitioned::<N_PARTITIONS, N_COMPONENT_BITS, FixedU16Q>::from_dataset_f32(
             dataset_generic,
-            permutation_strategy
         );
 
     println!("\n=== Partitioned Dataset Info ===");

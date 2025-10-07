@@ -5,21 +5,17 @@ use std::{
 };
 
 use bytemuck::{Pod, try_cast_slice};
-
-use itertools::Itertools;
 use num_traits::{FromPrimitive, One, PrimInt, ToBytes, ToPrimitive};
 use rayon::prelude::*;
 use rusty_perm::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ComponentType, FromDatasetGenericF32, PermutationStrategy, SpaceUsage, SparseDatasetTrait,
-    ValueType,
-    compressed_dataset::permute_graph_bisection,
+    ComponentType, FromDatasetGenericF32, SpaceUsage, SparseDatasetTrait, ValueType,
     distances::dot_product_dense_sparse,
     partitioned_dataset::{fitting_integer::*, utils::*},
     sparse_dataset::SparseDatasetGeneric,
-    utils::{build_or_load_metis_params, prefetch_read},
+    utils::{permute_graph_bisection, prefetch_read},
 };
 
 trait Offset = PrimInt + FromPrimitive + ToPrimitive + Pod;
@@ -466,197 +462,6 @@ where
     }
 }
 
-impl<const N_PARTITIONS: usize, const N_COMPONENT_BITS: usize, V>
-    SparseDatasetPartitioned<N_PARTITIONS, N_COMPONENT_BITS, V>
-where
-    (): Fit<N_PARTITIONS>
-        + Fit<N_COMPONENT_BITS>
-        + Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS }>,
-    [(); size_of::<FittingInteger<N_COMPONENT_BITS>>()]: Sized,
-    [(); N_PARTITIONS.div_ceil(size_of::<FittingInteger<N_PARTITIONS>>() * 8)]: Sized,
-    V: ValueType,
-{
-    /// Performs a k-nearest neighbor search on the dataset.
-    ///
-    /// # Arguments
-    ///
-    /// * `query` - An iterator of (component, value) pairs representing the query vector
-    /// * `k` - The number of nearest neighbors to return
-    ///
-    /// # Returns
-    ///
-    /// A vector of (score, document_id) pairs sorted by score in descending order.
-    /// The score represents the dot product similarity between the query and each document.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let query = vec![(0, 1.0), (2, 0.5)];
-    /// let results = dataset.search(query.into_iter(), 10);
-    /// ```
-    pub fn search<D: ComponentType, W: ValueType>(
-        &self,
-        query: impl Iterator<Item = (D, W)>,
-        k: usize,
-    ) -> Vec<(f32, usize)> {
-        let prepared_query = self.prepare_query(query);
-
-        self.offsets
-            .as_ref()
-            .array_windows()
-            .map(|&[o1, o2]| {
-                let len = o2 - o1;
-                self.dot_product_from_offset::<D, W>(&prepared_query, o1, len)
-            })
-            .enumerate()
-            .map(|(i, s)| (s, i))
-            .k_largest_by(k, |a, b| a.0.partial_cmp(&b.0).unwrap())
-            .collect()
-    }
-
-    pub fn space_usage_byte_components(&self) -> usize {
-        self.component_mapping.space_usage_byte()
-    }
-
-    pub fn from_dataset_f32_with_permutation<C, O, AC, AV>(
-        dataset: SparseDatasetGeneric<C, f32, O, AC, AV>,
-        permutation_strategy: PermutationStrategy,
-    ) -> Self
-    where
-        (): Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>,
-        C: ComponentType,
-        O: AsRef<[usize]> + SpaceUsage + IntoIterator<Item = usize> + Hash,
-        AC: AsRef<[C]> + SpaceUsage + IntoIterator<Item = C> + Hash,
-        AV: AsRef<[f32]> + SpaceUsage + IntoIterator<Item = f32>,
-    {
-        let dim = dataset.dim();
-        let nnz = dataset.nnz();
-
-        let partitions = match permutation_strategy {
-            PermutationStrategy::Metis => {
-                let metis_params = build_or_load_metis_params(&dataset);
-
-                let partitions = metis_params
-                    .build_partitions(N_PARTITIONS as i32)
-                    .into_boxed_slice();
-                partitions
-            }
-
-            PermutationStrategy::GraphBisection => {
-                let perm = permute_graph_bisection(&dataset);
-
-                let elements_per_partition = dataset.dim() / N_PARTITIONS + 1;
-
-                perm.iter()
-                    .map(|&p| (p.as_() / elements_per_partition) as i32)
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice()
-            }
-            PermutationStrategy::None => {
-                let elements_per_partition = dataset.dim() / N_PARTITIONS + 1;
-
-                let partitions = (0..dim)
-                    .map(|i| (i / elements_per_partition) as i32)
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice();
-                partitions
-            }
-        };
-
-        // let partitions_to_save = partitions
-        //     .iter()
-        //     .map(|p| p.to_usize().unwrap())
-        //     .collect::<Vec<_>>();
-
-        // let filename = "saved_partitions.txt";
-
-        // let mut file = File::create(&filename).expect("Unable to create file");
-
-        // for &item in partitions_to_save.iter() {
-        //     let _ = writeln!(file, "{}", item);
-        // }
-
-        let converted_partitions = partitions
-            .iter()
-            .map(|&p| {
-                FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_usize(
-                    p.try_into().unwrap(),
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
-
-        let component_mapping =
-            map_components::<N_PARTITIONS, N_COMPONENT_BITS>(&converted_partitions);
-
-        let mut postings_u8 = Vec::new();
-
-        let (orig_offsets, orig_components, orig_values) = dataset.destroy();
-
-        // Does not reallocate if `C` and `FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS }`
-        // are of the same size.
-        let mut converted_components: Vec<
-            FittingInteger<
-                { N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS },
-            >,
-        > = orig_components
-            .into_iter()
-            .map(|c| unsafe { *component_mapping.get_unchecked(c.as_()) })
-            .collect();
-        let inflated_dim = converted_components.iter().max().unwrap().as_() + 1;
-
-        let mut values: Vec<V> = orig_values
-            .into_iter()
-            .map(V::from_f32_saturating)
-            .collect();
-
-        let offsets: Box<[usize]> = std::iter::once(0)
-            .chain(orig_offsets.into_iter().map_windows(|&[start, end]| {
-                let c = unsafe { converted_components.get_unchecked_mut(start..end) };
-                let v = unsafe { values.get_unchecked_mut(start..end) };
-
-                if c.len() < 256 {
-                    PostingView::<N_PARTITIONS, N_COMPONENT_BITS, V, u8>::push_posting(
-                        &mut postings_u8,
-                        c,
-                        v,
-                    );
-                } else {
-                    PostingView::<N_PARTITIONS, N_COMPONENT_BITS, V, u16>::push_posting(
-                        &mut postings_u8,
-                        c,
-                        v,
-                    );
-                }
-                postings_u8.len() / size_of::<usize>()
-            }))
-            .collect();
-
-        // I hate that I have to reallocate to guarantee alignment, Rust is currently really bad at these kinds of things.
-        let mut postings = Vec::with_capacity(postings_u8.len() / size_of::<usize>());
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                postings_u8.as_mut_ptr(),
-                postings.spare_capacity_mut().as_mut_ptr() as *mut u8,
-                postings_u8.len(),
-            );
-            postings.set_len(postings.capacity());
-        };
-        let postings = postings.into_boxed_slice();
-
-        Self {
-            dim,
-            inflated_dim,
-            nnz,
-            offsets,
-            postings,
-            component_mapping,
-            phantom_data: PhantomData,
-        }
-    }
-}
-
 impl<const N_PARTITIONS: usize, const N_COMPONENT_BITS: usize, C, V, O, AC, AV>
     FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
     for SparseDatasetPartitioned<N_PARTITIONS, N_COMPONENT_BITS, V>
@@ -677,35 +482,43 @@ where
         let dim = dataset.dim();
         let nnz = dataset.nnz();
 
-        let metis_params = build_or_load_metis_params(&dataset);
+        // TEMPORARY: Using dummy partitions instead of METIS for testing
+        // TODO: Restore METIS-based partitioning
+        //
+        // Old METIS-based code (commented out temporarily):
+        // let metis_params = build_or_load_metis_params(&dataset);
+        // let partitions: Box<_> = metis_params
+        //     .build_partitions(N_PARTITIONS as i32)
+        //     .into_iter()
+        //     .map(|p| {
+        //         FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_i32(p)
+        //             .unwrap()
+        //     })
+        //     .collect();
 
-        // Build the partitioned dataset from the adjacency matrix
-        let partitions: Box<_> = metis_params
-            .build_partitions(N_PARTITIONS as i32)
-            .into_iter()
-            .map(|p| p)
-            .collect();
+        // Use graph bisection to compute a permutation that groups related components
+        let perm = permute_graph_bisection(&dataset);
 
-        let converted_partitions = partitions
+        // Build partitions by grouping consecutive components in the permuted order
+        let elements_per_partition = dim / N_PARTITIONS + 1;
+        let partitions: Box<_> = perm
             .iter()
             .map(|&p| {
-                FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_usize(
-                    p.try_into().unwrap(),
+                let partition_id = (p.as_() / elements_per_partition) as i32;
+                FittingInteger::<{ N_PARTITIONS.next_power_of_two().ilog2() as usize }>::from_i32(
+                    partition_id,
                 )
                 .unwrap()
             })
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+            .collect();
 
-        let component_mapping =
-            map_components::<N_PARTITIONS, N_COMPONENT_BITS>(&converted_partitions);
+        let component_mapping = map_components::<N_PARTITIONS, N_COMPONENT_BITS>(&partitions);
 
         let mut postings_u8 = Vec::new();
 
         let (orig_offsets, orig_components, orig_values) = dataset.destroy();
 
-        // Does not reallocate if `C` and `FittingInteger<{ N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS }`
-        // are of the same size.
+        // Apply the component mapping which includes both the permutation and partition assignment
         let mut converted_components: Vec<_> = orig_components
             .into_iter()
             .map(|c| unsafe { *component_mapping.get_unchecked(c.as_()) })

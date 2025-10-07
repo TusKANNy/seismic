@@ -14,20 +14,27 @@ use std::{
 use itertools::Itertools;
 use metis::Graph;
 use rand::prelude::*;
+use rgb::forward::Doc;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{sparse_dataset::SparseDatasetGeneric, *};
 
 pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std::error::Error>> {
     let mut file = BufReader::new(File::open(path)?);
-    let config = bincode::config::standard();
+    //    let config = bincode::config::standard();
+    let config = bincode::config::standard()
+        .with_fixed_int_encoding()
+        .with_little_endian();
     let result = bincode::serde::decode_from_std_read::<D, _, _>(&mut file, config)?;
     Ok(result)
 }
 
 pub fn write_to_path<E: Serialize>(val: E, path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = BufWriter::new(File::create(path)?);
-    let config = bincode::config::standard();
+    //let config = bincode::config::standard();
+    let config = bincode::config::standard()
+        .with_fixed_int_encoding()
+        .with_little_endian();
     bincode::serde::encode_into_std_write(val, &mut file, config)?;
     Ok(())
 }
@@ -123,7 +130,7 @@ where
 /// Preferably use #[repr(packed)], if u48 becomes a thing: https://github.com/rust-lang/rfcs/issues/2903
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub(crate) struct PackedPostingBlock {
-    n: u64,
+    pub n: u64,
 }
 
 impl PackedPostingBlock {
@@ -698,58 +705,40 @@ where
     }
 }
 
-/// Manages permutation caching with hash-based file storage
-///
-/// This function calculates a hash of the permutation and checks if a cached version exists.
-/// If not found, it saves the permutation to a file with the appropriate extension.
-///
-/// # Parameters
-/// - `permutation`: The permutation array to process
-/// - `method_name`: String identifier for the permutation method (e.g., "metis", "graph_bisection")  
-/// - `base_filename`: Base filename (without extension) for the dataset
-///
-/// # Returns
-/// - `Result<String, std::io::Error>`: Path to the permutation file (existing or newly created)
-pub fn manage_permutation_cache<C>(
-    permutation: &[C],
-    method_name: &str,
-    base_filename: &str,
-) -> Result<String, std::io::Error>
+/// Compute a permutation of components using recursive graph bisection.
+/// Components that often appear together in documents will be grouped close together.
+pub fn permute_graph_bisection<C, O, AC, AV>(
+    dataset: &SparseDatasetGeneric<C, f32, O, AC, AV>,
+) -> Box<[C]>
 where
     C: ComponentType,
+    O: AsRef<[usize]> + SpaceUsage,
+    AC: AsRef<[C]> + SpaceUsage,
+    AV: AsRef<[f32]> + SpaceUsage,
 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::Hasher;
-    use std::io::Write;
-    use std::path::Path;
-
-    // Calculate hash of the permutation
-    let mut hasher = DefaultHasher::new();
-    for item in permutation.iter() {
-        item.hash(&mut hasher);
-    }
-    let perm_hash = hasher.finish();
-
-    // Create filename with hash and method extension
-    let filename = format!("{}_{}_{:016x}.txt", base_filename, method_name, perm_hash);
-
-    // Check if file already exists
-    if Path::new(&filename).exists() {
-        println!("Found cached permutation: {}", filename);
-        return Ok(filename);
+    // One Doc for each component. RGB's terminology is the opposite of what we need in Seismic
+    let mut components = Vec::with_capacity(dataset.dim());
+    for component_id in 0..dataset.dim() {
+        components.push(Doc {
+            terms: Vec::with_capacity(256), // initial estimate for uniq terms in doc
+            org_id: component_id as u32,
+            gain: 0.0,
+            leaf_id: -1,
+        });
     }
 
-    // Save permutation to file
-
-    let mut file = File::create(&filename)?;
-
-    for &item in permutation.iter() {
-        let _ = writeln!(file, "{}", item.as_());
+    for (doc_id, (doc_components, _values)) in dataset.dataset_iter().enumerate() {
+        for &component_id in doc_components.iter() {
+            components[component_id.as_()].terms.push(doc_id as u32);
+        }
     }
 
-    println!(
-        "Permutation successfully saved with hash: {:016x}",
-        perm_hash
-    );
-    Ok(filename)
+    rgb::recursive_graph_bisection(&mut components, dataset.len(), 20, 16, 100, 10, 1, true, 1);
+
+    let mut perm = vec![C::default(); components.len()];
+    for (new_id, comp) in components.iter().enumerate() {
+        perm[comp.org_id as usize] = C::from_usize(new_id).unwrap();
+    }
+
+    perm.into_boxed_slice()
 }
