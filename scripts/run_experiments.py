@@ -106,10 +106,10 @@ def get_index_filename(base_filename, configs):
     ] + sorted(f"{k}_{v}" for k, v in configs["indexing_parameters"].items())
     
     join_name = "_".join(str(l) for l in name)
-    print(f"ORIGINAL NAME {join_name}")
+    #print(f"ORIGINAL NAME {join_name}")
     if len(join_name) > 240:
         join_name = shrink_name(join_name)
-    print(f"SHRINKED NAME {join_name}")
+    #print(f"SHRINKED NAME {join_name}")
     
     return join_name
 
@@ -189,9 +189,9 @@ def build_index(configs, experiment_dir):
     building_output_file = os.path.join(experiment_dir, "building.output")
 
     # Build the index and display output in real-time
-    #print()
     #print("Dataset summary")
-    print(colored("Building index...", "yellow"))
+    print()
+    print("Some statistics of the dataset...")
     building_time = 0
     with open(building_output_file, "w") as build_output:
         build_process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -251,11 +251,10 @@ def compute_metric(configs, output_file, gt_file, metric):
     metric_val = ir_measures.calc_aggregate([ir_metric], df_qrels, res_pd)[ir_metric]
     metric_gt = ir_measures.calc_aggregate([ir_metric], df_qrels, gt_pd)[ir_metric]
     
-    print(f"Metric of the run: {ir_metric}: {metric_val}")
-    print(f"Metric of the gt : {ir_metric}: {metric_gt}")
-    
+    print(f"Metric of the run ({ir_metric}): {round(metric_val, 4)}")
+    print(f"Metric of the ground truth ({ir_metric}): {round(metric_gt, 4)}")
     return metric_val
-    
+
 
 def compute_accuracy(query_file, gt_file):
     column_names = ["query_id", "doc_id", "rank", "score"]
@@ -272,13 +271,13 @@ def compute_accuracy(query_file, gt_file):
         for query_id in gt_pd_groups.index
     }
 
-    # Computes total number of results in the groundtruth
+    # Computes total number of results in the ground truth
     total_results = len(gt_pd)
     total_intersections = sum(intersections_size.values())
     
     accuracy = total_intersections/total_results
     
-    print(f"Accuracy: {accuracy}")
+    print(f"Accuracy: {round(accuracy, 4)}")
     return accuracy
 
 
@@ -325,8 +324,8 @@ def query_execution(configs, query_config, experiment_dir, subsection_name):
 
     command = " ".join(command_and_params)
 
-    print(f"Executing query for subsection '{subsection_name}' with command:")
-    print(command)
+    print(f"Executing query for subsection '{subsection_name}'")
+    print(colored(f"Query command: ", "blue"), command.strip())
 
     pattern = r"\tTotal: (\d+) Bytes" # Pattern to match the total memory usage
 
@@ -475,7 +474,7 @@ def run_experiment(config_data):
 
      # Get the experiment name from the configuration
     experiment_name = config_data.get("name")
-    print(f"Running experiment:", colored(experiment_name, "green"))
+    print(colored(f"Running experiment:", "blue"), experiment_name)
 
     for k, v in config_data["folder"].items():
         if v.startswith("~"):
@@ -490,7 +489,7 @@ def run_experiment(config_data):
 
     os.makedirs(experiment_folder, exist_ok=True)
 
-    # Dump the configuration settings to a TOML file
+    # Dump)the configuration settings to a TOML file
     with open(os.path.join(experiment_folder, "experiment_config.toml"), 'w') as report_file:
         report_file.write(toml.dumps(config_data))
 
@@ -509,8 +508,11 @@ def run_experiment(config_data):
         print("Index is already built!")
 
     metric = config_data['settings']['metric']
+
+    print()
+    print(colored(f"Evaluation", "green"))
     print(f"Evaluation runs with metric {metric}")
-    
+
     # Execute queries for each subsection under [query]
     with open(os.path.join(experiment_folder, "report.tsv"), 'w') as report_file:
         report_file.write(f"Subsection\tQuery Time (microsecs)\tRecall\t{metric}\tMemory Usage (Bytes)\tBuilding Time (secs)\n")

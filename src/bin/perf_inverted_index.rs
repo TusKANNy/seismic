@@ -140,7 +140,7 @@ where
         "Time {} microsecs per query",
         elapsed.as_micros() / (n_runs * n_queries) as u128
     );
-    eprintln!("{}", elapsed.as_micros() / (n_runs * n_queries) as u128);
+    //eprintln!("{}", elapsed.as_micros() / (n_runs * n_queries) as u128);
 
     inverted_index.print_space_usage_byte();
     // Writes results to a file in a parsable format

@@ -109,11 +109,11 @@ where
         SparseDatasetMut::<C, f32>::read_bin_file(&args.input_file.unwrap()).unwrap(),
     );
 
-    println!("Number of Vectors: {}", dataset.len());
-    println!("Number of Dimensions: {}", dataset.dim());
+    println!("Number of vectors: {}", dataset.len());
+    println!("Number of dimensions: {}", dataset.dim());
 
     println!(
-        "Avg number of components: {:.2}",
+        "Avg. number of components: {:.2}",
         dataset.nnz() as f32 / dataset.len() as f32
     );
 
@@ -176,13 +176,13 @@ where
 
     let path = args.output_file.unwrap() + ".index.seismic";
 
-    println!("Saving ... {}", path);
-    let r = write_to_path(inverted_index, path.as_str());
+    println!("Index saved to: {}", path);
+    let _ = write_to_path(inverted_index, path.as_str());
 
-    println!("{:?}", r);
+    //println!("{:?}", r);
 
     let elapsed = time.elapsed();
-    println!("Time to build {} secs", elapsed.as_secs());
+    println!("Time to build {} secs (with serialization)", elapsed.as_secs());
 }
 
 pub fn main() {
