@@ -4,6 +4,7 @@ use std::ops::Range;
 
 use co_sort::*;
 use compressed_intvec::prelude::{UIntVec, VariableCodecSpec};
+use compressed_intvec::variable::Storable;
 use itertools::Itertools;
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::prelude::ParallelSlice;
@@ -14,7 +15,7 @@ use crate::utils::build_or_load_metis_params;
 use crate::{
     ComponentType, SparseDatasetTrait, ValueType,
     distances::dot_product_dense_sparse,
-    utils::{manage_permutation_cache, prefetch_read_slice},
+    utils::{manage_permutation_cache, prefetch_read},
 };
 use crate::{FromDatasetGenericF32, SpaceUsage};
 
@@ -31,7 +32,7 @@ pub enum PermutationStrategy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SparseDatasetCompressed<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + Storable,
     V: ValueType,
 {
     dim: usize,
@@ -43,7 +44,7 @@ where
 
 impl<C, V> SparseDatasetTrait for SparseDatasetCompressed<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + Storable,
     V: ValueType,
 {
     type Component = C;
@@ -159,7 +160,9 @@ where
     fn prefetch_with_offset(&self, offset: usize, len: usize) {
         // TODO: The crate has no way to get where a certain index is actually stored...
         // prefetch_read_slice(components);
-        prefetch_read_slice(unsafe { self.values.get_unchecked(offset..(offset + len)) });
+
+        let values = unsafe { self.values.get_unchecked(offset..offset + len) };
+        prefetch_read(values.as_ptr());
     }
 
     fn iter(
@@ -186,7 +189,7 @@ where
 
 impl<C, V> SparseDatasetCompressed<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + Storable,
     V: ValueType,
 {
     pub fn search<D: ComponentType, W: ValueType>(
@@ -249,7 +252,7 @@ where
 impl<C, V, O, AC, AV> FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
     for SparseDatasetCompressed<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + Storable,
     V: ValueType,
     O: AsRef<[usize]> + SpaceUsage + Into<Box<[usize]>> + Hash,
     AC: AsRef<[C]> + SpaceUsage + Into<Box<[C]>> + Hash,
@@ -308,7 +311,7 @@ where
 
 impl<C, V> SparseDatasetCompressed<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + Storable,
     V: ValueType,
 {
     pub fn space_usage_byte_components(&self) -> usize {
@@ -416,7 +419,7 @@ where
 
 impl<C, V> SpaceUsage for SparseDatasetCompressed<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + Storable,
     V: ValueType,
 {
     /// Returns the size of the dataset in bytes.

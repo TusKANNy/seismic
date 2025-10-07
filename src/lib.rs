@@ -12,7 +12,6 @@
 #![feature(vec_push_within_capacity)]
 #![doc = include_str!("../README.md")]
 
-use compressed_intvec::variable::Storable;
 use fixed::FixedU8;
 use fixed::FixedU16;
 use num_traits::PrimInt;
@@ -96,8 +95,7 @@ pub trait ComponentType = Unsigned
     + Hash
     + Eq
     + Ord
-    + Pod
-    + Storable;
+    + Pod;
 
 #[cfg(feature = "partitioned-dataset")]
 pub mod partitioned_dataset;

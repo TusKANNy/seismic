@@ -15,7 +15,7 @@ use crate::utils::build_or_load_metis_params;
 use crate::{
     ComponentType, SparseDatasetTrait, ValueType,
     distances::dot_product_dense_sparse,
-    utils::{manage_permutation_cache, prefetch_read_slice},
+    utils::{manage_permutation_cache, prefetch_read},
 };
 use crate::{FromDatasetGenericF32, PermutationStrategy, SpaceUsage};
 
@@ -31,7 +31,7 @@ where
     dim: usize,
     offsets: Box<[usize]>,
     //components: UIntVec<C>,
-    pub components: StreamVByteRandomAccess,
+    pub components: StreamVByteRandomAccess<u32>,
     pub values: Box<[V]>,
     component_mapping: Box<[C]>,
 }
@@ -162,7 +162,8 @@ where
     fn prefetch_with_offset(&self, offset: usize, len: usize) {
         // TODO: The crate has no way to get where a certain index is actually stored...
         // prefetch_read_slice(components);
-        prefetch_read_slice(unsafe { self.values.get_unchecked(offset..(offset + len)) });
+        let values = unsafe { self.values.get_unchecked(offset..offset + len) };
+        prefetch_read(values.as_ptr());
     }
 
     fn iter(
