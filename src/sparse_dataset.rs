@@ -28,7 +28,7 @@ use rayon::iter::plumbing::{Consumer, Producer, UnindexedConsumer, bridge};
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
 
 use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
-use crate::utils::{HollowSymmetricMatrix, MetisParams, prefetch_read_slice};
+use crate::utils::{HollowSymmetricMatrix, MetisParams, prefetch_read};
 use crate::{ComponentType, SpaceUsage, ValueType};
 
 pub trait SparseDatasetTrait: SpaceUsage {
@@ -439,8 +439,8 @@ where
     fn prefetch_with_offset(&self, offset: usize, len: usize) {
         let (components, values) = self.get_with_offset(offset, len);
 
-        prefetch_read_slice(components);
-        prefetch_read_slice(values);
+        prefetch_read(components.as_ptr());
+        prefetch_read(values.as_ptr());
     }
 
     fn iter(

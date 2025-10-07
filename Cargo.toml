@@ -10,9 +10,7 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["prefetch"]
 partitioned-dataset = []
-prefetch = []
 pyo3 = ["dep:pyo3", "dep:numpy"]
 
 [lib]
@@ -37,10 +35,6 @@ bincode = { version = "2.0", features = ["serde"] }
 bytemuck = { version = "1.23", features = [
     "min_const_generics",
     "nightly_portable_simd",
-] }
-compressed-intvec = { version = "0.5", features = [
-    "serde",
-    "arch-dependent-storable",
 ] }
 clap = { version = "4.5", features = ["derive"] }
 envparse = "0.1"

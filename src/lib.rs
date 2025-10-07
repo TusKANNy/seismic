@@ -10,10 +10,6 @@
 #![feature(trait_alias)]
 #![feature(vec_into_chunks)]
 #![feature(vec_push_within_capacity)]
-#![cfg_attr(
-    all(feature = "prefetch", target_arch = "aarch64"),
-    feature(stdarch_aarch64_prefetch)
-)]
 #![doc = include_str!("../README.md")]
 
 use compressed_intvec::variable::Storable;

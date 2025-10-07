@@ -204,12 +204,21 @@ where
 }
 
 #[inline]
-pub fn prefetch_read_slice<T>(data: &[T]) {
-    let ptr = data.as_ptr() as *const i8;
-    // Cache line size on x86 is 64 bytes.
-    // The function is written with a pointer because iterating the array seems to prevent loop unrolling, for some reason.
-    for i in (0..size_of_val(data)).step_by(64) {
-        core::intrinsics::prefetch_read_data::<_, 0>(ptr.wrapping_add(i));
+pub fn prefetch_read<T>(ptr: *const T) {
+    let ptr = ptr as *const u8;
+
+    // Prefetching is much better when done by a constant value, as doing branches to dynamically choose how much to prefetch defeats the point.
+    // The milion dollar question: how much to prefetch? It depends on the computer.
+    // On newer computers, the optimal amount of data to prefetch is 1, which is why it's the default.
+    // Older computers however gain to most advantage by prefetching multiple times.
+    const LEN: usize = match envparse::parse_env!(try "PREFETCH_LEN" as usize) {
+        Some(l) => l,
+        None => 1,
+    };
+    const CACHE_LINE_SIZE: usize = 64;
+
+    for i in 0..LEN {
+        core::intrinsics::prefetch_read_data::<_, 0>(ptr.wrapping_add(i * CACHE_LINE_SIZE));
     }
 }
 

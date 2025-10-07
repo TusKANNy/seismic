@@ -8,7 +8,7 @@ use crate::{
     ComponentType, FixedU8Q, FromDatasetGenericF32, SpaceUsage, SparseDatasetTrait, ValueType,
     sparse_dataset::SparseDatasetGeneric,
     stream_vbyte_dataset::stream_vbyte::StreamVbyte,
-    utils::{build_or_load_metis_params, prefetch_read_slice},
+    utils::{build_or_load_metis_params, prefetch_read},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -22,17 +22,6 @@ pub struct SparseDatasetStreamVbyte {
 }
 
 impl SparseDatasetStreamVbyte {
-    unsafe fn get_stream_vbyte_from_id(&'_ self, id: usize) -> StreamVbyte<'_> {
-        unsafe {
-            let offset = *self.offsets.get_unchecked(id);
-            let len = *self.posting_lengths.get_unchecked(id) as usize;
-            let view = self
-                .postings
-                .get_unchecked(offset.. /*self.offsets.get_unchecked(id + 1)*/);
-            StreamVbyte::from_unchecked(view, len)
-        }
-    }
-
     unsafe fn get_stream_vbyte_from_offset(&'_ self, offset: usize, len: usize) -> StreamVbyte<'_> {
         unsafe {
             let view = self.postings.get_unchecked(offset..);
@@ -51,16 +40,10 @@ impl SparseDatasetTrait for SparseDatasetStreamVbyte {
         &self,
         offset: usize,
         len: usize,
-    ) -> impl Iterator<Item = (Self::Component, Self::Value)> {
-        let stream_view = unsafe { self.get_stream_vbyte_from_offset(offset, len) };
-        stream_view
-            .iter_with_prefix_sum()
-            .flat_map(move |(c, v)| {
-                c.to_array()
-                    .into_iter()
-                    .zip(v.to_array().into_iter().map(FixedU8Q::from_bits))
-            })
-            .take(len)
+    ) -> impl Iterator<Item = (Self::Component, Self::Value)> + '_ {
+        let stream_view: StreamVbyte<'_> =
+            unsafe { self.get_stream_vbyte_from_offset(offset, len) };
+        stream_view.iter()
     }
 
     fn prepare_query<D: ComponentType, U: ValueType>(
@@ -74,15 +57,6 @@ impl SparseDatasetTrait for SparseDatasetStreamVbyte {
         }
 
         vec
-    }
-
-    fn dot_product_from_id<D: ComponentType, W: ValueType>(
-        &self,
-        prepared_query: &Self::PreparedQuery<D, W>,
-        id: usize,
-    ) -> f32 {
-        let stream_view = unsafe { self.get_stream_vbyte_from_id(id) };
-        stream_view.dot_product(prepared_query)
     }
 
     fn dot_product_from_offset<D: ComponentType, U: ValueType>(
@@ -114,28 +88,9 @@ impl SparseDatasetTrait for SparseDatasetStreamVbyte {
         offset..offset + *unsafe { self.posting_lengths.get_unchecked(id) } as usize
     }
 
-    fn prefetch_with_ids(&self, ids: &[usize]) {
-        for &id in ids {
-            unsafe {
-                let offsets = self.offsets.get_unchecked(id..id + 2);
-                let offset_range = offsets[0]..offsets[1];
-                let posting = self.postings.get_unchecked(offset_range);
-                prefetch_read_slice(posting);
-            }
-        }
-    }
-
-    fn prefetch_with_offset(&self, offset: usize, len: usize) {
-        let len = len.div_ceil(size_of::<usize>())
-            * (
-                // values
-                size_of::<u8>()
-                // compressed components (best case)
-             + size_of::<u8>()
-            )
-            + len.div_ceil(usize::BITS as usize);
-        let posting = unsafe { self.postings.get_unchecked(offset..offset + len) };
-        prefetch_read_slice(posting);
+    fn prefetch_with_offset(&self, offset: usize, _len: usize) {
+        let posting = unsafe { self.postings.get_unchecked(offset) };
+        prefetch_read(posting);
     }
 
     fn iter(&self) -> impl Iterator<Item = impl Iterator<Item = (Self::Component, Self::Value)>> {
@@ -263,25 +218,25 @@ mod tests {
                 .map(|(c, v)| c.into_iter().zip(v).collect_vec()),
         );
 
-        let partitioned_dataset = SparseDatasetStreamVbyte::from_dataset_f32(dataset);
+        let streamed_dataset = SparseDatasetStreamVbyte::from_dataset_f32(dataset);
 
         let query_1 = [(0_usize, 1.0), (1, 2.0)];
-        let prepared_query_1 = partitioned_dataset.prepare_query(query_1.into_iter());
+        let prepared_query_1 = streamed_dataset.prepare_query(query_1.into_iter());
 
         let query_2 = [(500_usize, 1.0), (501, 2.0)];
-        let prepared_query_2 = partitioned_dataset.prepare_query(query_2.into_iter());
+        let prepared_query_2 = streamed_dataset.prepare_query(query_2.into_iter());
 
         // Gotta type the generic parameters because of https://github.com/rust-lang/rust/issues/144858
         assert_eq!(
-            partitioned_dataset.dot_product_from_id::<u16, f32>(&prepared_query_2, 0),
+            streamed_dataset.dot_product_from_id::<u16, f32>(&prepared_query_2, 0),
             1.5
         );
         assert_eq!(
-            partitioned_dataset.dot_product_from_id::<u16, f32>(&prepared_query_1, 1),
+            streamed_dataset.dot_product_from_id::<u16, f32>(&prepared_query_1, 1),
             1.0
         );
         assert_eq!(
-            partitioned_dataset.dot_product_from_id::<u16, f32>(&prepared_query_1, 2),
+            streamed_dataset.dot_product_from_id::<u16, f32>(&prepared_query_1, 2),
             4.0
         );
     }
@@ -299,14 +254,14 @@ mod tests {
                 .map(|(c, v)| c.into_iter().zip(v).collect_vec()),
         );
 
-        let partitioned_dataset = SparseDatasetStreamVbyte::from_dataset_f32(dataset);
+        let streamed_dataset = SparseDatasetStreamVbyte::from_dataset_f32(dataset);
 
         for (i, (components, values)) in [(c0, v0), (c1, v1)].into_iter().enumerate() {
             assert_eq!(
-                partitioned_dataset
+                streamed_dataset
                     .get_iter(i)
                     .map(|(c, v)| {
-                        let original_c = partitioned_dataset
+                        let original_c = streamed_dataset
                             .component_mapping
                             .iter()
                             .position(|x| *x == c)
