@@ -640,6 +640,11 @@ def run_experiment(config_data):
         building_time, index_path = build_index(config_data, experiment_folder)
     else:
         print("Index is already built!")
+        # Reconstruct the index path
+        index_folder = config_data["folder"]["index"]
+        index_filename = get_index_filename(config_data["filename"]["index"], config_data)
+        index_path = os.path.join(index_folder, index_filename) + ".index.seismic"
+        print(f"Using existing index: {index_path}")
 
     metric = config_data['settings']['metric']
     print(f"Evaluation runs with metric {metric}")
@@ -653,7 +658,8 @@ def run_experiment(config_data):
                 report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\t{building_time}\n")
 
     # Remove index files if delete parameter is set to true
-    remove_index_files(index_path)
+    if config_data['settings']['delete']:
+        remove_index_files(index_path)
 
 def main(experiment_config_filename):
     config_data = parse_toml(experiment_config_filename)
