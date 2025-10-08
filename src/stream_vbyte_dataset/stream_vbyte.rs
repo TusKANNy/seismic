@@ -5,12 +5,15 @@ use std::{
     simd::{Mask, Simd},
 };
 
-use bytemuck::try_cast_slice;
-use num_traits::ToPrimitive;
+use bytemuck::{AnyBitPattern, Pod, try_cast_slice};
+
 use rusty_perm::*;
 
-use crate::FixedU8Q;
+use crate::SimdyValueType;
 use crate::stream_vbyte_dataset::swizzle::swizzle;
+
+use half::f16;
+use half::slice::HalfFloatSliceExt;
 
 const N: usize = u8::BITS as usize;
 pub(super) const MASKS: [Simd<u8, { N * 2 }>; 256] = generate_masks_u16();
@@ -80,16 +83,79 @@ where
     converted_f32 * mult
 }
 
+fn simd_f16_to_f32<const N: usize>(f: Simd<u16, N>) -> Simd<f32, N>
+where
+    std::simd::LaneCount<N>: std::simd::SupportedLaneCount,
+{
+    let f16_array: [f16; N] = unsafe { transmute_copy(&f) };
+    let mut f32_array = Simd::splat(0.0);
+    f16_array.convert_to_f32_slice(f32_array.as_mut_array());
+    f32_array
+}
+
+/// Trait per conversione SIMD a f32 a compile-time
+pub trait ToF32Simd: SimdyValueType {
+    fn simd_to_f32<const N: usize>(f: Simd<Self, N>) -> Simd<f32, N>
+    where
+        std::simd::LaneCount<N>: std::simd::SupportedLaneCount;
+}
+
+impl ToF32Simd for u8 {
+    #[inline(always)]
+    fn simd_to_f32<const N: usize>(f: Simd<Self, N>) -> Simd<f32, N>
+    where
+        std::simd::LaneCount<N>: std::simd::SupportedLaneCount,
+    {
+        simd_fixedu8_to_f32(f)
+    }
+}
+
+impl ToF32Simd for u16 {
+    #[inline(always)]
+    fn simd_to_f32<const N: usize>(f: Simd<Self, N>) -> Simd<f32, N>
+    where
+        std::simd::LaneCount<N>: std::simd::SupportedLaneCount,
+    {
+        simd_f16_to_f32(f)
+    }
+}
+
+#[inline(always)]
+fn simd_any_to_f32<const N: usize, T>(f: Simd<T, N>) -> Simd<f32, N>
+where
+    std::simd::LaneCount<N>: std::simd::SupportedLaneCount,
+    T: ToF32Simd,
+{
+    T::simd_to_f32(f)
+}
+
+#[inline(always)]
+fn scalar_to_f32<T>(v: T) -> f32
+where
+    T: ToF32Simd,
+{
+    // Riusa le funzioni SIMD esistenti con un singolo valore
+    let simd_val = Simd::<T, 1>::from_array([v]);
+    let simd_result = T::simd_to_f32(simd_val);
+    simd_result.to_array()[0]
+}
+
 #[derive(Clone)]
-pub struct StreamVbyte<'a> {
-    values: &'a [Simd<u8, N>],
+pub struct StreamVbyte<'a, T>
+where
+    T: SimdyValueType + ToF32Simd,
+{
+    values: &'a [Simd<T, N>],
     bytes_remaining: &'a [u16],
-    values_remaining: &'a [u8],
+    values_remaining: &'a [T],
     idx_lens: &'a [u8],
     bytes: &'a [u8],
 }
 
-impl<'a> StreamVbyte<'a> {
+impl<'a, T> StreamVbyte<'a, T>
+where
+    T: SimdyValueType + ToF32Simd,
+{
     // We have got:
     // - The compressed bytes, which are unaligned by design, and is "unpredictable" to know where they end
     // - The idx_lens, which being an array of bytes read one at a time, doesn't have alignment problems
@@ -102,7 +168,7 @@ impl<'a> StreamVbyte<'a> {
             let n_packs = n_elems / N;
             let n_remaining = n_elems % N;
 
-            let values_end = n_packs * size_of::<Simd<u8, N>>();
+            let values_end = n_packs * size_of::<Simd<T, N>>();
             let values = try_cast_slice(slice.get_unchecked(..values_end)).unwrap_unchecked();
 
             // These `next_multiple_of` are no-ops, I just want to express the importance of alignment.
@@ -191,7 +257,10 @@ impl<'a> StreamVbyte<'a> {
         }
     }
 
-    fn iter_raw(self) -> impl ExactSizeIterator<Item = (Simd<u16, N>, Simd<u8, N>)> {
+    fn iter_raw(self) -> impl ExactSizeIterator<Item = (Simd<u16, N>, Simd<T, N>)>
+    where
+        T: SimdyValueType + ToF32Simd,
+    {
         let mut total_scroll = 0;
         self.idx_lens
             .iter()
@@ -211,7 +280,7 @@ impl<'a> StreamVbyte<'a> {
             .zip(self.values.iter().cloned())
     }
 
-    pub fn iter(self) -> impl Iterator<Item = (u16, FixedU8Q)> {
+    pub fn iter(self) -> impl Iterator<Item = (u16, T)> {
         let bytes_remaining = self.bytes_remaining;
         let values_remaining = self.values_remaining;
         gen move {
@@ -221,17 +290,13 @@ impl<'a> StreamVbyte<'a> {
                 let c_prefixed_previous = c_prefixed + Simd::splat(last_component);
                 last_component = *c_prefixed_previous.to_array().last().unwrap();
 
-                for (c, v) in c_prefixed_previous
-                    .to_array()
-                    .into_iter()
-                    .zip(v.to_array().into_iter().map(FixedU8Q::from_bits))
-                {
+                for (c, v) in c_prefixed_previous.to_array().into_iter().zip(v.to_array()) {
                     yield (c, v);
                 }
             }
             for (c, v) in bytes_remaining.iter().zip(values_remaining.iter()) {
                 last_component += c;
-                yield (last_component, FixedU8Q::from_bits(*v));
+                yield (last_component, *v);
             }
         }
     }
@@ -241,7 +306,7 @@ impl<'a> StreamVbyte<'a> {
         // This ugly clone is optimized away
         for (components, values) in self.clone().iter_raw() {
             let components = simd_prefix_sum(components);
-            let values = simd_fixedu8_to_f32(values);
+            let values = simd_any_to_f32(values);
             let query_values = unsafe {
                 Simd::gather_select_unchecked(
                     query,
@@ -264,7 +329,7 @@ impl<'a> StreamVbyte<'a> {
             .zip(self.values_remaining.iter())
             .scan(0, move |acc, (&c, &v)| {
                 *acc += c;
-                let query_value = FixedU8Q::from_bits(v).to_f32().unwrap();
+                let query_value = scalar_to_f32(v);
 
                 Some(unsafe {
                     query

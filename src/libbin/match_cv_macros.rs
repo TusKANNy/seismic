@@ -98,3 +98,24 @@ macro_rules! match_value {
         }
     };
 }
+
+#[macro_export]
+macro_rules! match_value_fixed {
+    ($value:expr, $macro_name:ident) => {
+        use seismic::FixedU8Q;
+        use seismic::FixedU16Q;
+
+        match $value {
+            "fixedu8" => {
+                $macro_name!(FixedU8Q);
+            }
+            "fixedu16" => {
+                $macro_name!(FixedU16Q);
+            }
+            _ => {
+                eprintln!("Error: value-type for StreamVbyte must be 'fixedu8' or 'fixedu16'");
+                std::process::exit(1);
+            }
+        }
+    };
+}

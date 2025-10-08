@@ -4,24 +4,38 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
-    ComponentType, FixedU8Q, FromDatasetGenericF32, SpaceUsage, SparseDatasetTrait, ValueType,
+    ComponentType, FixedU8Q, FromDatasetGenericF32, SimdyValueType, SpaceUsage, SparseDatasetTrait,
+    ValueType,
     sparse_dataset::SparseDatasetGeneric,
-    stream_vbyte_dataset::stream_vbyte::StreamVbyte,
+    stream_vbyte_dataset::stream_vbyte::{StreamVbyte, ToF32Simd},
     utils::{permute_or_load_with_graph_bisection, prefetch_read},
 };
 
 #[derive(Serialize, Deserialize)]
-pub struct SparseDatasetStreamVbyte {
+pub struct SparseDatasetStreamVbyte<T>
+where
+    T: ValueType + fixed::traits::Fixed,
+    T::Bits: SimdyValueType + Send + Sync, // Fixed asks for this
+{
     dim: usize,
     nnz: usize,
     offsets: Box<[usize]>,
     posting_lengths: Box<[u16]>,
     postings: Box<[usize]>, // usize to force alignment for each posting
     component_mapping: Box<[u16]>,
+    _phantom: std::marker::PhantomData<T>,
 }
 
-impl SparseDatasetStreamVbyte {
-    unsafe fn get_stream_vbyte_from_offset(&'_ self, offset: usize, len: usize) -> StreamVbyte<'_> {
+impl<T> SparseDatasetStreamVbyte<T>
+where
+    T: ValueType + fixed::traits::Fixed,
+    T::Bits: SimdyValueType + Send + Sync + ToF32Simd, // Fixed asks for this
+{
+    unsafe fn get_stream_vbyte_from_offset(
+        &'_ self,
+        offset: usize,
+        len: usize,
+    ) -> StreamVbyte<'_, T::Bits> {
         unsafe {
             let view = self.postings.get_unchecked(offset..);
             StreamVbyte::from_unchecked(view, len)
@@ -29,9 +43,13 @@ impl SparseDatasetStreamVbyte {
     }
 }
 
-impl SparseDatasetTrait for SparseDatasetStreamVbyte {
+impl<T> SparseDatasetTrait for SparseDatasetStreamVbyte<T>
+where
+    T: ValueType + fixed::traits::Fixed,
+    T::Bits: SimdyValueType + Send + Sync + ToF32Simd, // Fixed asks for this
+{
     type Component = u16;
-    type Value = FixedU8Q;
+    type Value = T;
 
     type PreparedQuery<D: ComponentType, U: ValueType> = Vec<f32>;
 
@@ -40,9 +58,9 @@ impl SparseDatasetTrait for SparseDatasetStreamVbyte {
         offset: usize,
         len: usize,
     ) -> impl Iterator<Item = (Self::Component, Self::Value)> + '_ {
-        let stream_view: StreamVbyte<'_> =
+        let stream_view: StreamVbyte<'_, T::Bits> =
             unsafe { self.get_stream_vbyte_from_offset(offset, len) };
-        stream_view.iter()
+        stream_view.iter().map(|(c, v)| (c, T::from_bits(v)))
     }
 
     fn prepare_query<D: ComponentType, U: ValueType>(
@@ -114,9 +132,11 @@ impl SparseDatasetTrait for SparseDatasetStreamVbyte {
     }
 }
 
-impl<C, O, AC, AV> FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
-    for SparseDatasetStreamVbyte
+impl<C, T, O, AC, AV> FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
+    for SparseDatasetStreamVbyte<T>
 where
+    T: ValueType + fixed::traits::Fixed,
+    T::Bits: SimdyValueType + Send + Sync + ToF32Simd,
     C: ComponentType + DeserializeOwned + Serialize + Hash,
     O: AsRef<[usize]> + SpaceUsage + IntoIterator<Item = usize> + Hash,
     AC: AsRef<[C]> + SpaceUsage + IntoIterator<Item = C> + Hash,
@@ -164,7 +184,7 @@ where
                 let v = unsafe { values.get_unchecked_mut(start..end) };
                 posting_lengths.push(c.len() as u16);
 
-                StreamVbyte::push_posting(&mut postings_u8, c, v);
+                StreamVbyte::<T::Bits>::push_posting(&mut postings_u8, c, v);
                 postings_u8.len() / size_of::<usize>()
             }))
             .collect();
@@ -189,11 +209,16 @@ where
             postings,
             component_mapping,
             posting_lengths,
+            _phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl SpaceUsage for SparseDatasetStreamVbyte {
+impl<T> SpaceUsage for SparseDatasetStreamVbyte<T>
+where
+    T: ValueType + fixed::traits::Fixed,
+    T::Bits: SimdyValueType + Send + Sync,
+{
     /// Returns the size of the dataset in bytes.
     fn space_usage_byte(&self) -> usize {
         self.dim.space_usage_byte()
@@ -224,7 +249,7 @@ mod tests {
                 .map(|(c, v)| c.into_iter().zip(v).collect_vec()),
         );
 
-        let streamed_dataset = SparseDatasetStreamVbyte::from_dataset_f32(dataset);
+        let streamed_dataset = SparseDatasetStreamVbyte::<FixedU8Q>::from_dataset_f32(dataset);
 
         let query_1 = [(0_usize, 1.0), (1, 2.0)];
         let prepared_query_1 = streamed_dataset.prepare_query(query_1.into_iter());
@@ -314,7 +339,7 @@ mod tests {
         println!("{:?}", config);
 
         let inverted_index =
-            InvertedIndex::<SparseDatasetStreamVbyte>::from_base_dataset(dataset, config);
+            InvertedIndex::<SparseDatasetStreamVbyte<FixedU8Q>>::from_base_dataset(dataset, config);
 
         let (query_components, query_values) = ([0, 1], [1.0, 2.0]);
 

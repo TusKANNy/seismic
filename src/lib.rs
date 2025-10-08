@@ -12,6 +12,7 @@
 #![feature(vec_push_within_capacity)]
 #![doc = include_str!("../README.md")]
 
+use bytemuck::AnyBitPattern;
 use fixed::FixedU8;
 use fixed::FixedU16;
 use num_traits::PrimInt;
@@ -96,6 +97,8 @@ pub trait ComponentType = Unsigned
     + Eq
     + Ord
     + Pod;
+
+pub trait SimdyValueType = std::simd::SimdElement + Pod + AnyBitPattern;
 
 #[cfg(feature = "pyo3")]
 pub mod pylib;
