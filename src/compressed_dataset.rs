@@ -8,10 +8,11 @@ use compressed_intvec::variable::Storable;
 use itertools::Itertools;
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::prelude::ParallelSlice;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::sparse_dataset::SparseDatasetGeneric;
-use crate::utils::build_or_load_metis_params;
+use crate::utils::{build_or_load_metis_params, permute_or_load_with_graph_bisection};
 use crate::{
     ComponentType, SparseDatasetTrait, ValueType, distances::dot_product_dense_sparse,
     utils::prefetch_read,
@@ -251,28 +252,29 @@ where
 impl<C, V, O, AC, AV> FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
     for SparseDatasetCompressed<C, V>
 where
-    C: ComponentType + Storable,
+    C: ComponentType + Storable + Serialize + DeserializeOwned,
     V: ValueType,
     O: AsRef<[usize]> + SpaceUsage + Into<Box<[usize]>> + Hash,
     AC: AsRef<[C]> + SpaceUsage + Into<Box<[C]>> + Hash,
     AV: AsRef<[f32]> + SpaceUsage + Into<Box<[f32]>>,
 {
     fn from_dataset_f32(dataset: SparseDatasetGeneric<C, f32, O, AC, AV>) -> Self {
-        let metis_params = build_or_load_metis_params(&dataset);
+        //let metis_params = build_or_load_metis_params(&dataset);
 
         // Use partitioning so that components that often appear together have a close id
-        let mut partitions = metis_params.build_partitions(32).into_boxed_slice();
+        //let mut partitions = metis_params.build_partitions(32).into_boxed_slice();
 
         let dim = dataset.dim();
-        let (offsets, components, values) = dataset.destroy();
-        let mut component_ids: Box<[C]> = (0..dim).map(|c| C::from_usize(c).unwrap()).collect();
-        co_sort_stable![partitions, component_ids];
-        let mut component_mapping = vec![C::zero(); dim].into_boxed_slice();
-        for (i, c) in component_ids.into_iter().enumerate() {
-            component_mapping[c.as_()] = C::from_usize(i).unwrap();
-        }
 
+        let perm = permute_or_load_with_graph_bisection(&dataset);
+        let (offsets, components, values) = dataset.destroy();
         let mut components = components.into();
+        //co_sort_stable![partitions, component_ids];
+        // let mut component_mapping = vec![C::zero(); dim].into_boxed_slice();
+        // for (i, c) in component_ids.into_iter().enumerate() {
+        //     component_mapping[c.as_()] = C::from_usize(i).unwrap();
+        // }
+
         let mut values: Box<_> = values
             .into()
             .into_iter()
@@ -284,7 +286,7 @@ where
             let comps = unsafe { components.get_unchecked_mut(start..end) };
             let vals = unsafe { values.get_unchecked_mut(start..end) };
             for c in comps.iter_mut() {
-                *c = component_mapping[c.as_()];
+                *c = perm[c.as_()];
             }
             co_sort!(comps, vals);
             // For better compression, store the component differences
@@ -303,7 +305,7 @@ where
                 .build(components.as_ref())
                 .unwrap(),
             values,
-            component_mapping,
+            component_mapping: perm,
         }
     }
 }

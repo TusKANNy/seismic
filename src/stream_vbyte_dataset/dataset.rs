@@ -1,13 +1,13 @@
 use std::hash::Hash;
 
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     ComponentType, FixedU8Q, FromDatasetGenericF32, SpaceUsage, SparseDatasetTrait, ValueType,
     sparse_dataset::SparseDatasetGeneric,
     stream_vbyte_dataset::stream_vbyte::StreamVbyte,
-    utils::{permute_graph_bisection, prefetch_read},
+    utils::{permute_or_load_with_graph_bisection, prefetch_read},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -117,7 +117,7 @@ impl SparseDatasetTrait for SparseDatasetStreamVbyte {
 impl<C, O, AC, AV> FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
     for SparseDatasetStreamVbyte
 where
-    C: ComponentType,
+    C: ComponentType + DeserializeOwned + Serialize + Hash,
     O: AsRef<[usize]> + SpaceUsage + IntoIterator<Item = usize> + Hash,
     AC: AsRef<[C]> + SpaceUsage + IntoIterator<Item = C> + Hash,
     AV: AsRef<[f32]> + SpaceUsage + IntoIterator<Item = f32>,
@@ -137,7 +137,7 @@ where
         //     permutation.indices().iter().map(|&n| n as u16).collect();
 
         // Use graph bisection to compute a permutation that groups related components
-        let perm = permute_graph_bisection(&dataset);
+        let perm = permute_or_load_with_graph_bisection(&dataset);
 
         // Create a simple mapping from the permutation
         let component_mapping: Box<[u16]> = perm.iter().map(|&p| p.as_() as u16).collect();

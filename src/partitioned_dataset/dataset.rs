@@ -8,14 +8,14 @@ use bytemuck::{Pod, try_cast_slice};
 use num_traits::{FromPrimitive, One, PrimInt, ToBytes, ToPrimitive};
 use rayon::prelude::*;
 use rusty_perm::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     ComponentType, FromDatasetGenericF32, SpaceUsage, SparseDatasetTrait, ValueType,
     distances::dot_product_dense_sparse,
     partitioned_dataset::{fitting_integer::*, utils::*},
     sparse_dataset::SparseDatasetGeneric,
-    utils::{permute_graph_bisection, prefetch_read},
+    utils::{permute_graph_bisection, permute_or_load_with_graph_bisection, prefetch_read},
 };
 
 trait Offset = PrimInt + FromPrimitive + ToPrimitive + Pod;
@@ -472,7 +472,7 @@ where
         + Fit<{ N_PARTITIONS.next_power_of_two().ilog2() as usize + N_COMPONENT_BITS }>,
     [(); size_of::<FittingInteger<N_COMPONENT_BITS>>()]: Sized,
     [(); N_PARTITIONS.div_ceil(size_of::<FittingInteger<N_PARTITIONS>>() * 8)]: Sized,
-    C: ComponentType,
+    C: ComponentType + Serialize + DeserializeOwned,
     V: ValueType,
     O: AsRef<[usize]> + SpaceUsage + IntoIterator<Item = usize> + Hash,
     AC: AsRef<[C]> + SpaceUsage + IntoIterator<Item = C> + Hash,
@@ -497,7 +497,7 @@ where
         //     .collect();
 
         // Use graph bisection to compute a permutation that groups related components
-        let perm = permute_graph_bisection(&dataset);
+        let perm = permute_or_load_with_graph_bisection(&dataset);
 
         // Build partitions by grouping consecutive components in the permuted order
         let elements_per_partition = dim / N_PARTITIONS + 1;

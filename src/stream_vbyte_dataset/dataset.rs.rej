@@ -1,0 +1,8 @@
+diff a/src/stream_vbyte_dataset/dataset.rs b/src/stream_vbyte_dataset/dataset.rs	(rejected hunks)
+@@ -1,5 +1,6 @@
+ use std::hash::Hash;
+ 
++use half::f16;
+ use rayon::prelude::*;
+ use rusty_perm::*;
+ use serde::{Deserialize, Serialize};

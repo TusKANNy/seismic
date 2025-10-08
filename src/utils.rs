@@ -705,6 +705,34 @@ where
     }
 }
 
+pub fn permute_or_load_with_graph_bisection<C, O, AC, AV>(
+    dataset: &SparseDatasetGeneric<C, f32, O, AC, AV>,
+) -> Box<[C]>
+where
+    C: ComponentType + Serialize + DeserializeOwned,
+    O: AsRef<[usize]> + SpaceUsage + Hash,
+    AC: AsRef<[C]> + SpaceUsage + Hash,
+    AV: AsRef<[f32]> + SpaceUsage,
+{
+    let mut s = DefaultHasher::new();
+    dataset.components().hash(&mut s);
+    dataset.offsets().hash(&mut s);
+    let hash = s.finish();
+    let filename = format!("cached_permutation_{}", hash);
+    if !std::fs::exists(filename.as_str()).is_ok_and(|b| b) {
+        println!("Permutation not cached. Creating.");
+        let perm = permute_graph_bisection(dataset);
+
+        println!("Saving ... {}", filename);
+        write_to_path(&perm, filename.as_str()).unwrap();
+
+        perm
+    } else {
+        println!("Loading permutation {}.", filename.as_str());
+        read_from_path(filename.as_str()).unwrap()
+    }
+}
+
 /// Compute a permutation of components using recursive graph bisection.
 /// Components that often appear together in documents will be grouped close together.
 pub fn permute_graph_bisection<C, O, AC, AV>(

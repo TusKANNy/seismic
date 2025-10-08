@@ -6,15 +6,16 @@ use co_sort::*;
 use itertools::Itertools;
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::prelude::ParallelSlice;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use toolkit::stream_vbyte::StreamVByteRandomAccess;
 
 use crate::sparse_dataset::SparseDatasetGeneric;
-use crate::utils::build_or_load_metis_params;
+use crate::utils::{build_or_load_metis_params, permute_or_load_with_graph_bisection};
 use crate::{
-    distances::dot_product_dense_sparse, utils::prefetch_read, ComponentType, SparseDatasetTrait,
-    ValueType,
+    ComponentType, SparseDatasetTrait, ValueType, distances::dot_product_dense_sparse,
+    utils::prefetch_read,
 };
 use crate::{FromDatasetGenericF32, PermutationStrategy, SpaceUsage};
 
@@ -253,28 +254,19 @@ where
 impl<C, V, O, AC, AV> FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
     for BaselineStreamVByteDataset<C, V>
 where
-    C: ComponentType,
+    C: ComponentType + Serialize + DeserializeOwned,
     V: ValueType,
     O: AsRef<[usize]> + SpaceUsage + Into<Box<[usize]>> + Hash,
     AC: AsRef<[C]> + SpaceUsage + Into<Box<[C]>> + Hash,
     AV: AsRef<[f32]> + SpaceUsage + Into<Box<[f32]>>,
 {
     fn from_dataset_f32(dataset: SparseDatasetGeneric<C, f32, O, AC, AV>) -> Self {
-        let metis_params = build_or_load_metis_params(&dataset);
-
-        // Use partitioning so that components that often appear together have a close id
-        let mut partitions = metis_params.build_partitions(32).into_boxed_slice();
+        let perm = permute_or_load_with_graph_bisection(&dataset);
 
         let dim = dataset.dim();
         let (offsets, components, values) = dataset.destroy();
-        let mut component_ids: Box<[C]> = (0..dim).map(|c| C::from_usize(c).unwrap()).collect();
-        co_sort_stable![partitions, component_ids];
-        let mut component_mapping = vec![C::zero(); dim].into_boxed_slice();
-        for (i, c) in component_ids.into_iter().enumerate() {
-            component_mapping[c.as_()] = C::from_usize(i).unwrap();
-        }
 
-        let mut components = components.into();
+        let mut components = components.into(); // NON mappare qui
         let mut values: Box<_> = values
             .into()
             .into_iter()
@@ -284,38 +276,28 @@ where
 
         let mut components_u32: Vec<u32> = Vec::with_capacity(components.len());
         components_u32.resize(components.len(), 0);
+
         for &[start, end] in offsets.array_windows() {
             let comps = unsafe { components.get_unchecked_mut(start..end) };
             let vals = unsafe { values.get_unchecked_mut(start..end) };
             for c in comps.iter_mut() {
-                *c = component_mapping[c.as_()];
+                *c = perm[c.as_()]; // Applica la permutazione QUI
             }
             co_sort!(comps, vals);
+
             components_u32[start] = comps[0].as_() as u32;
-            // For better compression, store the component differences
             for i in 1..comps.len() {
                 components_u32[start + i] = (comps[i] - comps[i - 1]).as_() as u32;
             }
-            // TODO: Completely adjust dot_product
         }
-        println!(
-            "Components u32 after differences: {:?}",
-            &components_u32[..64]
-        );
 
-        // TODO: do we need a generic for the compressor type?
         let block_size = 128;
         Self {
             dim,
             offsets,
-            // components: UIntVec::<C>::builder()
-            //     .k(64) // Sample every 2nd element
-            //     .codec(VariableCodecSpec::Zeta { k: None })
-            //     .build(components.as_ref())
-            //     .unwrap(),
             components: StreamVByteRandomAccess::new(components_u32.as_ref(), block_size),
             values,
-            component_mapping,
+            component_mapping: perm,
         }
     }
 }
@@ -404,13 +386,9 @@ where
                 components_u32[start + i] = (comps[i] - comps[i - 1]).as_() as u32;
             }
         }
-        println!(
-            "Components u32 after differences: {:?}",
-            &components_u32[..64]
-        );
-        let k_sampling = 128;
+
         let block_size = 128;
-        println!("Using k={k_sampling} for sampling in compressed intvec");
+
         Self {
             dim,
             offsets,

@@ -206,14 +206,19 @@ def build_index(configs, experiment_dir):
     
     if is_partitioned:
         compresssion_kind = build_command[1].rsplit("_", maxsplit=1)[-1]
+        print(f"Compression kind: {compresssion_kind}")
         if compresssion_kind == "partitioned":
-    
             base_name_clean = base_index_filename.replace(".index.seismic", "")
             output_index_file = f"{base_name_clean}.{n_partitions}_part_{seismic_n_compbits}_compbits.index.seismic"
-        else:
+        elif compresssion_kind == "vbyte":
             base_name_clean = base_index_filename.replace(".index.seismic", "")
             output_index_file = f"{base_name_clean}_streamvbyte.index.seismic"
-        
+        elif compresssion_kind == "baseline":
+            base_name_clean = base_index_filename.replace(".index.seismic", "")
+            output_index_file = f"{base_name_clean}_baseline_streamvbyte.index.seismic"
+        elif compresssion_kind == "compressed":
+            base_name_clean = base_index_filename.replace(".index.seismic", "")
+            output_index_file = f"{base_name_clean}_compressed.index.seismic"
     return building_base_index_time + conversion_time, output_index_file
 
 
