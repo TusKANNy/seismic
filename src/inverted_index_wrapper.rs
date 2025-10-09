@@ -75,21 +75,19 @@ where
 
     pub fn remap_doc_ids(
         &self,
-        plain_results: Vec<(f32, usize)>,
+        plain_results: impl IntoIterator<Item = (f32, usize)>,
         query_id: &str,
     ) -> Vec<(String, f32, String)> {
-        let remapped_results: Vec<(String, f32, String)> = match &self.document_mapping {
-            Some(mapp) => plain_results
-                .iter()
-                .map(|(distance, doc_id)| (query_id.to_string(), *distance, mapp[*doc_id].clone()))
+        match &self.document_mapping {
+            Some(mapping) => plain_results
+                .into_iter()
+                .map(|(distance, doc_id)| (query_id.to_owned(), distance, mapping[doc_id].clone()))
                 .collect(),
             None => plain_results
-                .iter()
-                .map(|(distance, doc_id)| (query_id.to_string(), *distance, doc_id.to_string()))
+                .into_iter()
+                .map(|(distance, doc_id)| (query_id.to_owned(), distance, doc_id.to_string()))
                 .collect(),
-        };
-
-        remapped_results
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -107,8 +105,7 @@ where
             query_components_original
                 .iter()
                 .zip(query_values)
-                .filter(|(qc, _)| self.token_to_id_map.contains_key(*qc))
-                .map(|(qc, &qv)| (self.token_to_id_map[qc], qv))
+                .filter_map(|(qc, &qv)| self.token_to_id_map.get(qc).map(|id| (*id, qv)))
                 .sorted_by(|(a, _), (b, _)| a.cmp(b))
                 .unzip();
 
@@ -438,5 +435,45 @@ where
             .collect::<Vec<_>>();
 
         self.sparse_dataset.push(&sorted_components, &sorted_values);
+    }
+
+    pub fn search(
+        &self,
+        query_id: &str,
+        query_components: &[String],
+        query_values: &[f32],
+        k: usize,
+    ) -> Vec<(String, f32, String)> {
+        let (filtered_query_components, filtered_query_values): (Vec<_>, Vec<_>) = query_components
+            .iter()
+            .zip(query_values)
+            .filter_map(|(qc, &qv)| self.token_to_id_map.get(qc).map(|id| (*id, qv)))
+            .sorted_by(|(a, _), (b, _)| a.cmp(b))
+            .unzip();
+
+        let plain_results =
+            self.sparse_dataset
+                .search(&filtered_query_components, &filtered_query_values, k);
+
+        self.remap_doc_ids(plain_results, query_id)
+    }
+
+    pub fn remap_doc_ids(
+        &self,
+        plain_results: Vec<(f32, usize)>,
+        query_id: &str,
+    ) -> Vec<(String, f32, String)> {
+        let remapped_results: Vec<(String, f32, String)> = plain_results
+            .iter()
+            .map(|(distance, doc_id)| {
+                (
+                    query_id.to_string(),
+                    *distance,
+                    self.document_mapping[*doc_id].clone(),
+                )
+            })
+            .collect();
+
+        remapped_results
     }
 }
