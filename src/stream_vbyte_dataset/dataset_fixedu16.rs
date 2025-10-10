@@ -1,55 +1,41 @@
 use std::hash::Hash;
 
+use crate::{
+    ComponentType, FixedU8Q, FromDatasetGenericF32, SpaceUsage, SparseDatasetTrait, ValueType,
+    sparse_dataset::SparseDatasetGeneric,
+    stream_vbyte_dataset::stream_vbyte_fixedu16::StreamVbyteFixedu16,
+    utils::{permute_or_load_with_graph_bisection, prefetch_read},
+};
+use half::f16;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{
-    ComponentType, FixedU8Q, FromDatasetGenericF32, SimdyValueType, SpaceUsage, SparseDatasetTrait,
-    ValueType,
-    sparse_dataset::SparseDatasetGeneric,
-    stream_vbyte_dataset::stream_vbyte::{StreamVbyte, ToF32Simd},
-    utils::{permute_or_load_with_graph_bisection, prefetch_read},
-};
-
 #[derive(Serialize, Deserialize)]
-pub struct SparseDatasetStreamVbyte<T>
-where
-    T: ValueType + fixed::traits::Fixed,
-    T::Bits: SimdyValueType + Send + Sync, // Fixed asks for this
-{
+pub struct SparseDatasetStreamVbyteFixedu16 {
     dim: usize,
     nnz: usize,
     offsets: Box<[usize]>,
     posting_lengths: Box<[u16]>,
     postings: Box<[usize]>, // usize to force alignment for each posting
     component_mapping: Box<[u16]>,
-    _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T> SparseDatasetStreamVbyte<T>
-where
-    T: ValueType + fixed::traits::Fixed,
-    T::Bits: SimdyValueType + Send + Sync + ToF32Simd, // Fixed asks for this
-{
+impl SparseDatasetStreamVbyteFixedu16 {
     unsafe fn get_stream_vbyte_from_offset(
         &'_ self,
         offset: usize,
         len: usize,
-    ) -> StreamVbyte<'_, T::Bits> {
+    ) -> StreamVbyteFixedu16<'_> {
         unsafe {
             let view = self.postings.get_unchecked(offset..);
-            StreamVbyte::from_unchecked(view, len)
+            StreamVbyteFixedu16::from_unchecked(view, len)
         }
     }
 }
 
-impl<T> SparseDatasetTrait for SparseDatasetStreamVbyte<T>
-where
-    T: ValueType + fixed::traits::Fixed,
-    T::Bits: SimdyValueType + Send + Sync + ToF32Simd, // Fixed asks for this
-{
+impl SparseDatasetTrait for SparseDatasetStreamVbyteFixedu16 {
     type Component = u16;
-    type Value = T;
+    type Value = f16;
 
     type PreparedQuery<D: ComponentType, U: ValueType> = Vec<f32>;
 
@@ -58,9 +44,9 @@ where
         offset: usize,
         len: usize,
     ) -> impl Iterator<Item = (Self::Component, Self::Value)> + '_ {
-        let stream_view: StreamVbyte<'_, T::Bits> =
+        let stream_view: StreamVbyteFixedu16<'_> =
             unsafe { self.get_stream_vbyte_from_offset(offset, len) };
-        stream_view.iter().map(|(c, v)| (c, T::from_bits(v)))
+        stream_view.iter()
     }
 
     fn prepare_query<D: ComponentType, U: ValueType>(
@@ -132,11 +118,9 @@ where
     }
 }
 
-impl<C, T, O, AC, AV> FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
-    for SparseDatasetStreamVbyte<T>
+impl<C, O, AC, AV> FromDatasetGenericF32<SparseDatasetGeneric<C, f32, O, AC, AV>>
+    for SparseDatasetStreamVbyteFixedu16
 where
-    T: ValueType + fixed::traits::Fixed,
-    T::Bits: SimdyValueType + Send + Sync + ToF32Simd,
     C: ComponentType + DeserializeOwned + Serialize + Hash,
     O: AsRef<[usize]> + SpaceUsage + IntoIterator<Item = usize> + Hash,
     AC: AsRef<[C]> + SpaceUsage + IntoIterator<Item = C> + Hash,
@@ -173,7 +157,7 @@ where
 
         let mut values: Vec<_> = orig_values
             .into_iter()
-            .map(|v| FixedU8Q::from_f32_saturating(v).to_bits())
+            .map(|v| f16::from_f32(v).to_bits())
             .collect();
 
         let mut posting_lengths = Vec::with_capacity(nnz);
@@ -184,7 +168,7 @@ where
                 let v = unsafe { values.get_unchecked_mut(start..end) };
                 posting_lengths.push(c.len() as u16);
 
-                StreamVbyte::<T::Bits>::push_posting(&mut postings_u8, c, v);
+                StreamVbyteFixedu16::push_posting(&mut postings_u8, c, v);
                 postings_u8.len() / size_of::<usize>()
             }))
             .collect();
@@ -209,16 +193,11 @@ where
             postings,
             component_mapping,
             posting_lengths,
-            _phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl<T> SpaceUsage for SparseDatasetStreamVbyte<T>
-where
-    T: ValueType + fixed::traits::Fixed,
-    T::Bits: SimdyValueType + Send + Sync,
-{
+impl SpaceUsage for SparseDatasetStreamVbyteFixedu16 {
     /// Returns the size of the dataset in bytes.
     fn space_usage_byte(&self) -> usize {
         self.dim.space_usage_byte()
@@ -249,7 +228,7 @@ mod tests {
                 .map(|(c, v)| c.into_iter().zip(v).collect_vec()),
         );
 
-        let streamed_dataset = SparseDatasetStreamVbyte::<FixedU8Q>::from_dataset_f32(dataset);
+        let streamed_dataset = SparseDatasetStreamVbyteFixedu16::from_dataset_f32(dataset);
 
         let query_1 = [(0_usize, 1.0), (1, 2.0)];
         let prepared_query_1 = streamed_dataset.prepare_query(query_1.into_iter());
@@ -285,7 +264,7 @@ mod tests {
                 .map(|(c, v)| c.into_iter().zip(v).collect_vec()),
         );
 
-        let streamed_dataset = SparseDatasetStreamVbyte::from_dataset_f32(dataset);
+        let streamed_dataset = SparseDatasetStreamVbyteFixedu16::from_dataset_f32(dataset);
 
         for (i, (components, values)) in [(c0, v0), (c1, v1)].into_iter().enumerate() {
             assert_eq!(
@@ -303,7 +282,7 @@ mod tests {
                     .collect_vec(),
                 (components
                     .into_iter()
-                    .zip(values.into_iter().map(|n| FixedU8Q::saturating_from_num(n))))
+                    .zip(values.into_iter().map(f16::from_f32)))
                 .collect_vec()
             );
         }
@@ -339,7 +318,7 @@ mod tests {
         println!("{:?}", config);
 
         let inverted_index =
-            InvertedIndex::<SparseDatasetStreamVbyte<FixedU8Q>>::from_base_dataset(dataset, config);
+            InvertedIndex::<SparseDatasetStreamVbyteFixedu16>::from_base_dataset(dataset, config);
 
         let (query_components, query_values) = ([0, 1], [1.0, 2.0]);
 

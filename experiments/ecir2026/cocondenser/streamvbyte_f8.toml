@@ -3,8 +3,8 @@ title =         "Seismic Cocondenser on MS MARCO"
 description =   "Seismic Cocondenser on MS MARCO"
 dataset =       "Cocondenser on MS-MARCO"
 #compile-command = 'RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release' # Compile in debug mode? default is release mode
-build-command = ["./target/release/build_inverted_index", "./target/release/convert_inverted_index_stream_vbyte"]
-query-command = "./target/release/perf_inverted_index_stream_vbyte"
+build-command = ["./target/release/build_inverted_index", "./target/release/convert_inverted_index_stream_vbyte_fixedu8"]
+query-command = "./target/release/perf_inverted_index_stream_vbyte_fixedu8"
 
 [settings]
 k =             10
