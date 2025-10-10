@@ -86,12 +86,19 @@ where
         offset: usize,
         len: usize,
     ) -> f32 {
-        let cv = self
-            .get_with_offset_iter(offset, len)
-            .scan(0, |acc, (c, v)| {
-                *acc += c.as_();
+        // this part is required because we are subtracting 1 when storing the components, except for the first one (because it could be 0)
+
+        let mut iter = self.get_with_offset_iter(offset, len);
+        let (first_c, first_v) = iter.next().unwrap();
+        let first_acc = first_c.as_();
+
+        let cv = std::iter::once((first_acc, first_v.to_f32().unwrap())).chain(iter.scan(
+            first_acc,
+            |acc, (c, v)| {
+                *acc += c.as_() + 1;
                 Some((*acc, v.to_f32().unwrap()))
-            });
+            },
+        ));
         dot_product_dense_sparse(prepared_query, cv)
     }
 
@@ -287,7 +294,7 @@ where
 
             components_u32[start] = comps[0].as_() as u32;
             for i in 1..comps.len() {
-                components_u32[start + i] = (comps[i] - comps[i - 1]).as_() as u32;
+                components_u32[start + i] = (comps[i] - comps[i - 1]).as_() as u32 - 1_u32;
             }
         }
 
@@ -383,7 +390,7 @@ where
             components_u32[start] = comps[0].as_() as u32;
             // For better compression, store the component differences
             for i in 1..comps.len() {
-                components_u32[start + i] = (comps[i] - comps[i - 1]).as_() as u32;
+                components_u32[start + i] = (comps[i] - comps[i - 1]).as_() as u32 - 1_u32;
             }
         }
 

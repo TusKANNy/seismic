@@ -216,26 +216,22 @@ where
 /// assert_eq!(result, 2.0);
 /// ```
 #[inline]
-pub fn dot_product_with_binary_search<C, Q, V>(
+pub fn dot_product_with_binary_search<C, Q>(
     query_term_ids: &[C],
     query_values: &[Q],
-    v_term_ids: &[C],
-    v_values: &[V],
+    component_values: impl Iterator<Item = (usize, f32)>,
 ) -> f32
 where
     C: ComponentType,
     Q: ValueType,
-    V: ValueType,
 {
-    unsafe {
-        assert_unchecked(v_term_ids.len() == v_values.len());
-    }
+    let (v_term_ids, v_values): (Vec<usize>, Vec<f32>) = component_values.unzip();
+
     query_term_ids
         .iter()
         .zip(query_values)
         .filter_map(|(t, v)| {
-            binary_search(v_term_ids, t)
-                .map(|i| v.to_f32().unwrap() * v_values[i].to_f32().unwrap())
+            binary_search(&v_term_ids, &t.as_()).map(|i| v.to_f32().unwrap() * v_values[i])
         })
         .sum()
 }
