@@ -88,12 +88,24 @@ where
         offset: usize,
         len: usize,
     ) -> f32 {
-        let cv = self
-            .get_with_offset_iter(offset, len)
-            .scan(0, |acc, (c, v)| {
-                *acc += c.as_();
+        // this part is required because we are subtracting 1 when storing the components, except for the first one (because it could be 0)
+        let mut iter = self.get_with_offset_iter(offset, len);
+        let (first_c, first_v) = iter.next().unwrap();
+        let first_acc = first_c.as_();
+
+        let cv = std::iter::once((first_acc, first_v.to_f32().unwrap())).chain(iter.scan(
+            first_acc,
+            |acc, (c, v)| {
+                *acc += c.as_() + 1;
                 Some((*acc, v.to_f32().unwrap()))
-            });
+            },
+        ));
+        // let cv = self
+        //     .get_with_offset_iter(offset, len)
+        //     .scan(0, |acc, (c, v)| {
+        //         *acc += c.as_() + (if *acc == 0 { 0 } else { 1 });
+        //         Some((*acc, v.to_f32().unwrap()))
+        //     });
         dot_product_dense_sparse(prepared_query, cv)
     }
 
@@ -291,11 +303,10 @@ where
             co_sort!(comps, vals);
             // For better compression, store the component differences
             for i in (1..comps.len()).rev() {
-                comps[i] = comps[i] - comps[i - 1];
+                comps[i] = comps[i] - comps[i - 1] - C::one();
             }
-            // TODO: Completely adjust dot_product
         }
-
+        println!("Using Zeta codec for compressed intvec");
         Self {
             dim,
             offsets,
@@ -388,7 +399,7 @@ where
             co_sort!(comps, vals);
 
             for i in (1..comps.len()).rev() {
-                comps[i] = comps[i] - comps[i - 1];
+                comps[i] = comps[i] - comps[i - 1] - C::one();
             }
         }
 

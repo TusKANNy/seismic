@@ -11,9 +11,12 @@
 
 use indicatif::ProgressIterator;
 use itertools::Itertools;
+use ndarray::linalg::Dot;
 use rayon::iter::plumbing::ProducerCallback;
 use serde::{Deserialize, Serialize};
 
+use core::iter::IntoIterator;
+use core::panic;
 use std::fmt::Debug;
 // Reading files
 use std::fs::File;
@@ -27,7 +30,9 @@ use std::time::Instant;
 use rayon::iter::plumbing::{Consumer, Producer, UnindexedConsumer, bridge};
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
 
-use crate::distances::{dot_product_dense_sparse, dot_product_with_merge};
+use crate::distances::{
+    dot_product_dense_sparse, dot_product_with_binary_search, dot_product_with_merge,
+};
 use crate::utils::{HollowSymmetricMatrix, MetisParams, prefetch_read};
 use crate::{ComponentType, SpaceUsage, ValueType};
 
@@ -348,11 +353,18 @@ where
         let cv = self
             .get_with_offset_iter(offset, len)
             .map(|(c, v)| (c.as_(), v.to_f32().unwrap()));
+
         match prepared_query {
             DotStrategy::Sparse(dense) => dot_product_dense_sparse(dense, cv),
             DotStrategy::Merge((qc, qv)) => {
                 dot_product_with_merge(qc.as_slice(), qv.as_slice(), cv)
-            }
+            } // DotStrategy::Sparse(dense) => {
+
+              //     dot_product_dense_sparse(dense, cv)
+              // }
+              // DotStrategy::Merge((qc, qv)) => {
+              //     dot_product_with_binary_search(qc.as_slice(), qv.as_slice(), cv)
+              // }
         }
     }
 

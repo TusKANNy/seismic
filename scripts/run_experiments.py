@@ -210,7 +210,7 @@ def build_index(configs, experiment_dir):
         if compresssion_kind == "partitioned":
             base_name_clean = base_index_filename.replace(".index.seismic", "")
             output_index_file = f"{base_name_clean}.{n_partitions}_part_{seismic_n_compbits}_compbits.index.seismic"
-        elif compresssion_kind == "vbyte":
+        elif compresssion_kind == "fixedu16" or compresssion_kind == "fixedu8":
             base_name_clean = base_index_filename.replace(".index.seismic", "")
             output_index_file = f"{base_name_clean}_streamvbyte.index.seismic"
         elif compresssion_kind == "baseline":
@@ -658,7 +658,7 @@ def run_experiment(config_data):
                 report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\t{building_time}\n")
 
     # Remove index files if delete parameter is set to true
-    if config_data['settings']['delete']:
+    if config_data['settings'].get('delete', False):
         remove_index_files(index_path)
 
 def main(experiment_config_filename):

@@ -1,10 +1,10 @@
-name =          "grid_search_cocondenser_streamvbyte_f8" 
-title =         "Seismic Cocondenser on MS MARCO"
-description =   "Seismic Cocondenser on MS MARCO"
-dataset =       "Cocondenser on MS-MARCO"
-#compile-command = 'RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release' # Compile in debug mode? default is release mode
-build-command = ["./target/release/build_inverted_index", "./target/release/convert_inverted_index_stream_vbyte_fixedu16"]
-query-command = "./target/release/perf_inverted_index_stream_vbyte_fixedu16"
+name =          "grid_search_spladev3_baseline_streamvbyte_f8" 
+title =         "Seismic SPLADE v3 on MS MARCO"
+description =   "Seismic SPLADE v3 on MS MARCO"
+dataset =       "SPLADE v3 on MS-MARCO"
+# compile-command = "cargo build" # Compile in debug mode? default is release mode
+build-command = ["./target/release/build_inverted_index", "./target/release/convert_inverted_index_streamvbyte_baseline"]
+query-command = "./target/release/perf_inverted_index_streamvbyte_baseline"
 
 [settings]
 k =             10
@@ -13,11 +13,12 @@ n-runs =        1       # Number of runs. PLEASE think carefully how increasing
 #NUMA =          "numactl --physcpubind='0' --localalloc"    # Is the machine NUMA and need to prepend "numactl --physcpubind='0-15' --localalloc" to query command? Otherwise comment this!
 build =         true   # Need to build the index or the index is already built?
 metric =        "RR@10"
+delete =        true
 
 
 [folder] 
-data =          "~/knn_datasets/sparse_datasets/msmarco_v1_passage/cocondenser/data"
-index =         "~/knn_datasets/sparse_datasets/msmarco_v1_passage/cocondenser/indexes"
+data =          "/data2/knn_datasets/sparse_datasets/msmarco_v1_passage/splade_v3/data"
+index =         "/data2/knn_datasets/sparse_datasets/msmarco_v1_passage/splade_v3/indexes"
 qrels_path =    "~/knn_datasets/sparse_datasets/msmarco_v1_passage/qrels.dev.small.tsv"
 experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
 
@@ -27,7 +28,7 @@ queries =       "queries.bin"
 groundtruth =   "groundtruth.tsv"
 doc_ids =       "doc_ids.npy"
 query_ids =     "queries_ids.npy"
-index =         "global_threshold_index_f16"
+index =         "global_threshold_index"
 
 [indexing_parameters]
 n-postings =            [3000]
@@ -40,7 +41,7 @@ max-fraction =          [4.0] # needed only by "global-threshold"
 clustering-algorithm =  ["random-kmeans-inverted-index-approx"] # Possible options are "random-kmeans", "random-kmeans-inverted-index", "random-kmeans-inverted-index-approx"
 kmeans-doc-cut =        [15]    # needed by "random-kmeans-inverted-index" and "random-kmeans-inverted-index-approx"
 # kmeans-pruning-factor = 0.005 # Only used by random-kmeans-inverted-index
-value-type =            ["fixedu8"]  #ignored 
+value-type =            ["fixedu8"]
 min-cluster-size =      [10] 
 
 
