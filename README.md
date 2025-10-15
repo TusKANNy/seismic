@@ -125,7 +125,13 @@ Check out our `docs` folder for detailed guides:
 
 Seismic is an approximate algorithm designed for high-performance retrieval over learned sparse representations. We provide **pre-optimized configurations** for several common datasets, e.g., MsMarco. Check the detailed documentation in [docs/BestResults.md](docs/BestResults.md) and the available optimized configurations in [experiments/best_configs](experiments/best_configs).
 
- 
+### 🧩 Seismic Integration
+
+Seismic is used in several modern libraries
+
+- **[OpenSearch Project](https://github.com/opensearch-project/neural-search/releases)** - From version 3.3.0.0, Seismic is an available approximate nearest neighbors search algorithm for learned sparse representations.
+- **[FlashRAG](https://github.com/RUC-NLPIR/FlashRAG)** - Seismic is one possible choice to perform RAG.
+
 ### <a name="bib">📚 Bibliography</a>
 1. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, and Rossano Venturini. "*Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations*." Proc. ACM SIGIR. 2024. 
 2. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, and Rossano Venturini. "*Pairing Clustered Inverted Indexes with κ-NN Graphs for Fast Approximate Retrieval over Learned Sparse Representations*."  Proc. ACM CIKM. 2024.
