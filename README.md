@@ -129,8 +129,9 @@ Seismic is an approximate algorithm designed for high-performance retrieval over
 
 Seismic is used in several modern libraries
 
-- **[OpenSearch Project](https://github.com/opensearch-project/neural-search/releases)** - From version 3.3.0.0, Seismic is an available approximate nearest neighbors search algorithm for learned sparse representations.
-- **[FlashRAG](https://github.com/RUC-NLPIR/FlashRAG)** - Seismic is one possible choice to perform RAG.
+- **[OpenSearch Project](https://github.com/opensearch-project/neural-search/releases)** - From version 3.3.0.0, Seismic is an available approximate nearest neighbors search algorithm for learned sparse representations. Here, Seismic has been re-implemented in Java.
+- **[HuggingFace SentenceTransformers](https://huggingface.co/sentence-transformers)** - Seismic is available as a "semantic search" algorithm. This integration exploits the Seismic code (Python APIs) made available in this GitHub repo.
+- **[FlashRAG](https://github.com/RUC-NLPIR/FlashRAG)** - Seismic is available as one possible choice to perform search over RAG pipelines. This integration exploits the Seismic code (Python APIs) made available in this GitHub repo.
 
 ### <a name="bib">📚 Bibliography</a>
 1. Sebastian Bruch, Franco Maria Nardini, Cosimo Rulli, and Rossano Venturini. "*Efficient Inverted Indexes for Approximate Retrieval over Learned Sparse Representations*." Proc. ACM SIGIR. 2024. 
