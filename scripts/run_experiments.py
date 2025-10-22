@@ -179,6 +179,10 @@ def build_index(configs, experiment_dir):
     pruning_strategy = configs['indexing_parameters'].get("pruning-strategy", "global-threshold")
     command_and_params.append(f"--pruning-strategy {pruning_strategy}")
 
+    if configs['indexing_parameters'].get("batched-indexing", None):
+        batched_indexing = configs['indexing_parameters']["batched-indexing"]
+        command_and_params.append(f"--batched-indexing {batched_indexing}")
+
     command = ' '.join(command_and_params)
 
     # Print the command that will be executed

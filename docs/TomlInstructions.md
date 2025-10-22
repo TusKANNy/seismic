@@ -189,6 +189,9 @@ alpha =                 0.2                 # COI threshold parameter
 - `alpha`: COI threshold parameter (0.0-1.0) - fraction of L1 mass preserved
 - `max-fraction`: Maximum posting list length as multiple of `n-postings` (e.g., 1.5 = 150% of n-postings)
 
+**Batch Processing:**
+- `batched-indexing`: Optional parameter specifying the chunk size for batched index construction. When set, the index building process will process documents in batches of this size, which can improve performance and memory efficiency on large datasets.
+
 ## Query Section
 
 Multiple query configurations that may achieve different recall targets:
