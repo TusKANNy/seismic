@@ -36,7 +36,7 @@ knn =                   0
 clustering-algorithm =  "random-kmeans" # Possible options are "random-kmeans", "random-kmeans-inverted-index", "random-kmeans-inverted-index-approx"
 kmeans-doc-cut =        15    # needed by "random-kmeans-inverted-index" and "random-kmeans-inverted-index-approx"
 kmeans-pruning-factor = 0.005 # Only used by random-kmeans-inverted-index
-batched-indexing =      500000 # Optional: chunk size for batched index construction
+#batched-indexing =      500000 # Optional: chunk size for batched index construction
 
 [query]
     [query.recall_90]
