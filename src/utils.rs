@@ -181,6 +181,8 @@ pub fn prefetch_read_slice<T>(data: &[T]) {
     // Cache line size on x86 is 64 bytes.
     // The function is written with a pointer because iterating the array seems to prevent loop unrolling, for some reason.
     for i in (0..size_of_val(data)).step_by(64) {
+        // unsafe is needed by some older Rust versions.
+        #[allow(unused_unsafe)]
         unsafe { core::intrinsics::prefetch_read_data::<_, 0>(ptr.wrapping_add(i)) };
     }
 }
