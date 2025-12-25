@@ -113,7 +113,7 @@ macro_rules! match_value_fixed {
                 $macro_name!(FixedU16Q);
             }
             _ => {
-                eprintln!("Error: value-type for StreamVbyte must be 'fixedu8' or 'fixedu16'");
+                eprintln!("Error: value-type must be 'fixedu8' or 'fixedu16'");
                 std::process::exit(1);
             }
         }

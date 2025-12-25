@@ -1,5 +1,4 @@
 #![allow(refining_impl_trait)]
-#![feature(array_windows)]
 #![allow(internal_features)]
 #![feature(core_intrinsics)]
 #![feature(float_algebraic)]
@@ -7,7 +6,6 @@
 #![feature(generic_const_exprs)]
 #![feature(iter_map_windows)]
 #![feature(portable_simd)]
-#![feature(slice_as_array)]
 #![feature(trait_alias)]
 #![feature(vec_into_chunks)]
 #![feature(vec_push_within_capacity)]
@@ -29,13 +27,6 @@ pub use sparse_dataset::SparseDataset;
 pub use sparse_dataset::SparseDatasetMut;
 pub use sparse_dataset::SparseDatasetTrait;
 
-pub mod compressed_dataset;
-pub use compressed_dataset::PermutationStrategy;
-pub mod partitioned_dataset;
-
-pub mod baseline_streamvbyte_dataset;
-pub use crate::baseline_streamvbyte_dataset::dataset::BaselineStreamVByteDataset;
-
 pub mod inverted_index;
 pub use inverted_index::InvertedIndex;
 
@@ -46,12 +37,17 @@ pub use inverted_index_wrapper::SeismicIndex;
 pub mod quantized_summary;
 pub use quantized_summary::QuantizedSummary;
 
-pub mod stream_vbyte_dataset;
-
 mod num_marker;
 
 pub mod space_usage;
 pub use space_usage::SpaceUsage;
+
+#[derive(Debug, Clone)]
+pub enum PermutationStrategy {
+    None,
+    Metis,
+    GraphBisection,
+}
 
 pub mod distances;
 

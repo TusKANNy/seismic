@@ -10,7 +10,6 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-partitioned-dataset = []
 pyo3 = ["dep:pyo3", "dep:numpy"]
 
 [lib]
@@ -18,14 +17,6 @@ name = "seismic"
 
 # "cdylib" is necessary to produce a shared library for Python to import from.
 crate-type = ["cdylib", "lib"]
-
-[[bin]]
-name = "convert_inverted_index_partitioned"
-path = "src/bin/convert_inverted_index_partitioned.rs"
-
-[[bin]]
-name = "perf_inverted_index_partitioned"
-path = "src/bin/perf_inverted_index_partitioned.rs"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -74,8 +65,6 @@ toolkit = { git = "https://github.com/rossanoventurini/toolkit.git" }
 mem_dbg = "0.3.0"
 
 rgb = { git = "https://github.com/JMMackenzie/enhanced-graph-bisection.git" }
-#compressed-intvec = { version = "0.5.2", features = ["serde"] }
-compressed-intvec = {git = "https://github.com/CosimoRulli/compressed-intvec.git", features = ["serde"]}
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 
@@ -85,4 +74,3 @@ path = "src/bin/perf_inverted_index.rs"
 
 [profile.release]
 lto = true
-
