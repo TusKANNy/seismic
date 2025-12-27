@@ -6,9 +6,10 @@ use toolkit::bitfield::BitFieldVec;
 
 use vectorium::dataset::{ScoredRangeDotProduct, ScoredVectorDotProduct};
 use vectorium::{
-    ComponentType, Dataset, Distance, DotProduct, GrowableDataset, QueryEvaluator, SpaceUsage,
-    SparseDataset, SparseDatasetGrowable, SparseQuantizer, SparseVector1D, ValueType, Vector1D,
-    VectorEncoder,
+    ComponentType, Dataset, Distance, DotProduct, DotVByteFixedU8Quantizer, GrowableDataset,
+    PackedDataset, PlainSparseDataset, PlainSparseQuantizer, QueryEvaluator, QueryVectorFor,
+    SpaceUsage, SparseDataset, SparseDatasetGrowable, SparseQuantizer, SparseVector1D, ValueType,
+    Vector1D, VectorEncoder,
 };
 
 use indicatif::ParallelProgressIterator;
@@ -199,10 +200,10 @@ where
         first_sorted: bool,
     ) -> Vec<ScoredVectorFor>
     where
-        E: SparseQuantizer,
         E: VectorEncoder<QueryComponentType = ComponentFor<E>, Distance = DotProduct>,
         QC: AsRef<[ComponentFor<E>]>,
         QV: AsRef<[QueryValueFor<E>]>,
+        SparseVector1D<ComponentFor<E>, QueryValueFor<E>, QC, QV>: QueryVectorFor<E>,
     {
         let query_components = query.components_as_slice();
         let query_values = query.values_as_slice();
@@ -360,7 +361,7 @@ where
     /// Convert the `InvertedIndex`'s dataset to another one.
     pub fn from_inverted_index<T, ET>(inverted_index: InvertedIndex<T, ET>) -> Self
     where
-        S: Dataset<E> + From<SparseDatasetGrowable<E>>,
+        S: Dataset<E> + From<SparseDataset<E>>,
         E: SparseQuantizer<InputValueType = f32, InputComponentType = ComponentFor<E>>,
         E: vectorium::SpaceUsage,
         for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
@@ -388,7 +389,8 @@ where
             let values = vector.values_as_slice();
             growable.push(SparseVector1D::new(components, values));
         }
-        let new_dataset: S = growable.into();
+        let frozen: SparseDataset<E> = growable.into();
+        let new_dataset: S = frozen.into();
         let packs_map: HashMap<_, _> = old_packs
             .into_iter()
             .zip(
@@ -415,7 +417,7 @@ where
     /// Convenience function to build InvertedIndex using a certain dataset as a base, then convering the dataset.
     pub fn from_base_dataset<T, ET>(dataset: T, config: Configuration) -> Self
     where
-        S: Dataset<E> + From<SparseDatasetGrowable<E>>,
+        S: Dataset<E> + From<SparseDataset<E>>,
         E: SparseQuantizer<InputValueType = f32, InputComponentType = ComponentFor<E>>,
         E: vectorium::SpaceUsage,
         for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
@@ -438,6 +440,42 @@ where
     {
         let inverted_index = InvertedIndex::<T, ET>::build(dataset, config);
         Self::from_inverted_index(inverted_index)
+    }
+
+    /// Convert a `PlainSparseDataset<u16, f32>`-backed index into a DotVByte packed dataset.
+    pub fn from_inverted_index_dotvbyte(
+        inverted_index: InvertedIndex<
+            PlainSparseDataset<u16, f32, DotProduct>,
+            PlainSparseQuantizer<u16, f32, DotProduct>,
+        >,
+    ) -> InvertedIndex<PackedDataset<DotVByteFixedU8Quantizer>, DotVByteFixedU8Quantizer> {
+        let old_packs: Box<_> = (0..inverted_index.forward_index.len())
+            .map(|i| PackedPostingBlock::pack(inverted_index.forward_index.range_from_id(i as u64)))
+            .collect();
+
+        let new_dataset: PackedDataset<DotVByteFixedU8Quantizer> =
+            inverted_index.forward_index.into();
+        let packs_map: HashMap<_, _> = old_packs
+            .into_iter()
+            .zip(
+                (0..new_dataset.len())
+                    .map(|i| PackedPostingBlock::pack(new_dataset.range_from_id(i as u64))),
+            )
+            .collect();
+
+        let mut posting_lists = inverted_index.posting_lists;
+        for posting in posting_lists.iter_mut() {
+            for pack in posting.packed_postings.iter_mut() {
+                *pack = packs_map[pack];
+            }
+        }
+
+        InvertedIndex {
+            forward_index: new_dataset,
+            posting_lists,
+            config: inverted_index.config,
+            knn: inverted_index.knn,
+        }
     }
 
     // Add a precomputed knn graph to the index, limiting the number of neighbours to limit if it is not None

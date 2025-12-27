@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use crate::utils::read_from_path;
 use vectorium::{
-    ComponentType, Dataset as VDataset, Distance, DotProduct, SparseQuantizer, SparseVector1D,
+    ComponentType, Dataset as VDataset, Distance, DotProduct, QueryVectorFor, SparseVector1D,
     SpaceUsage, Vector1D, VectorEncoder, read_seismic_format,
 };
 use crate::InvertedIndex;
@@ -73,7 +73,7 @@ pub struct Args {
     #[arg(default_value = "u16")]
     component_type: String,
 
-    /// Value type: f16, bf16, f32, fixedu8, or fixedu16.
+    /// Value type: f16, bf16, f32, fixedu8, fixedu16, or dotvbyte.
     #[clap(long, value_parser)]
     #[arg(default_value = "f16")]
     value_type: String,
@@ -92,10 +92,11 @@ impl Args {
 pub fn run_performance_test_generic<S, E>(args: Args)
 where
     S: VDataset<E> + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
-    E: VectorEncoder<QueryValueType = f32, Distance = DotProduct> + SparseQuantizer,
+    E: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
     ComponentFor<E>: ComponentType + vectorium::ComponentType + serde::Serialize + serde::de::DeserializeOwned,
     QueryComponentFor<E>: ComponentType,
+    SparseVector1D<ComponentFor<E>, f32, Vec<ComponentFor<E>>, Vec<f32>>: QueryVectorFor<E>,
 {
     let index_path = args.index_file;
     let query_cut = args.query_cut;

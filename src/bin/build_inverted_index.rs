@@ -12,8 +12,9 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::time::Instant;
 use vectorium::{
-    Dataset as VDataset, DotProduct, Float, PlainSparseDataset, PlainSparseQuantizer,
-    ScalarSparseQuantizer, SparseDataset, read_seismic_format,
+    Dataset as VDataset, DotProduct, DotVByteFixedU8Quantizer, Float, PackedDataset,
+    PlainSparseDataset, PlainSparseQuantizer, ScalarSparseQuantizer, SparseDataset,
+    read_seismic_format,
 };
 
 #[derive(Parser, Debug)]
@@ -90,7 +91,7 @@ pub struct Args {
     #[arg(default_value = "u16")]
     component_type: String,
 
-    /// Value type: f16, bf16, f32, fixedu16, or fixedu8
+    /// Value type: f16, bf16, f32, fixedu16, fixedu8, or dotvbyte
     #[clap(long, value_parser)]
     #[arg(default_value = "f16")]
     value_type: String,
@@ -201,9 +202,39 @@ where
         "bf16" => write_index(convert_index::<C, bf16>(base_index), args.output_file.as_ref().unwrap(), time),
         "fixedu8" => write_index(convert_index::<C, FixedU8Q>(base_index), args.output_file.as_ref().unwrap(), time),
         "fixedu16" => write_index(convert_index::<C, FixedU16Q>(base_index), args.output_file.as_ref().unwrap(), time),
+        "dotvbyte" => {
+            eprintln!("Error: value-type 'dotvbyte' is only supported with component-type 'u16'");
+            std::process::exit(1);
+        }
         _ => {
             eprintln!(
-                "Error: value-type must be 'f16', 'bf16', 'f32', 'fixedu16', or 'fixedu8'"
+                "Error: value-type must be 'f16', 'bf16', 'f32', 'fixedu16', 'fixedu8', or 'dotvbyte'"
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+fn build_for_component_u16(args: &Args) {
+    let time = Instant::now();
+    let base_index = build_base_index::<u16>(args);
+
+    match args.value_type.as_str() {
+        "f32" => write_index(base_index, args.output_file.as_ref().unwrap(), time),
+        "f16" => write_index(convert_index::<u16, f16>(base_index), args.output_file.as_ref().unwrap(), time),
+        "bf16" => write_index(convert_index::<u16, bf16>(base_index), args.output_file.as_ref().unwrap(), time),
+        "fixedu8" => write_index(convert_index::<u16, FixedU8Q>(base_index), args.output_file.as_ref().unwrap(), time),
+        "fixedu16" => write_index(convert_index::<u16, FixedU16Q>(base_index), args.output_file.as_ref().unwrap(), time),
+        "dotvbyte" => {
+            let converted = InvertedIndex::<
+                PackedDataset<DotVByteFixedU8Quantizer>,
+                DotVByteFixedU8Quantizer,
+            >::from_inverted_index_dotvbyte(base_index);
+            write_index(converted, args.output_file.as_ref().unwrap(), time);
+        }
+        _ => {
+            eprintln!(
+                "Error: value-type must be 'f16', 'bf16', 'f32', 'fixedu16', 'fixedu8', or 'dotvbyte'"
             );
             std::process::exit(1);
         }
@@ -213,7 +244,7 @@ where
 fn main() {
     let args = Args::parse();
     match args.component_type.as_str() {
-        "u16" => build_for_component::<u16>(&args),
+        "u16" => build_for_component_u16(&args),
         "u32" => build_for_component::<u32>(&args),
         _ => {
             eprintln!("Error: component-type must be either 'u16' or 'u32'");

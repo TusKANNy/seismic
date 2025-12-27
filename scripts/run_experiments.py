@@ -226,7 +226,7 @@ def build_index(configs, experiment_dir):
 
 def append_value_type(command_and_params, configs):
     value_type = configs['indexing_parameters']["value-type"]
-    valid_value_types = {"f16", "bf16", "f32", "fixedu8", "fixedu16"}
+    valid_value_types = {"f16", "bf16", "f32", "fixedu8", "fixedu16", "dotvbyte"}
     if value_type not in valid_value_types:
         print(colored(f"ERROR: Invalid value-type '{value_type}'. Valid options are: {', '.join(valid_value_types)}", "red"))
         sys.exit(1)
@@ -455,7 +455,7 @@ def query_execution(configs, query_config, experiment_dir, subsection_name, inde
 
     if configs['indexing_parameters'].get("value-type", None):
         value_type = configs['indexing_parameters']["value-type"]
-        valid_value_types = {"f16", "bf16", "f32", "fixedu8", "fixedu16"}
+        valid_value_types = {"f16", "bf16", "f32", "fixedu8", "fixedu16", "dotvbyte"}
         if value_type not in valid_value_types:
             print(colored(f"ERROR: Invalid value-type '{value_type}'. Valid options are: {', '.join(valid_value_types)}", "red"))
             sys.exit(1)

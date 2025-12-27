@@ -4,8 +4,8 @@ use std::time::Instant;
 use crate::utils::{read_from_path, write_to_path};
 use crate::{ComponentType, InvertedIndex, ValueType};
 use vectorium::{
-    Dataset, DotProduct, PlainSparseDataset, PlainSparseQuantizer, SpaceUsage,
-    SparseDatasetGrowable, SparseQuantizer, SparseVector1D, Vector1D, VectorEncoder,
+    Dataset, DotProduct, PlainSparseDataset, PlainSparseQuantizer, SparseDataset, SpaceUsage,
+    SparseQuantizer, SparseVector1D, Vector1D, VectorEncoder,
 };
 
 #[derive(Parser, Debug)]
@@ -52,7 +52,7 @@ type SparseEncodedVector<'a, E> = SparseVector1D<
 pub fn convert_index_from_f32<S, E>(args: Args)
 where
     S: Dataset<E>
-        + From<SparseDatasetGrowable<E>>
+        + From<SparseDataset<E>>
         + Sync
         + SpaceUsage
         + serde::Serialize

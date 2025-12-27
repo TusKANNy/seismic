@@ -9,7 +9,8 @@ use crate::json_utils::{JsonFormat, extract_jsonl};
 use crate::{ComponentType, ValueType};
 use half::f16;
 use vectorium::{
-    Dataset, Distance, DotProduct, GrowableDataset, SparseDatasetGrowable, SparseQuantizer,
+    Dataset, Distance, DotProduct, GrowableDataset, SparseDataset, SparseDatasetGrowable,
+    SparseQuantizer,
     SparseVector1D, SpaceUsage, Vector1D, VectorEncoder,
 };
 use vectorium::dataset::ScoredVectorDotProduct;
@@ -73,7 +74,7 @@ where
     E: SparseQuantizer<InputComponentType = ComponentFor<E>, InputValueType = f32>,
     E: vectorium::SpaceUsage,
     for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
-    S: From<SparseDatasetGrowable<E>>,
+    S: From<SparseDataset<E>>,
     ComponentFor<E>: ComponentType,
     ValueFor<E>: ValueType,
     QueryValueFor<E>: ValueType,
@@ -192,7 +193,7 @@ where
         E: SparseQuantizer<InputComponentType = ComponentFor<E>, InputValueType = f32>,
         for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
         ComponentFor<E>: ComponentType,
-        S: From<SparseDatasetGrowable<E>>,
+        S: From<SparseDataset<E>>,
     {
         let mut doc_id_mapping = Vec::with_capacity(row_count);
         let mut converted_data = SparseDatasetGrowable::<E>::new(E::new(
@@ -218,7 +219,8 @@ where
             converted_data.push(SparseVector1D::new(components, values));
         }
 
-        let final_data: S = converted_data.into();
+        let frozen: SparseDataset<E> = converted_data.into();
+        let final_data: S = frozen.into();
 
         (final_data, doc_id_mapping, token_to_id_mapping)
     }
@@ -418,7 +420,7 @@ where
 
     pub fn from_dataset(dataset: SeismicDataset<ComponentFor<E>>, config: Configuration) -> Self
     where
-        S: From<SparseDatasetGrowable<E>>,
+        S: From<SparseDataset<E>>,
         E: SparseQuantizer<InputComponentType = ComponentFor<E>, InputValueType = f32>,
         for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
         ComponentFor<E>: ComponentType,
@@ -435,8 +437,9 @@ where
             converted.push(SparseVector1D::new(components, values));
         }
 
+        let frozen: SparseDataset<E> = converted.into();
         Self {
-            inverted_index: InvertedIndex::build(converted.into(), config),
+            inverted_index: InvertedIndex::build(frozen.into(), config),
             document_mapping: Some(dataset.document_mapping.into_boxed_slice()),
             token_to_id_map: dataset.token_to_id_map,
         }
