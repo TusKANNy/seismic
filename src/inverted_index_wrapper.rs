@@ -9,10 +9,10 @@ use crate::json_utils::{JsonFormat, extract_jsonl};
 use crate::{ComponentType, ValueType};
 use half::f16;
 use vectorium::{
-    Dataset, Distance, GrowableDataset as VGrowableDataset, SparseDatasetGrowable, SparseQuantizer,
-    SparseVector1D, Vector1D, VectorEncoder,
+    Dataset, Distance, DotProduct, GrowableDataset, SparseDatasetGrowable, SparseQuantizer,
+    SparseVector1D, SpaceUsage, Vector1D, VectorEncoder,
 };
-use vectorium::dataset::Result as ScoredVector;
+use vectorium::dataset::ScoredVectorDotProduct;
 
 use indicatif::ProgressIterator;
 use itertools::Itertools;
@@ -24,7 +24,7 @@ use serde_json::Deserializer;
 use flate2::read::GzDecoder;
 use tar::Archive;
 
-use crate::{InvertedIndex, SpaceUsage, inverted_index::Configuration, inverted_index::Knn};
+use crate::{InvertedIndex, inverted_index::Configuration, inverted_index::Knn};
 
 type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
 type ValueFor<E> = <E as VectorEncoder>::OutputValueType;
@@ -35,7 +35,7 @@ type SparseEncodedVector<'a, E> = SparseVector1D<
     &'a [ComponentFor<E>],
     &'a [ValueFor<E>],
 >;
-type ScoredVectorFor<E> = ScoredVector<<E as VectorEncoder>::Distance>;
+type ScoredVectorFor = ScoredVectorDotProduct;
 
 #[derive(Default, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SeismicIndex<S, E>
@@ -68,7 +68,7 @@ where
 impl<S, E> SeismicIndex<S, E>
 where
     S: Dataset<E> + Sync + SpaceUsage,
-    E: VectorEncoder<QueryValueType = f32>,
+    E: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
     E: SparseQuantizer<InputComponentType = ComponentFor<E>, InputValueType = f32>,
     E: vectorium::SpaceUsage,
@@ -99,7 +99,7 @@ where
 
     pub fn remap_doc_ids(
         &self,
-        plain_results: impl IntoIterator<Item = ScoredVectorFor<E>>,
+        plain_results: impl IntoIterator<Item = ScoredVectorFor>,
         query_id: &str,
     ) -> Vec<(String, f32, String)> {
         match &self.document_mapping {
@@ -134,7 +134,7 @@ where
         heap_factor: f32,
         n_knn: usize,
         first_sorted: bool,
-    ) -> Vec<ScoredVectorFor<E>> {
+    ) -> Vec<ScoredVectorFor> {
         let (filtered_query_components, filtered_query_values): (Vec<_>, Vec<_>) =
             query_components_original
                 .iter()

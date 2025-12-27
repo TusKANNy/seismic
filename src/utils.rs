@@ -10,9 +10,9 @@ use itertools::Itertools;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::*;
 use vectorium::{
-    Dataset, Distance, QueryEvaluator, SparseQuantizer, SparseVector1D, Vector1D, VectorEncoder,
+    ComponentType, Dataset, Distance, QueryEvaluator, SparseQuantizer, SparseVector1D, SpaceUsage,
+    ValueType, Vector1D, VectorEncoder,
 };
 
 type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;

@@ -33,7 +33,8 @@ use crate::distances::{
     dot_product_dense_sparse, dot_product_with_binary_search, dot_product_with_merge,
 };
 use crate::utils::prefetch_read;
-use crate::{ComponentType, SpaceUsage, ValueType};
+use crate::{ComponentType, ValueType};
+use vectorium::SpaceUsage;
 
 pub trait SparseDatasetTrait {
     type Component: ComponentType;

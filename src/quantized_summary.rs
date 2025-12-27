@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::utils::quantize;
-use crate::SpaceUsage;
 use vectorium::{
-    ComponentType, Dataset, SparseDataset, SparseQuantizer, SparseVector1D, ValueType, Vector1D,
-    VectorEncoder,
+    ComponentType, Dataset, SparseDataset, SparseQuantizer, SparseVector1D, SpaceUsage, ValueType,
+    Vector1D, VectorEncoder,
 };
 
 use rustc_hash::FxHashMap;
@@ -333,7 +332,7 @@ where
         let mut summaries_ids: Vec<u64> = Vec::with_capacity(dataset.nnz());
         let mut codes = Vec::with_capacity(dataset.nnz());
 
-        let (component_ids, mut offsets): (Option<Vec<C>>, Vec<usize>) = if use_sparse_strategy {
+        let (component_ids, offsets): (Option<Vec<C>>, Vec<usize>) = if use_sparse_strategy {
             let mut component_ids = Vec::with_capacity(num_non_empty_components);
             let mut offsets = Vec::with_capacity(num_non_empty_components + 1);
             offsets.push(0);

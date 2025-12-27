@@ -5,14 +5,13 @@ use std::time::Instant;
 
 use crate::utils::read_from_path;
 use vectorium::{
-    Dataset as VDataset, Distance, DotProduct, SparseQuantizer, SparseVector1D, Vector1D,
-    VectorEncoder, read_seismic_format,
+    ComponentType, Dataset as VDataset, Distance, DotProduct, SparseQuantizer, SparseVector1D,
+    SpaceUsage, Vector1D, VectorEncoder, read_seismic_format,
 };
-use crate::*;
+use crate::InvertedIndex;
 
 type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
 type QueryComponentFor<E> = <E as VectorEncoder>::QueryComponentType;
-type QueryValueFor<E> = <E as VectorEncoder>::QueryValueType;
 
 use clap::Parser;
 
@@ -93,7 +92,7 @@ impl Args {
 pub fn run_performance_test_generic<S, E>(args: Args)
 where
     S: VDataset<E> + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
-    E: VectorEncoder<QueryValueType = f32> + SparseQuantizer,
+    E: VectorEncoder<QueryValueType = f32, Distance = DotProduct> + SparseQuantizer,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
     ComponentFor<E>: ComponentType + vectorium::ComponentType + serde::Serialize + serde::de::DeserializeOwned,
     QueryComponentFor<E>: ComponentType,

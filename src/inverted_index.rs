@@ -1,12 +1,14 @@
 use crate::utils::{KHeap, PackedPostingBlock, read_from_path, write_to_path};
-use crate::{QuantizedSummary, SpaceUsage};
+use crate::QuantizedSummary;
+
 use toolkit::BitFieldBoxed;
 use toolkit::bitfield::BitFieldVec;
-use vectorium::dataset::{Result as ScoredVector, ResultGeneric};
+
+use vectorium::dataset::{ScoredRangeDotProduct, ScoredVectorDotProduct};
 use vectorium::{
-    ComponentType, Dataset, Distance, DotProduct, GrowableDataset as VGrowableDataset,
-    QueryEvaluator, SparseDataset, SparseDatasetGrowable, SparseQuantizer, SparseVector1D,
-    ValueType, Vector1D, VectorEncoder,
+    ComponentType, Dataset, Distance, DotProduct, GrowableDataset, QueryEvaluator, SpaceUsage,
+    SparseDataset, SparseDatasetGrowable, SparseQuantizer, SparseVector1D, ValueType, Vector1D,
+    VectorEncoder,
 };
 
 use indicatif::ParallelProgressIterator;
@@ -25,19 +27,16 @@ use std::io::Result as IoResult;
 
 type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
 type ValueFor<E> = <E as VectorEncoder>::OutputValueType;
-type QueryComponentFor<E> = <E as VectorEncoder>::QueryComponentType;
 type QueryValueFor<E> = <E as VectorEncoder>::QueryValueType;
 type SparseEncodedVector<'a, E> =
     SparseVector1D<ComponentFor<E>, ValueFor<E>, &'a [ComponentFor<E>], &'a [ValueFor<E>]>;
-type ScoredRange<E> = ResultGeneric<<E as VectorEncoder>::Distance, PackedPostingBlock>;
-type ScoredVectorFor<E> = ScoredVector<<E as VectorEncoder>::Distance>;
+type ScoredVectorFor = ScoredVectorDotProduct;
 
 #[derive(Default, PartialEq, Clone, Serialize, Deserialize)]
 pub struct InvertedIndex<S, E>
 where
     S: Dataset<E>,
     E: VectorEncoder,
-    ComponentFor<E>: ComponentType,
 {
     forward_index: S,
     #[serde(bound(
@@ -53,7 +52,6 @@ impl<S, E> SpaceUsage for InvertedIndex<S, E>
 where
     S: Dataset<E> + SpaceUsage,
     E: VectorEncoder,
-    ComponentFor<E>: ComponentType,
 {
     fn space_usage_byte(&self) -> usize {
         let forward = SpaceUsage::space_usage_byte(&self.forward_index);
@@ -125,7 +123,6 @@ impl<S, E> InvertedIndex<S, E>
 where
     S: Dataset<E> + Sync,
     E: VectorEncoder,
-    ComponentFor<E>: ComponentType,
 {
     pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
         assert!(
@@ -200,12 +197,10 @@ where
         heap_factor: f32,
         n_knn: usize,
         first_sorted: bool,
-    ) -> Vec<ScoredVectorFor<E>>
+    ) -> Vec<ScoredVectorFor>
     where
         E: SparseQuantizer,
-        E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-        QueryComponentFor<E>: ComponentType,
-        QueryValueFor<E>: ValueType,
+        E: VectorEncoder<QueryComponentType = ComponentFor<E>, Distance = DotProduct>,
         QC: AsRef<[ComponentFor<E>]>,
         QV: AsRef<[QueryValueFor<E>]>,
     {
@@ -264,18 +259,10 @@ where
 
         heap.into_sorted_vec()
             .into_iter()
-            .map(
-                |ResultGeneric {
-                     distance,
-                     vector: pack,
-                 }| {
-                    let range = pack.unpack();
-                    ScoredVector {
-                        distance,
-                        vector: self.forward_index.id_from_range(range),
-                    }
-                },
-            )
+            .map(|scored| ScoredVectorDotProduct {
+                distance: scored.distance,
+                vector: self.forward_index.id_from_range(scored.range),
+            })
             .collect()
     }
 
@@ -283,11 +270,11 @@ where
     pub fn build(dataset: S, config: Configuration) -> Self
     where
         E: SparseQuantizer,
-        E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-        E: VectorEncoder<QueryValueType = f32>,
-        ComponentFor<E>: ComponentType,
-        ValueFor<E>: ValueType,
-        QueryValueFor<E>: ValueType,
+        E: VectorEncoder<
+                QueryComponentType = ComponentFor<E>,
+                QueryValueType = f32,
+                Distance = DotProduct,
+            >,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
@@ -375,14 +362,9 @@ where
     where
         S: Dataset<E> + From<SparseDatasetGrowable<E>>,
         E: SparseQuantizer<InputValueType = f32, InputComponentType = ComponentFor<E>>,
-        E: VectorEncoder<QueryValueType = f32>,
         E: vectorium::SpaceUsage,
-        ComponentFor<E>: ComponentType,
-        ValueFor<E>: ValueType,
         for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
-        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
-        T: Dataset<ET> + SpaceUsage,
+        T: Dataset<ET>,
         ET: VectorEncoder<OutputComponentType = ComponentFor<E>, OutputValueType = f32>,
         for<'a> ET: VectorEncoder<
             EncodedVector<'a> = SparseVector1D<
@@ -392,8 +374,6 @@ where
                 &'a [f32],
             >,
         >,
-        for<'a> <ET as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = f32>,
     {
         // For datasets that are only used as bases for conversion, it would be better to store the id
         let old_packs: Box<_> = (0..inverted_index.forward_index.len())
@@ -437,17 +417,15 @@ where
     where
         S: Dataset<E> + From<SparseDatasetGrowable<E>>,
         E: SparseQuantizer<InputValueType = f32, InputComponentType = ComponentFor<E>>,
-        E: VectorEncoder<QueryValueType = f32>,
         E: vectorium::SpaceUsage,
-        ComponentFor<E>: ComponentType,
-        ValueFor<E>: ValueType,
         for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
-        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
-        T: Dataset<ET> + Sync + SpaceUsage,
+        T: Dataset<ET> + Sync,
         ET: SparseQuantizer,
-        ET: VectorEncoder<QueryComponentType = ComponentFor<ET>>,
-        ET: VectorEncoder<QueryValueType = f32>,
+        ET: VectorEncoder<
+                QueryComponentType = ComponentFor<ET>,
+                QueryValueType = f32,
+                Distance = DotProduct,
+            >,
         ET: VectorEncoder<OutputComponentType = ComponentFor<E>, OutputValueType = f32>,
         for<'a> ET: VectorEncoder<
             EncodedVector<'a> = SparseVector1D<
@@ -457,8 +435,6 @@ where
                 &'a [f32],
             >,
         >,
-        for<'a> <ET as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = f32>,
     {
         let inverted_index = InvertedIndex::<T, ET>::build(dataset, config);
         Self::from_inverted_index(inverted_index)
@@ -473,12 +449,10 @@ where
     // Implementation of the pruning strategy that selects the top-`n_postings` from each posting list
     fn fixed_pruning(dataset: &S, n_postings: usize) -> Vec<Vec<(ValueFor<E>, usize)>>
     where
-        ComponentFor<E>: ComponentType,
-        ValueFor<E>: ValueType,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
-        let mut inverted_pairs: Vec<KHeap<ResultGeneric<DotProduct, usize>>> =
+        let mut inverted_pairs: Vec<KHeap<ScoredVectorDotProduct>> =
             vec![KHeap::new(n_postings); dataset.input_dim()];
 
         for (i, posting) in dataset.iter().enumerate() {
@@ -486,9 +460,9 @@ where
             let values = posting.values_as_slice();
             for (&component, &value) in components.iter().zip(values) {
                 let score = DotProduct::from(value.to_f32().unwrap());
-                inverted_pairs[component.as_()].push(ResultGeneric {
+                inverted_pairs[component.as_()].push(ScoredVectorDotProduct {
                     distance: score,
-                    vector: i,
+                    vector: i as u64,
                 });
             }
         }
@@ -498,12 +472,12 @@ where
             .map(|k| {
                 k.into_sorted_vec()
                     .into_iter()
-                    .map(|ResultGeneric { distance, vector }| {
+                    .map(|ScoredVectorDotProduct { distance, vector }| {
                         (
                             <ValueFor<E> as vectorium::FromF32>::from_f32_saturating(
                                 distance.distance(),
                             ),
-                            vector,
+                            vector as usize,
                         )
                     })
                     .collect()
@@ -539,8 +513,6 @@ where
         max_fraction: f32,
     ) -> Vec<Vec<(ValueFor<E>, usize)>>
     where
-        ComponentFor<E>: ComponentType,
-        ValueFor<E>: ValueType,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
@@ -647,14 +619,13 @@ impl<C: ComponentType> PostingList<C> {
         query: &SparseVector1D<C, QueryValueFor<E>, QC, QV>,
         k: usize,
         heap_factor: f32,
-        heap: &mut KHeap<ScoredRange<E>>,
+        heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
         forward_index: &S,
     ) where
         S: Dataset<E>,
-        E: VectorEncoder,
+        E: VectorEncoder<Distance = DotProduct>,
         QE: QueryEvaluator<E>,
-        QueryValueFor<E>: ValueType,
         QC: AsRef<[C]>,
         QV: AsRef<[QueryValueFor<E>]>,
     {
@@ -688,14 +659,13 @@ impl<C: ComponentType> PostingList<C> {
         query: &SparseVector1D<C, QueryValueFor<E>, QC, QV>,
         k: usize,
         heap_factor: f32,
-        heap: &mut KHeap<ScoredRange<E>>,
+        heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
         forward_index: &S,
     ) where
         S: Dataset<E>,
-        E: VectorEncoder,
+        E: VectorEncoder<Distance = DotProduct>,
         QE: QueryEvaluator<E>,
-        QueryValueFor<E>: ValueType,
         QC: AsRef<[C]>,
         QV: AsRef<[QueryValueFor<E>]>,
     {
@@ -703,7 +673,7 @@ impl<C: ComponentType> PostingList<C> {
         let dots: Vec<_> = dots
             .into_iter()
             .enumerate()
-            .sorted_unstable_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap())
+            .sorted_unstable_by(|&(_, a), &(_, b)| b.partial_cmp(&a).unwrap())
             .collect();
 
         for (block_id, dot) in dots {
@@ -729,12 +699,12 @@ impl<C: ComponentType> PostingList<C> {
         &self,
         evaluator: &QE,
         packed_posting_block: &[PackedPostingBlock],
-        heap: &mut KHeap<ScoredRange<E>>,
+        heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
         forward_index: &S,
     ) where
         S: Dataset<E>,
-        E: VectorEncoder,
+        E: VectorEncoder<Distance = DotProduct>,
         QE: QueryEvaluator<E>,
     {
         let mut iter = packed_posting_block.iter();
@@ -750,11 +720,11 @@ impl<C: ComponentType> PostingList<C> {
             let range = pack.unpack();
 
             if visited.insert(range.start) {
-                let vector = forward_index.get_by_range(range.start..(range.start + range.len()));
+                let vector = forward_index.get_by_range(range.clone());
                 let distance = evaluator.compute_distance(vector);
-                heap.push(ResultGeneric {
+                heap.push(ScoredRangeDotProduct {
                     distance,
-                    vector: *pack,
+                    range,
                 });
             }
 
@@ -773,11 +743,11 @@ impl<C: ComponentType> PostingList<C> {
     where
         S: Dataset<E>,
         E: SparseQuantizer,
-        E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-        E: VectorEncoder<QueryValueType = f32>,
-        E: VectorEncoder<OutputComponentType = C>,
-        ComponentFor<E>: ComponentType,
-        ValueFor<E>: ValueType,
+        E: VectorEncoder<
+                OutputComponentType = C,
+                QueryComponentType = ComponentFor<E>,
+                QueryValueType = f32,
+            >,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
@@ -874,9 +844,6 @@ impl<C: ComponentType> PostingList<C> {
         S: Dataset<E>,
         E: SparseQuantizer,
         E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-        ComponentFor<E>: ComponentType,
-        ValueFor<E>: ValueType,
-        QueryValueFor<E>: ValueType,
         E: VectorEncoder<QueryValueType = f32>,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
@@ -952,8 +919,6 @@ impl<C: ComponentType> PostingList<C> {
     where
         S: Dataset<E>,
         E: VectorEncoder,
-        ComponentFor<E>: ComponentType,
-        ValueFor<E>: ValueType,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
@@ -987,8 +952,6 @@ impl<C: ComponentType> PostingList<C> {
     where
         S: Dataset<E>,
         E: VectorEncoder,
-        ComponentFor<E>: ComponentType,
-        ValueFor<E>: ValueType,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
@@ -1159,10 +1122,8 @@ impl Knn {
     where
         S: Dataset<E> + Sync,
         E: SparseQuantizer,
-        E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
+        E: VectorEncoder<QueryComponentType = ComponentFor<E>, Distance = DotProduct>,
         E: VectorEncoder<QueryValueType = f32>,
-        ComponentFor<E>: ComponentType,
-        ValueFor<E>: ValueType,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
@@ -1258,29 +1219,28 @@ impl Knn {
     }
 
     #[inline]
-    pub fn refine<S, E, QE>(
+    pub(crate) fn refine<S, E, QE>(
         &self,
         evaluator: &QE,
-        heap: &mut KHeap<ScoredRange<E>>,
+        heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
         forward_index: &S,
         in_n_knn: usize,
     ) where
         S: Dataset<E>,
-        E: VectorEncoder,
+        E: VectorEncoder<Distance = DotProduct>,
         QE: QueryEvaluator<E>,
     {
         let n_knn = cmp::min(self.dim, in_n_knn);
 
         let neighbours: Vec<_> = heap.clone().into_sorted_vec();
 
-        for ResultGeneric {
+        for ScoredRangeDotProduct {
             distance: _distance,
-            vector: pack,
+            range,
         } in neighbours.into_iter()
         {
-            let range = pack.unpack();
-            let id = forward_index.id_from_range(range) as usize;
+            let id = forward_index.id_from_range(range.clone()) as usize;
             let base_pos = id * self.dim;
 
             for i in 0..n_knn {
@@ -1290,13 +1250,9 @@ impl Knn {
                 let range = forward_index.range_from_id(neighbour as u64);
 
                 if visited.insert(range.start) {
-                    let vector =
-                        forward_index.get_by_range(range.start..(range.start + range.len()));
+                    let vector = forward_index.get_by_range(range.clone());
                     let distance = evaluator.compute_distance(vector);
-                    heap.push(ResultGeneric {
-                        distance,
-                        vector: PackedPostingBlock::pack(range),
-                    });
+                    heap.push(ScoredRangeDotProduct { distance, range });
                 }
             }
         }

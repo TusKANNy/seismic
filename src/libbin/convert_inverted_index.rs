@@ -2,10 +2,10 @@ use clap::Parser;
 use std::time::Instant;
 
 use crate::utils::{read_from_path, write_to_path};
-use crate::{ComponentType, InvertedIndex, SpaceUsage, ValueType};
+use crate::{ComponentType, InvertedIndex, ValueType};
 use vectorium::{
-    Dataset, DotProduct, PlainSparseDataset, PlainSparseQuantizer, SparseDatasetGrowable,
-    SparseQuantizer, SparseVector1D, Vector1D, VectorEncoder,
+    Dataset, DotProduct, PlainSparseDataset, PlainSparseQuantizer, SpaceUsage,
+    SparseDatasetGrowable, SparseQuantizer, SparseVector1D, Vector1D, VectorEncoder,
 };
 
 #[derive(Parser, Debug)]

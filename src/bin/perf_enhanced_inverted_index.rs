@@ -5,10 +5,9 @@ use std::time::Instant;
 
 use half::f16;
 use seismic::SeismicIndex;
-use seismic::SpaceUsage;
 use seismic::json_utils::read_queries;
 use seismic::utils::read_from_path;
-use vectorium::{DotProduct, ScalarSparseQuantizer, SparseDataset};
+use vectorium::{DotProduct, ScalarSparseQuantizer, SpaceUsage, SparseDataset};
 
 use clap::Parser;
 
