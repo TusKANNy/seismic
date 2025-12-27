@@ -17,10 +17,32 @@ use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::collections::HashMap;
 
 use crate::utils::{read_from_path, write_to_path};
-use crate::{FromDatasetGenericF32, InvertedIndex, SparseDataset, SparseDatasetMut};
+use crate::InvertedIndex;
+use vectorium::{
+    ComponentType, Dataset as VDataset, DotProduct, PlainSparseDataset, ScalarSparseQuantizer,
+    SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D,
+};
 
 const MAX_TOKEN_LEN: usize = 30;
 const SEISMIC_STRING: &str = "U30";
+
+type IndexQuantizer<C> = ScalarSparseQuantizer<C, f32, f16, DotProduct>;
+type IndexDataset<C> = SparseDataset<IndexQuantizer<C>>;
+
+fn quantize_f32_dataset_to_f16<C>(dataset: PlainSparseDataset<C, f32, DotProduct>) -> IndexDataset<C>
+where
+    C: ComponentType,
+{
+    let dim = VDataset::input_dim(&dataset);
+    let quantizer = IndexQuantizer::<C>::new(dim, dim);
+    let mut growable = SparseDatasetGrowable::<IndexQuantizer<C>>::new(quantizer);
+    for vec in dataset.iter() {
+        let components = vec.components_as_slice().to_vec();
+        let values = vec.values_as_slice().to_vec();
+        growable.push(SparseVector1D::new(components, values));
+    }
+    growable.into()
+}
 
 #[pyfunction]
 pub fn get_seismic_string() -> &'static str {
@@ -36,7 +58,7 @@ macro_rules! impl_seismic_index {
         /// dataset using `build` or `build_from_dataset`. See these methods for further details.
         #[pyclass(name= $py_name)]
         pub struct $rust_name {
-            index: Index<SparseDataset<$Key, f16>>,
+            index: Index<IndexDataset<$Key>, IndexQuantizer<$Key>>,
         }
 
         #[pymethods]
@@ -141,8 +163,11 @@ macro_rules! impl_seismic_index {
             #[pyo3(signature = (id))]
             #[pyo3(text_signature = "(self, id)")]
             pub fn get(&self, id: usize) -> PyResult<(Vec<$Key>, Vec<f32>)> {
-                let entry = self.index.dataset().get(id);
-                Ok((entry.0.to_vec(), entry.1.to_f32_vec()))
+                let entry = self.index.dataset().get(id as u64);
+                Ok((
+                    entry.components_as_slice().to_vec(),
+                    entry.values_as_slice().to_f32_vec(),
+                ))
             }
 
             /// Load a previously saved SeismicIndex from disk.
@@ -165,7 +190,8 @@ macro_rules! impl_seismic_index {
             #[pyo3(signature = (index_path))]
             #[pyo3(text_signature = "(index_path)")]
             pub fn load(index_path: &str) -> PyResult<$rust_name> {
-                let index: Index<SparseDataset<$Key, f16>> = read_from_path(index_path).map_err(|e| {
+                let index: Index<IndexDataset<$Key>, IndexQuantizer<$Key>> =
+                    read_from_path(index_path).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to deserialize index from '{}': {}",
                         index_path, e
@@ -354,7 +380,7 @@ macro_rules! impl_seismic_index {
             println!("\nBuilding the index...");
             println!("{:?}", config);
 
-            let index = Index::from_file::<SparseDatasetMut<$Key, f32>>(&input_path.to_owned(), config, input_token_to_id_map)
+            let index = Index::from_file(&input_path.to_owned(), config, input_token_to_id_map)
                 .map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to build index from file: {}. File may not exist or be corrupted. Error: {}",
@@ -635,7 +661,7 @@ macro_rules! impl_seismic_index_raw {
         ///
         #[pyclass(name= $py_name)]
         pub struct $rust_name {
-            inverted_index: InvertedIndex<SparseDataset<$Key, f16>>,
+            inverted_index: InvertedIndex<IndexDataset<$Key>, IndexQuantizer<$Key>>,
         }
 
 
@@ -758,8 +784,11 @@ macro_rules! impl_seismic_index_raw {
             #[pyo3(signature = (id))]
             #[pyo3(text_signature = "(self, id)")]
             pub fn get(&self, id: usize) -> PyResult<(Vec<$Key>, Vec<f32>)> {
-                let entry = self.inverted_index.dataset().get(id);
-                Ok((entry.0.to_vec(), entry.1.to_f32_vec()))
+                let entry = self.inverted_index.dataset().get(id as u64);
+                Ok((
+                    entry.components_as_slice().to_vec(),
+                    entry.values_as_slice().to_f32_vec(),
+                ))
             }
 
             /// Load a previously saved raw SeismicIndex from disk.
@@ -782,7 +811,8 @@ macro_rules! impl_seismic_index_raw {
             #[pyo3(signature = (index_path))]
             #[pyo3(text_signature = "(index_path)")]
             pub fn load(index_path: &str) -> PyResult<$rust_name> {
-                let inverted_index: InvertedIndex<SparseDataset<$Key, f16>> = read_from_path(&index_path).map_err(|e| {
+                let inverted_index: InvertedIndex<IndexDataset<$Key>, IndexQuantizer<$Key>> =
+                    read_from_path(&index_path).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to deserialize index from '{}': {}",
                         index_path, e
@@ -944,7 +974,9 @@ macro_rules! impl_seismic_index_raw {
                 knn_path: Option<String>,
                 batched_indexing: Option<usize>,
             ) -> PyResult<$rust_name> {
-                let dataset = SparseDataset::from_dataset_f32(SparseDatasetMut::<$Key, f32>::read_bin_file(input_file).unwrap());
+                let dataset = vectorium::read_seismic_format::<$Key, f32, DotProduct>(input_file)
+                    .unwrap();
+                let dataset = quantize_f32_dataset_to_f16(dataset);
 
                 let knn_config = KnnConfiguration::new(nknn, knn_path);
 
@@ -1076,7 +1108,8 @@ macro_rules! impl_seismic_index_raw {
                     .build()
                     .unwrap();
 
-                let queries = SparseDatasetMut::<$Key, f32>::read_bin_file(query_path).unwrap();
+                let queries =
+                    vectorium::read_seismic_format::<$Key, f32, DotProduct>(query_path).unwrap();
 
                 queries
                     .dataset_par_iter()

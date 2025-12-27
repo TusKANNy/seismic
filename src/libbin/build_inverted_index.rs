@@ -2,9 +2,9 @@ use crate::inverted_index::{
     BlockingStrategy, ClusteringAlgorithm, ClusteringAlgorithmClap, Configuration,
     KnnConfiguration, PruningStrategy, PruningStrategyClap, SummarizationStrategy,
 };
-use crate::sparse_dataset::SparseDatasetStableTrait;
 use crate::utils::write_to_path;
-use crate::{FromDatasetGenericF32, InvertedIndex, SparseDatasetMut};
+use crate::{ComponentType, InvertedIndex, ValueType};
+use vectorium::{Dataset as VDataset, read_seismic_format, DotProduct, Float};
 
 use clap::Parser;
 use std::time::Instant;
@@ -103,25 +103,24 @@ impl Args {
     }
 }
 
-pub fn build_index_generic<S>(args: Args)
+pub fn build_index_generic<C, V>(args: Args)
 where
-    S: SparseDatasetStableTrait
-        + FromDatasetGenericF32<SparseDatasetMut<S::Component, f32>>
-        + Sync
+    C: ComponentType + vectorium::ComponentType + serde::Serialize + serde::de::DeserializeOwned,
+    V: ValueType
+        + vectorium::ValueType
+        + Float
         + serde::Serialize
         + serde::de::DeserializeOwned,
-    S::Component: serde::Serialize + serde::de::DeserializeOwned,
 {
-    let dataset = S::from_dataset_f32(
-        SparseDatasetMut::<S::Component, f32>::read_bin_file(&args.input_file.unwrap()).unwrap(),
-    );
+    let dataset =
+        read_seismic_format::<C, V, DotProduct>(&args.input_file.unwrap()).unwrap();
 
-    println!("Number of Vectors: {}", dataset.len());
-    println!("Number of Dimensions: {}", dataset.dim());
+    println!("Number of Vectors: {}", VDataset::len(&dataset));
+    println!("Number of Dimensions: {}", VDataset::input_dim(&dataset));
 
     println!(
         "Avg number of components: {:.2}",
-        dataset.nnz() as f32 / dataset.len() as f32
+        VDataset::nnz(&dataset) as f32 / VDataset::len(&dataset) as f32
     );
 
     let time = Instant::now();

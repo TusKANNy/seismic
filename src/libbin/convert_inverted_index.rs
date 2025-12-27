@@ -2,7 +2,11 @@ use clap::Parser;
 use std::time::Instant;
 
 use crate::utils::{read_from_path, write_to_path};
-use crate::{FromDatasetGenericF32, InvertedIndex, SparseDataset, SparseDatasetTrait};
+use crate::{ComponentType, InvertedIndex, SpaceUsage, ValueType};
+use vectorium::{
+    Dataset, DotProduct, PlainSparseDataset, PlainSparseQuantizer, SparseDatasetGrowable,
+    SparseQuantizer, SparseVector1D, Vector1D, VectorEncoder,
+};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -36,19 +40,38 @@ impl Args {
     }
 }
 
-pub fn convert_index_from_f32<S>(args: Args)
+type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
+type ValueFor<E> = <E as VectorEncoder>::OutputValueType;
+type SparseEncodedVector<'a, E> = SparseVector1D<
+    ComponentFor<E>,
+    ValueFor<E>,
+    &'a [ComponentFor<E>],
+    &'a [ValueFor<E>],
+>;
+
+pub fn convert_index_from_f32<S, E>(args: Args)
 where
-    S: SparseDatasetTrait
-        + FromDatasetGenericF32<SparseDataset<S::Component, f32>>
+    S: Dataset<E>
+        + From<SparseDatasetGrowable<E>>
         + Sync
+        + SpaceUsage
         + serde::Serialize
         + serde::de::DeserializeOwned,
-    S::Component: serde::Serialize + serde::de::DeserializeOwned,
+    E: SparseQuantizer<InputComponentType = ComponentFor<E>, InputValueType = f32>,
+    E: VectorEncoder<QueryValueType = f32>,
+    E: vectorium::SpaceUsage,
+    for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
+    ComponentFor<E>: serde::Serialize + serde::de::DeserializeOwned + ComponentType,
+    ValueFor<E>: ValueType,
+    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
 {
     println!("Loading inverted index...");
 
-    let inverted_index: InvertedIndex<SparseDataset<S::Component, f32>> =
-        read_from_path(&args.index_file.unwrap()).unwrap();
+    let inverted_index: InvertedIndex<
+        PlainSparseDataset<ComponentFor<E>, f32, DotProduct>,
+        PlainSparseQuantizer<ComponentFor<E>, f32, DotProduct>,
+    > = read_from_path(&args.index_file.unwrap()).unwrap();
 
     println!("Number of Vectors: {}", inverted_index.len());
     println!("Number of Dimensions: {}", inverted_index.dim());
@@ -61,7 +84,7 @@ where
     let time = Instant::now();
 
     println!("Converting the inverted index...");
-    let inverted_index_partitioned = InvertedIndex::<S>::from_inverted_index(inverted_index);
+    let inverted_index_partitioned = InvertedIndex::<S, E>::from_inverted_index(inverted_index);
 
     let elapsed = time.elapsed();
     println!(

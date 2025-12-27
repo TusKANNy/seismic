@@ -8,9 +8,9 @@ use seismic::SeismicIndex;
 use seismic::SpaceUsage;
 use seismic::json_utils::read_queries;
 use seismic::utils::read_from_path;
+use vectorium::{DotProduct, ScalarSparseQuantizer, SparseDataset};
 
 use clap::Parser;
-use seismic::SparseDataset;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -74,7 +74,10 @@ pub fn main() {
 
     let nknn = args.n_knn;
 
-    let inverted_index: SeismicIndex<SparseDataset<u16, f16>> =
+    type Encoder = ScalarSparseQuantizer<u16, f32, f16, DotProduct>;
+    type Dataset = SparseDataset<Encoder>;
+
+    let inverted_index: SeismicIndex<Dataset, Encoder> =
         read_from_path(index_path.unwrap().as_str()).unwrap();
 
     //let queries = SparseDataset::<f32>::read_bin_file(&query_path.unwrap()).unwrap();
@@ -95,7 +98,7 @@ pub fn main() {
         inverted_index.nnz() / inverted_index.len()
     );
 
-    let mut results = Vec::with_capacity(n_queries);
+    let mut results: Vec<Vec<(String, f32, String)>> = Vec::with_capacity(n_queries);
     let time = Instant::now();
     for _ in 0..n_runs {
         results.clear();

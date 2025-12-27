@@ -1,5 +1,4 @@
 use clap::Parser;
-use seismic::SparseDataset;
 use seismic::libbin::build_inverted_index::*;
 use seismic::match_component_value;
 
@@ -13,7 +12,7 @@ pub fn main() {
                 stringify!($C),
                 stringify!($V)
             );
-            build_index_generic::<SparseDataset<$C, $V>>(args);
+            build_index_generic::<$C, $V>(args);
         };
     }
 

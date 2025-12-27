@@ -1,8 +1,9 @@
-use crate::sparse_dataset::SparseDatasetStableTrait;
 use crate::utils::{KHeap, PackedPostingBlock, ScoredItem, read_from_path, write_to_path};
-use crate::{
-    ComponentType, FromDatasetGenericF32, QuantizedSummary, SpaceUsage, SparseDataset,
-    SparseDatasetMut, SparseDatasetTrait, ValueType,
+use crate::{QuantizedSummary, SpaceUsage};
+use vectorium::{
+    ComponentType, Dataset, Distance as VDistance, GrowableDataset as VGrowableDataset,
+    QueryEvaluator, SparseDataset, SparseDatasetGrowable, SparseQuantizer, SparseVector1D,
+    ValueType, Vector1D, VectorEncoder,
 };
 use toolkit::BitFieldBoxed;
 use toolkit::bitfield::BitFieldVec;
@@ -17,30 +18,46 @@ use std::cmp;
 
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
+use mem_dbg::{MemSize, SizeFlags};
 
 use std::io::Result as IoResult;
 
-#[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub struct InvertedIndex<S>
+type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
+type ValueFor<E> = <E as VectorEncoder>::OutputValueType;
+type QueryComponentFor<E> = <E as VectorEncoder>::QueryComponentType;
+type QueryValueFor<E> = <E as VectorEncoder>::QueryValueType;
+type SparseEncodedVector<'a, E> = SparseVector1D<
+    ComponentFor<E>,
+    ValueFor<E>,
+    &'a [ComponentFor<E>],
+    &'a [ValueFor<E>],
+>;
+
+#[derive(Default, PartialEq, Clone, Serialize, Deserialize)]
+pub struct InvertedIndex<S, E>
 where
-    S: SparseDatasetTrait,
+    S: Dataset<E>,
+    E: VectorEncoder,
+    ComponentFor<E>: ComponentType,
 {
     forward_index: S,
     #[serde(bound(
-        serialize = "S::Component: Serialize",
-        deserialize = "S::Component: DeserializeOwned"
+        serialize = "ComponentFor<E>: Serialize",
+        deserialize = "ComponentFor<E>: DeserializeOwned"
     ))]
-    posting_lists: Box<[PostingList<S::Component>]>,
+    posting_lists: Box<[PostingList<ComponentFor<E>>]>,
     config: Configuration,
     knn: Option<Knn>,
 }
 
-impl<S> SpaceUsage for InvertedIndex<S>
+impl<S, E> SpaceUsage for InvertedIndex<S, E>
 where
-    S: SparseDatasetTrait,
+    S: Dataset<E> + SpaceUsage,
+    E: VectorEncoder,
+    ComponentFor<E>: ComponentType,
 {
     fn space_usage_byte(&self) -> usize {
-        let forward = self.forward_index.space_usage_byte();
+        let forward = SpaceUsage::space_usage_byte(&self.forward_index);
 
         let postings: usize = self
             .posting_lists
@@ -105,9 +122,11 @@ impl Configuration {
     }
 }
 
-impl<S> InvertedIndex<S>
+impl<S, E> InvertedIndex<S, E>
 where
-    S: SparseDatasetTrait + Sync,
+    S: Dataset<E> + Sync,
+    E: VectorEncoder,
+    ComponentFor<E>: ComponentType,
 {
     pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
         assert!(
@@ -116,16 +135,19 @@ where
             list_id
         );
         self.posting_lists[list_id]
-            .get_all_doc_offsets()
+            .get_all_doc_ranges()
             .into_iter()
-            .map(|offset| self.forward_index.offset_to_id(offset))
+            .map(|range| self.forward_index.id_from_range(range) as usize)
             .collect()
     }
 
     /// Help function to print the space usage of the index.
-    pub fn print_space_usage_byte(&self) -> usize {
+    pub fn print_space_usage_byte(&self) -> usize
+    where
+        S: SpaceUsage,
+    {
         println!("Space Usage:");
-        let forward = self.forward_index.space_usage_byte();
+        let forward = SpaceUsage::space_usage_byte(&self.forward_index);
         println!("\tForward Index: {:} Bytes", forward);
 
         // Breakdown dettagliato delle posting lists
@@ -171,10 +193,10 @@ where
 
     #[allow(clippy::too_many_arguments)]
     #[must_use]
-    pub fn search<W>(
+    pub fn search(
         &self,
-        query_components: &[S::Component],
-        query_values: &[W],
+        query_components: &[ComponentFor<E>],
+        query_values: &[QueryValueFor<E>],
         k: usize,
         query_cut: usize,
         heap_factor: f32,
@@ -182,7 +204,10 @@ where
         first_sorted: bool,
     ) -> Vec<(f32, usize)>
     where
-        W: ValueType,
+        E: SparseQuantizer,
+        E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
+        QueryComponentFor<E>: ComponentType,
+        QueryValueFor<E>: ValueType,
     {
         // Assert that query components are sorted in case of using a mergsort like strategy for the dot product
         assert!(
@@ -190,12 +215,8 @@ where
             "Query components must be sorted in ascending order."
         );
 
-        let prepared_query = self.forward_index.prepare_query(
-            query_components
-                .iter()
-                .zip(query_values)
-                .map(|(&c, &v)| (c, v)),
-        );
+        let query = SparseVector1D::new(query_components, query_values);
+        let evaluator = self.forward_index.get_query_evaluator(&query);
 
         let mut heap = KHeap::new(k);
         let mut visited = HashSet::with_capacity(query_cut.min(query_components.len()) * 5000); // TODO: 5000 should be n_postings
@@ -207,7 +228,7 @@ where
             .k_largest_by(query_cut, |a, b| a.1.partial_cmp(b.1).unwrap());
         if first_sorted && let Some((&component_id, _value)) = iter.next() {
             self.posting_lists[component_id.as_()].sort_and_search(
-                &prepared_query,
+                &evaluator,
                 query_components,
                 query_values,
                 k,
@@ -219,7 +240,7 @@ where
         }
         for (&component_id, _value) in iter {
             self.posting_lists[component_id.as_()].search(
-                &prepared_query,
+                &evaluator,
                 query_components,
                 query_values,
                 k,
@@ -233,7 +254,7 @@ where
             && let Some(knn) = self.knn.as_ref()
         {
             knn.refine(
-                &prepared_query,
+                &evaluator,
                 &mut heap,
                 &mut visited,
                 &self.forward_index,
@@ -243,8 +264,9 @@ where
 
         heap.into_sorted_vec()
             .into_iter()
-            .map(|ScoredItem { id: offset, score }| {
-                (score, self.forward_index.offset_to_id(offset))
+            .map(|ScoredItem { id: pack, score }| {
+                let range = pack.unpack();
+                (score, self.forward_index.id_from_range(range) as usize)
             })
             .collect()
     }
@@ -252,7 +274,14 @@ where
     /// `n_postings`: minimum number of postings to select for each component
     pub fn build(dataset: S, config: Configuration) -> Self
     where
-        S: SparseDatasetStableTrait,
+        E: SparseQuantizer,
+        E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
+        E: VectorEncoder<QueryValueType = f32>,
+        ComponentFor<E>: ComponentType,
+        ValueFor<E>: ValueType,
+        QueryValueFor<E>: ValueType,
+        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
         print!("Distributing and pruning postings: ");
         let time = Instant::now();
@@ -308,7 +337,7 @@ where
             };
         }
 
-        let me = InvertedIndex::<S> {
+        let me = InvertedIndex::<S, E> {
             forward_index: dataset,
             posting_lists: posting_lists.into_boxed_slice(),
             config: config.clone(),
@@ -334,26 +363,43 @@ where
     }
 
     /// Convert the `InvertedIndex`'s dataset to another one.
-    pub fn from_inverted_index<T>(inverted_index: InvertedIndex<T>) -> Self
+    pub fn from_inverted_index<T, ET>(inverted_index: InvertedIndex<T, ET>) -> Self
     where
-        S: SparseDatasetTrait<Component = T::Component>
-            + FromDatasetGenericF32<T>
-            + SparseDatasetTrait,
-        T: SparseDatasetStableTrait,
+        S: Dataset<E> + From<SparseDatasetGrowable<E>>,
+        E: SparseQuantizer<InputValueType = f32, InputComponentType = ComponentFor<E>>,
+        E: VectorEncoder<QueryValueType = f32>,
+        E: vectorium::SpaceUsage,
+        ComponentFor<E>: ComponentType,
+        ValueFor<E>: ValueType,
+        for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
+        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+        T: Dataset<ET> + SpaceUsage,
+        ET: VectorEncoder<OutputComponentType = ComponentFor<E>, OutputValueType = f32>,
+        for<'a> ET: VectorEncoder<
+                EncodedVector<'a> = SparseVector1D<ComponentFor<E>, f32, &'a [ComponentFor<E>], &'a [f32]>,
+            >,
+        for<'a> <ET as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<ComponentType = ComponentFor<E>, ValueType = f32>,
     {
         // For datasets that are only used as bases for conversion, it would be better to store the id
         let old_packs: Box<_> = (0..inverted_index.forward_index.len())
-            .map(|i| {
-                let range = inverted_index.forward_index.offset_range(i);
-                PackedPostingBlock::new_pack(range.start as u64, range.len() as u16)
-            })
+            .map(|i| PackedPostingBlock::pack(inverted_index.forward_index.range_from_id(i as u64)))
             .collect();
-        let new_dataset = S::from_dataset_f32(inverted_index.forward_index);
+        let input_dim = inverted_index.forward_index.input_dim();
+        let output_dim = inverted_index.forward_index.output_dim();
+        let quantizer = E::new(input_dim, output_dim);
+        let mut growable = SparseDatasetGrowable::<E>::new(quantizer);
+        for vector in inverted_index.forward_index.iter() {
+            let components = vector.components_as_slice();
+            let values = vector.values_as_slice();
+            growable.push(SparseVector1D::new(components, values));
+        }
+        let new_dataset: S = growable.into();
         let packs_map: HashMap<_, _> = old_packs
             .into_iter()
             .zip((0..new_dataset.len()).map(|i| {
-                let range = new_dataset.offset_range(i);
-                PackedPostingBlock::new_pack(range.start as u64, range.len() as u16)
+                PackedPostingBlock::pack(new_dataset.range_from_id(i as u64))
             }))
             .collect();
 
@@ -373,14 +419,29 @@ where
     }
 
     /// Convenience function to build InvertedIndex using a certain dataset as a base, then convering the dataset.
-    pub fn from_base_dataset<T>(dataset: T, config: Configuration) -> Self
+    pub fn from_base_dataset<T, ET>(dataset: T, config: Configuration) -> Self
     where
-        S: SparseDatasetTrait<Component = T::Component>
-            + FromDatasetGenericF32<T>
-            + SparseDatasetTrait,
-        T: SparseDatasetStableTrait + Sync,
+        S: Dataset<E> + From<SparseDatasetGrowable<E>>,
+        E: SparseQuantizer<InputValueType = f32, InputComponentType = ComponentFor<E>>,
+        E: VectorEncoder<QueryValueType = f32>,
+        E: vectorium::SpaceUsage,
+        ComponentFor<E>: ComponentType,
+        ValueFor<E>: ValueType,
+        for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
+        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+        T: Dataset<ET> + Sync + SpaceUsage,
+        ET: SparseQuantizer,
+        ET: VectorEncoder<QueryComponentType = ComponentFor<ET>>,
+        ET: VectorEncoder<QueryValueType = f32>,
+        ET: VectorEncoder<OutputComponentType = ComponentFor<E>, OutputValueType = f32>,
+        for<'a> ET: VectorEncoder<
+                EncodedVector<'a> = SparseVector1D<ComponentFor<E>, f32, &'a [ComponentFor<E>], &'a [f32]>,
+            >,
+        for<'a> <ET as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<ComponentType = ComponentFor<E>, ValueType = f32>,
     {
-        let inverted_index = InvertedIndex::<T>::build(dataset, config);
+        let inverted_index = InvertedIndex::<T, ET>::build(dataset, config);
         Self::from_inverted_index(inverted_index)
     }
 
@@ -391,11 +452,19 @@ where
     }
 
     // Implementation of the pruning strategy that selects the top-`n_postings` from each posting list
-    fn fixed_pruning(dataset: &S, n_postings: usize) -> Vec<Vec<(S::Value, usize)>> {
-        let mut inverted_pairs = vec![KHeap::new(n_postings); dataset.dim()];
+    fn fixed_pruning(dataset: &S, n_postings: usize) -> Vec<Vec<(ValueFor<E>, usize)>>
+    where
+        ComponentFor<E>: ComponentType,
+        ValueFor<E>: ValueType,
+        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+    {
+        let mut inverted_pairs = vec![KHeap::new(n_postings); dataset.input_dim()];
 
         for (i, posting) in dataset.iter().enumerate() {
-            for (component, value) in posting {
+            let components = posting.components_as_slice();
+            let values = posting.values_as_slice();
+            for (&component, &value) in components.iter().zip(values) {
                 // ScoredItem wasn't exactly meant to be used like this, but it works, so why not!
                 inverted_pairs[component.as_()].push(ScoredItem::new(i, value));
             }
@@ -438,15 +507,30 @@ where
         dataset: &S,
         n_postings: usize,
         max_fraction: f32,
-    ) -> Vec<Vec<(S::Value, usize)>> {
-        let mut new_inverted_pairs = vec![Vec::new(); dataset.dim()];
+    ) -> Vec<Vec<(ValueFor<E>, usize)>>
+    where
+        ComponentFor<E>: ComponentType,
+        ValueFor<E>: ValueType,
+        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+    {
+        let mut new_inverted_pairs = vec![Vec::new(); dataset.input_dim()];
 
-        let tot_postings = dataset.dim() * n_postings; // overall number of postings to select
+        let tot_postings = dataset.input_dim() * n_postings; // overall number of postings to select
 
         let largest_entries = dataset
             .iter()
             .enumerate()
-            .flat_map(|(i, posting)| posting.map(move |p| (i, p)))
+            .flat_map(|(i, posting)| {
+                let components = posting.components_as_slice();
+                let values = posting.values_as_slice();
+                components
+                    .iter()
+                    .copied()
+                    .zip(values.iter().copied())
+                    .map(|p| (i, p))
+                    .collect::<Vec<_>>()
+            })
             .k_largest_by(tot_postings, |(_, (_, score_a)), (_, (_, score_b))| {
                 score_a.partial_cmp(score_b).unwrap()
             });
@@ -495,7 +579,7 @@ where
 
     /// Returns the id of the largest component, i.e., the dimensionality of the vectors in the dataset.
     pub fn dim(&self) -> usize {
-        self.forward_index.dim()
+        self.forward_index.input_dim()
     }
 
     /// Returns the number of non-zero components in the dataset.
@@ -538,30 +622,31 @@ impl<C: ComponentType> SpaceUsage for PostingList<C> {
 }
 
 impl<C: ComponentType> PostingList<C> {
-    pub fn get_all_doc_offsets(&self) -> Vec<usize> {
-        let mut doc_ids = Vec::with_capacity(self.packed_postings.len());
+    pub fn get_all_doc_ranges(&self) -> Vec<std::ops::Range<usize>> {
+        let mut ranges = Vec::with_capacity(self.packed_postings.len());
         for pack in self.packed_postings.iter() {
-            let (offset, _) = pack.unpack();
-            doc_ids.push(offset);
+            ranges.push(pack.unpack());
         }
 
-        doc_ids
+        ranges
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn search<S, W>(
+    pub fn search<S, E, QE>(
         &self,
-        prepared_query: &S::PreparedQuery<C, W>,
+        evaluator: &QE,
         query_components: &[C],
-        query_values: &[W],
+        query_values: &[QueryValueFor<E>],
         k: usize,
         heap_factor: f32,
-        heap: &mut KHeap<ScoredItem<f32>>,
+        heap: &mut KHeap<ScoredItem<f32, PackedPostingBlock>>,
         visited: &mut HashSet<usize>,
         forward_index: &S,
     ) where
-        S: SparseDatasetTrait,
-        W: ValueType,
+        S: Dataset<E>,
+        E: VectorEncoder,
+        QE: QueryEvaluator<E>,
+        QueryValueFor<E>: ValueType,
     {
         let dots = self.summaries.distances(query_components, query_values);
 
@@ -576,13 +661,7 @@ impl<C: ComponentType> PostingList<C> {
             let packed_posting_block = &self.packed_postings
                 [self.block_offsets[block_id]..self.block_offsets[block_id + 1]];
 
-            self.evaluate_posting_block(
-                prepared_query,
-                packed_posting_block,
-                heap,
-                visited,
-                forward_index,
-            );
+            self.evaluate_posting_block(evaluator, packed_posting_block, heap, visited, forward_index);
         }
     }
 
@@ -590,19 +669,21 @@ impl<C: ComponentType> PostingList<C> {
     // TODO: The reason the function is basically duplicated is to avoid pointless allocations if we don't need to sort.
     // Maybe there is a prettier way to do this without duplicating.
     #[allow(clippy::too_many_arguments)]
-    pub fn sort_and_search<S, W>(
+    pub fn sort_and_search<S, E, QE>(
         &self,
-        prepared_query: &S::PreparedQuery<C, W>,
+        evaluator: &QE,
         query_components: &[C],
-        query_values: &[W],
+        query_values: &[QueryValueFor<E>],
         k: usize,
         heap_factor: f32,
-        heap: &mut KHeap<ScoredItem<f32>>,
+        heap: &mut KHeap<ScoredItem<f32, PackedPostingBlock>>,
         visited: &mut HashSet<usize>,
         forward_index: &S,
     ) where
-        S: SparseDatasetTrait,
-        W: ValueType,
+        S: Dataset<E>,
+        E: VectorEncoder,
+        QE: QueryEvaluator<E>,
+        QueryValueFor<E>: ValueType,
     {
         let dots = self.summaries.distances(query_components, query_values);
         let dots: Vec<_> = dots
@@ -619,13 +700,7 @@ impl<C: ComponentType> PostingList<C> {
             let packed_posting_block = &self.packed_postings
                 [self.block_offsets[block_id]..self.block_offsets[block_id + 1]];
 
-            self.evaluate_posting_block(
-                prepared_query,
-                packed_posting_block,
-                heap,
-                visited,
-                forward_index,
-            );
+            self.evaluate_posting_block(evaluator, packed_posting_block, heap, visited, forward_index);
         }
 
         // println!(
@@ -637,17 +712,17 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn evaluate_posting_block<S, D, W>(
+    fn evaluate_posting_block<S, E, QE>(
         &self,
-        prepared_query: &S::PreparedQuery<D, W>,
+        evaluator: &QE,
         packed_posting_block: &[PackedPostingBlock],
-        heap: &mut KHeap<ScoredItem<f32>>,
+        heap: &mut KHeap<ScoredItem<f32, PackedPostingBlock>>,
         visited: &mut HashSet<usize>,
         forward_index: &S,
     ) where
-        S: SparseDatasetTrait,
-        D: ComponentType,
-        W: ValueType,
+        S: Dataset<E>,
+        E: VectorEncoder,
+        QE: QueryEvaluator<E>,
     {
         let mut iter = packed_posting_block.iter();
         let mut cur_pack = iter.next();
@@ -655,16 +730,17 @@ impl<C: ComponentType> PostingList<C> {
         while let Some(pack) = cur_pack {
             let next_pack = iter.next();
             if let Some(p) = next_pack {
-                let (next_offset, next_len) = p.unpack();
-                forward_index.prefetch_with_offset(next_offset, next_len);
+                let range = p.unpack();
+                forward_index.prefetch(range.start..(range.start + range.len()));
             }
 
-            let (offset, len) = pack.unpack();
+            let range = pack.unpack();
 
-            if visited.insert(offset) {
-                let distance = forward_index.dot_product_from_offset(prepared_query, offset, len);
+            if visited.insert(range.start) {
+                let vector = forward_index.get_by_range(range.start..(range.start + range.len()));
+                let distance = evaluator.compute_distance(vector).distance();
 
-                heap.push(ScoredItem::new(offset, distance));
+                heap.push(ScoredItem::new(*pack, distance));
             }
 
             cur_pack = next_pack;
@@ -674,9 +750,17 @@ impl<C: ComponentType> PostingList<C> {
     /// Gets a posting list already pruned and represents it by using a blocking
     /// strategy to partition postings into block and a summarization strategy to
     /// represents the summary of each block.
-    pub fn build<S>(dataset: &S, postings: &[(S::Value, usize)], config: &Configuration) -> Self
+    pub fn build<S, E>(dataset: &S, postings: &[(ValueFor<E>, usize)], config: &Configuration) -> Self
     where
-        S: SparseDatasetTrait<Component = C>,
+        S: Dataset<E>,
+        E: SparseQuantizer,
+        E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
+        E: VectorEncoder<QueryValueType = f32>,
+        E: VectorEncoder<OutputComponentType = C>,
+        ComponentFor<E>: ComponentType,
+        ValueFor<E>: ValueType,
+        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
         let mut posting_list: Vec<_> = postings.iter().map(|(_, docid)| *docid).collect();
 
@@ -698,8 +782,16 @@ impl<C: ComponentType> PostingList<C> {
             ),
         };
 
-        let summary = SparseDatasetMut::from_iter(block_offsets.array_windows().map(
-            |&[block_start, block_end]| match config.summarization {
+        let quantizer = vectorium::PlainSparseQuantizer::<C, f32, vectorium::DotProduct>::new(
+            dataset.input_dim(),
+            dataset.input_dim(),
+        );
+        let mut summary =
+            SparseDatasetGrowable::<vectorium::PlainSparseQuantizer<C, f32, vectorium::DotProduct>>::new(
+                quantizer,
+            );
+        for (components, values) in block_offsets.array_windows().map(|&[block_start, block_end]| {
+            let summary_vec = match config.summarization {
                 SummarizationStrategy::FixedSize { n_components } => Self::fixed_size_summary(
                     dataset,
                     &posting_list[block_start..block_end],
@@ -713,21 +805,22 @@ impl<C: ComponentType> PostingList<C> {
                     &posting_list[block_start..block_end],
                     fraction,
                 ),
-            },
-        ));
+            };
+            let (components, values): (Vec<C>, Vec<f32>) = summary_vec.into_iter().unzip();
+            (components, values)
+        }) {
+            summary.push(SparseVector1D::new(components, values));
+        }
 
         let packed_postings: Vec<_> = posting_list
             .iter()
-            .map(|&doc_id| {
-                let range = dataset.offset_range(doc_id);
-                PackedPostingBlock::new_pack(range.start as u64, range.len() as u16)
-            })
+            .map(|&doc_id| PackedPostingBlock::pack(dataset.range_from_id(doc_id as u64)))
             .collect();
 
         Self {
             packed_postings: packed_postings.into_boxed_slice(),
             block_offsets: block_offsets.into_boxed_slice(),
-            summaries: QuantizedSummary::from(SparseDataset::from(summary)), // Avoid to do from SparseDatasetMut. Probably fixed when moving to kANNolo SparseDataset
+            summaries: QuantizedSummary::from(SparseDataset::from(summary)),
         }
     }
 
@@ -746,7 +839,7 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     // Panics if the number of centroids is greater than u16::MAX.
-    fn blocking_with_random_kmeans<S>(
+    fn blocking_with_random_kmeans<S, E>(
         posting_list: &mut [usize],
         centroid_fraction: f32,
         min_cluster_size: usize,
@@ -754,7 +847,15 @@ impl<C: ComponentType> PostingList<C> {
         clustering_algorithm: ClusteringAlgorithm,
     ) -> Vec<usize>
     where
-        S: SparseDatasetTrait,
+        S: Dataset<E>,
+        E: SparseQuantizer,
+        E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
+        ComponentFor<E>: ComponentType,
+        ValueFor<E>: ValueType,
+        QueryValueFor<E>: ValueType,
+        E: VectorEncoder<QueryValueType = f32>,
+        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
         if posting_list.is_empty() {
             return Vec::new();
@@ -819,18 +920,27 @@ impl<C: ComponentType> PostingList<C> {
 
     // ** Summarization strategies **
 
-    fn fixed_size_summary<S>(
+    fn fixed_size_summary<S, E>(
         dataset: &S,
         block: &[usize],
         n_components: usize,
-    ) -> Vec<(S::Component, S::Value)>
+    ) -> Vec<(ComponentFor<E>, f32)>
     where
-        S: SparseDatasetTrait,
+        S: Dataset<E>,
+        E: VectorEncoder,
+        ComponentFor<E>: ComponentType,
+        ValueFor<E>: ValueType,
+        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
-        let mut hash = HashMap::new();
+        let mut hash: HashMap<ComponentFor<E>, f32> = HashMap::new();
         for &doc_id in block.iter() {
             // for each component_id, store the largest value seen so far
-            for (c, v) in dataset.get_iter(doc_id) {
+            let posting = dataset.get(doc_id as u64);
+            let components = posting.components_as_slice();
+            let values = posting.values_as_slice();
+            for (&c, &v) in components.iter().zip(values) {
+                let v = v.to_f32().unwrap();
                 hash.entry(c)
                     .and_modify(|h| *h = if *h < v { v } else { *h })
                     .or_insert(v);
@@ -845,18 +955,27 @@ impl<C: ComponentType> PostingList<C> {
             .collect()
     }
 
-    fn energy_preserving_summary<S>(
+    fn energy_preserving_summary<S, E>(
         dataset: &S,
         block: &[usize],
         fraction: f32,
-    ) -> Vec<(S::Component, S::Value)>
+    ) -> Vec<(ComponentFor<E>, f32)>
     where
-        S: SparseDatasetTrait,
+        S: Dataset<E>,
+        E: VectorEncoder,
+        ComponentFor<E>: ComponentType,
+        ValueFor<E>: ValueType,
+        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
-        let mut hash = HashMap::new();
+        let mut hash: HashMap<ComponentFor<E>, f32> = HashMap::new();
         for &doc_id in block.iter() {
             // for each component_id, store the largest value seen so far
-            for (c, v) in dataset.get_iter(doc_id) {
+            let posting = dataset.get(doc_id as u64);
+            let components = posting.components_as_slice();
+            let values = posting.values_as_slice();
+            for (&c, &v) in components.iter().zip(values) {
+                let v = v.to_f32().unwrap();
                 hash.entry(c)
                     .and_modify(|h| *h = if *h < v { v } else { *h })
                     .or_insert(v);
@@ -1005,31 +1124,38 @@ pub struct Knn {
 
 impl SpaceUsage for Knn {
     fn space_usage_byte(&self) -> usize {
-        self.neighbours.space_usage_byte()
+        self.neighbours.mem_size(SizeFlags::empty())
             + SpaceUsage::space_usage_byte(&self.n_vecs)
             + SpaceUsage::space_usage_byte(&self.dim)
     }
 }
 
 impl Knn {
-    pub fn new<S>(index: &InvertedIndex<S>, dim: usize) -> Self
+    pub fn new<S, E>(index: &InvertedIndex<S, E>, dim: usize) -> Self
     where
-        S: SparseDatasetTrait + Sync,
+        S: Dataset<E> + Sync,
+        E: SparseQuantizer,
+        E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
+        E: VectorEncoder<QueryValueType = f32>,
+        ComponentFor<E>: ComponentType,
+        ValueFor<E>: ValueType,
+        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
     {
         const KNN_QUERY_CUT: usize = 10;
         const KNN_HEAP_FACTOR: f32 = 0.7;
 
         let n_vecs = index.len();
         print!("Computing kNN: ");
-        let docs_search_results: Vec<_> = index
-            .forward_index
-            .par_iter()
+        let docs_search_results: Vec<_> = (0..index.forward_index.len())
+            .into_par_iter()
             .progress_count(index.forward_index.len() as u64)
-            .enumerate()
-            .map(|(my_doc_id, components_values)| {
-                let (components, f32_values): (Vec<_>, Vec<_>) = components_values
-                    .map(|(c, v)| (c, v.to_f32().unwrap()))
-                    .unzip();
+            .map(|my_doc_id| {
+                let vec = index.forward_index.get(my_doc_id as u64);
+                let components = vec.components_as_slice();
+                let values = vec.values_as_slice();
+                let f32_values: Vec<_> = values.iter().map(|v| v.to_f32().unwrap()).collect();
+                let components = components.to_vec();
 
                 index
                     .search(
@@ -1109,15 +1235,17 @@ impl Knn {
     }
 
     #[inline]
-    pub fn refine<S, D: ComponentType, W: ValueType>(
+    pub fn refine<S, E, QE>(
         &self,
-        prepared_query: &S::PreparedQuery<D, W>,
-        heap: &mut KHeap<ScoredItem<f32>>,
+        evaluator: &QE,
+        heap: &mut KHeap<ScoredItem<f32, PackedPostingBlock>>,
         visited: &mut HashSet<usize>,
         forward_index: &S,
         in_n_knn: usize,
     ) where
-        S: SparseDatasetTrait,
+        S: Dataset<E>,
+        E: VectorEncoder,
+        QE: QueryEvaluator<E>,
     {
         let n_knn = cmp::min(self.dim, in_n_knn);
 
@@ -1125,23 +1253,23 @@ impl Knn {
 
         for ScoredItem {
             score: _distance,
-            id: offset,
+            id: pack,
         } in neighbours.into_iter()
         {
-            let id = forward_index.offset_to_id(offset);
+            let range = pack.unpack();
+            let id = forward_index.id_from_range(range) as usize;
             let base_pos = id * self.dim;
 
             for i in 0..n_knn {
                 // SAFETY: we are sure the position is valid
                 let neighbour = unsafe { self.neighbours.get_unchecked(base_pos + i) } as usize;
 
-                let range = forward_index.offset_range(neighbour);
-                let (offset, len) = (range.start, range.len());
+                let range = forward_index.range_from_id(neighbour as u64);
 
-                if visited.insert(offset) {
-                    let distance =
-                        forward_index.dot_product_from_offset(prepared_query, offset, len);
-                    heap.push(ScoredItem::new(offset, distance));
+                if visited.insert(range.start) {
+                    let vector = forward_index.get_by_range(range.start..(range.start + range.len()));
+                    let distance = evaluator.compute_distance(vector).distance();
+                    heap.push(ScoredItem::new(PackedPostingBlock::pack(range), distance));
                 }
             }
         }
@@ -1151,39 +1279,47 @@ impl Knn {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vectorium::{
+        DotProduct, PlainSparseDataset, PlainSparseDatasetGrowable, PlainSparseQuantizer,
+        SparseVector1D,
+    };
 
     // Test pushing empty vectors.
     #[test]
     fn test_empty_vectors() {
-        let mut dataset = SparseDatasetMut::<u16, f32>::default();
+        let quantizer = PlainSparseQuantizer::<u16, f32, DotProduct>::new(5, 5);
+        let mut dataset = PlainSparseDatasetGrowable::new(quantizer);
 
         // Push a single vector
-        dataset.push(&[0, 2, 4], &[1.0, 2.0, 3.0]);
+        dataset.push(SparseVector1D::new(vec![0, 2, 4], vec![1.0, 2.0, 3.0]));
         assert_eq!(dataset.len(), 1);
-        assert_eq!(dataset.dim(), 5);
+        assert_eq!(dataset.input_dim(), 5);
         assert_eq!(dataset.nnz(), 3);
 
         // Push another vector
         let c = Vec::new();
         let v = Vec::new();
 
-        dataset.push(&c, &v);
+        dataset.push(SparseVector1D::new(c.clone(), v.clone()));
         assert_eq!(dataset.len(), 2);
-        assert_eq!(dataset.dim(), 5);
+        assert_eq!(dataset.input_dim(), 5);
         assert_eq!(dataset.nnz(), 3);
 
-        dataset.push(&c, &v);
+        dataset.push(SparseVector1D::new(c, v));
         assert_eq!(dataset.len(), 3);
-        assert_eq!(dataset.dim(), 5);
+        assert_eq!(dataset.input_dim(), 5);
         assert_eq!(dataset.nnz(), 3);
 
         // Push a fourth vector
-        dataset.push(&[0, 1, 2, 3], &[1.0, 2.0, 3.0, 4.0]);
+        dataset.push(SparseVector1D::new(
+            vec![0, 1, 2, 3],
+            vec![1.0, 2.0, 3.0, 4.0],
+        ));
         assert_eq!(dataset.len(), 4);
-        assert_eq!(dataset.dim(), 5);
+        assert_eq!(dataset.input_dim(), 5);
         assert_eq!(dataset.nnz(), 7);
 
-        let dataset = SparseDataset::<u16, f32>::from(dataset);
+        let dataset: PlainSparseDataset<u16, f32, DotProduct> = dataset.into();
 
         let index = InvertedIndex::build(dataset, Configuration::default());
         assert_eq!(index.len(), 4);

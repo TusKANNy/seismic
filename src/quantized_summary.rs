@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 use crate::utils::quantize;
-use crate::{ComponentType, SpaceUsage, SparseDataset, SparseDatasetTrait, ValueType};
+use crate::SpaceUsage;
+use vectorium::{
+    ComponentType, Dataset, SparseDataset, SparseQuantizer, SparseVector1D, ValueType, Vector1D,
+    VectorEncoder,
+};
 
 use rustc_hash::FxHashMap;
 
@@ -21,17 +25,6 @@ pub struct QuantizedSummary<C: ComponentType> {
 }
 
 use mem_dbg::{MemSize, SizeFlags};
-impl SpaceUsage for BitFieldBoxed {
-    fn space_usage_byte(&self) -> usize {
-        self.mem_size(SizeFlags::empty())
-    }
-}
-
-impl SpaceUsage for EliasFano {
-    fn space_usage_byte(&self) -> usize {
-        self.mem_size(SizeFlags::empty())
-    }
-}
 
 impl<C: ComponentType> SpaceUsage for QuantizedSummary<C> {
     fn space_usage_byte(&self) -> usize {
@@ -44,8 +37,8 @@ impl<C: ComponentType> SpaceUsage for QuantizedSummary<C> {
         component_ids_size
             + SpaceUsage::space_usage_byte(&self.n_summaries)
             + SpaceUsage::space_usage_byte(&self.dim)
-            + SpaceUsage::space_usage_byte(&self.offsets)
-            + SpaceUsage::space_usage_byte(&self.summaries_ids)
+            + self.offsets.mem_size(SizeFlags::empty())
+            + self.summaries_ids.mem_size(SizeFlags::empty())
             + SpaceUsage::space_usage_byte(&self.values)
             + SpaceUsage::space_usage_byte(&self.minimums)
             + SpaceUsage::space_usage_byte(&self.quants)
@@ -159,8 +152,8 @@ impl<C: ComponentType> QuantizedSummary<C> {
 
         let n_summaries_size = SpaceUsage::space_usage_byte(&self.n_summaries);
         let d_size = SpaceUsage::space_usage_byte(&self.dim);
-        let offsets_size = SpaceUsage::space_usage_byte(&self.offsets);
-        let summaries_ids_size = SpaceUsage::space_usage_byte(&self.summaries_ids);
+        let offsets_size = self.offsets.mem_size(SizeFlags::empty());
+        let summaries_ids_size = self.summaries_ids.mem_size(SizeFlags::empty());
         let values_size = SpaceUsage::space_usage_byte(&self.values);
         let minimums_size = SpaceUsage::space_usage_byte(&self.minimums);
         let quants_size = SpaceUsage::space_usage_byte(&self.quants);
@@ -259,26 +252,30 @@ impl<C: ComponentType> QuantizedSummary<C> {
     }
 }
 
-impl<C, T> From<SparseDataset<C, T>> for QuantizedSummary<C>
+impl<Q, C, V> From<SparseDataset<Q>> for QuantizedSummary<C>
 where
-    C: ComponentType,
-    T: ValueType,
+    Q: SparseQuantizer<OutputComponentType = C, OutputValueType = V> + vectorium::SpaceUsage,
+    for<'a> Q: VectorEncoder<EncodedVector<'a> = SparseVector1D<C, V, &'a [C], &'a [V]>>,
+    C: ComponentType + vectorium::SpaceUsage,
+    V: ValueType + vectorium::SpaceUsage,
 {
     /// # Panics
     /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)
-    fn from(dataset: SparseDataset<C, T>) -> QuantizedSummary<C> {
+    fn from(dataset: SparseDataset<Q>) -> QuantizedSummary<C> {
         Self::from(&dataset)
     }
 }
 
-impl<C, T> From<&SparseDataset<C, T>> for QuantizedSummary<C>
+impl<Q, C, V> From<&SparseDataset<Q>> for QuantizedSummary<C>
 where
-    C: ComponentType,
-    T: ValueType,
+    Q: SparseQuantizer<OutputComponentType = C, OutputValueType = V> + vectorium::SpaceUsage,
+    for<'a> Q: VectorEncoder<EncodedVector<'a> = SparseVector1D<C, V, &'a [C], &'a [V]>>,
+    C: ComponentType + vectorium::SpaceUsage,
+    V: ValueType + vectorium::SpaceUsage,
 {
     /// # Panics
     /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)
-    fn from(dataset: &SparseDataset<C, T>) -> QuantizedSummary<C> {
+    fn from(dataset: &SparseDataset<Q>) -> QuantizedSummary<C> {
         assert!(
             dataset.len() <= u16::MAX as usize,
             "Number of summaries cannot be more than 2^16"
@@ -290,7 +287,9 @@ where
         let mut minimums = Vec::with_capacity(inverted_pairs.len());
         let mut quants = Vec::with_capacity(inverted_pairs.len());
 
-        for (doc_id, (components, values)) in dataset.dataset_iter().enumerate() {
+        for (doc_id, vector) in dataset.iter().enumerate() {
+            let components = vector.components_as_slice();
+            let values = vector.values_as_slice();
             let (minimum, quant, current_codes) = quantize(values);
 
             minimums.push(minimum);
@@ -302,7 +301,8 @@ where
         }
 
         // Sort inverted pairs by component id
-        let mut inverted_pairs: Vec<(C, Vec<(u8, usize)>)> = inverted_pairs.into_iter().collect();
+        let mut inverted_pairs: Vec<(C, Vec<(u8, usize)>)> =
+            inverted_pairs.into_iter().collect();
         inverted_pairs.sort_by_key(|(component, _)| *component);
 
         // Calculate spaces for both strategies to choose the most efficient one
@@ -313,7 +313,8 @@ where
             .sum::<usize>();
 
         let sparse_space = Self::estimate_sparse_space(num_non_empty_components, total_postings);
-        let dense_space = Self::estimate_dense_space(dataset.dim(), dataset.dim() + total_postings);
+        let dense_space =
+            Self::estimate_dense_space(dataset.input_dim(), dataset.input_dim() + total_postings);
 
         // Choose sparse strategy if it uses less space
         let use_sparse_strategy = sparse_space < dense_space;
@@ -321,52 +322,59 @@ where
         // println!("Sparse space: {}, Dense space: {}", sparse_space, dense_space);
         // println!("Using sparse strategy: {}", use_sparse_strategy);
 
-        let mut component_ids: Option<Vec<C>> = if use_sparse_strategy {
-            Some(Vec::new())
-        } else {
-            None
-        };
-
-        let mut offsets: Vec<usize> = Vec::with_capacity(dataset.len());
         let mut summaries_ids: Vec<u64> = Vec::with_capacity(dataset.nnz());
         let mut codes = Vec::with_capacity(dataset.nnz());
 
-        offsets.push(0);
-        let mut prev_component = 0_usize;
+        let (component_ids, mut offsets): (Option<Vec<C>>, Vec<usize>) = if use_sparse_strategy {
+            let mut component_ids = Vec::with_capacity(num_non_empty_components);
+            let mut offsets = Vec::with_capacity(num_non_empty_components + 1);
+            offsets.push(0);
 
-        for (c, ip) in inverted_pairs.iter() {
-            codes.extend(ip.iter().map(|(s, _)| *s));
-            summaries_ids.extend(ip.iter().map(|(_, id)| *id as u64));
-            if let Some(ref mut component_ids) = component_ids {
-                // Sparse offset strategy: Store only occuring components
-                component_ids.push(C::from_usize(c.as_()).unwrap());
+            for (c, ip) in inverted_pairs.iter() {
+                codes.extend(ip.iter().map(|(s, _)| *s));
+                summaries_ids.extend(ip.iter().map(|(_, id)| *id as u64));
+                // Sparse offset strategy: store only occurring components.
+                component_ids.push(*c);
                 offsets.push(summaries_ids.len());
-            } else {
-                // Dense offset strategy stores all components.
-                // So, we need to fill the gaps on the offsets for non existing components.
-                let last_offset = *offsets.last().unwrap();
-                for _ in prev_component..c.as_() {
-                    offsets.push(last_offset);
-                }
-                offsets.push(summaries_ids.len());
-                prev_component = c.as_() + 1;
             }
-        }
 
-        // In case of dense strategy, we want to make the offsets a strictly increasing sequence.
-        // This is done by adding the index to the offset.
-        // This is not needed for sparse strategy, since offsets are already strictly increasing.
-        // Thie use of a strictly increasing sequence may be more space efficient for Elias-Fano.
+            (Some(component_ids), offsets)
+        } else {
+            let mut offsets = Vec::with_capacity(dataset.input_dim() + 1);
+            let mut current_offset = 0_usize;
+            let mut next_component = 0_usize;
 
-        if !use_sparse_strategy {
+            for (c, ip) in inverted_pairs.iter() {
+                let comp = c.as_();
+                while next_component < comp {
+                    offsets.push(current_offset);
+                    next_component += 1;
+                }
+
+                offsets.push(current_offset);
+                next_component = comp + 1;
+
+                codes.extend(ip.iter().map(|(s, _)| *s));
+                summaries_ids.extend(ip.iter().map(|(_, id)| *id as u64));
+                current_offset = summaries_ids.len();
+            }
+
+            while next_component <= dataset.input_dim() {
+                offsets.push(current_offset);
+                next_component += 1;
+            }
+
+            // Make offsets strictly increasing for Elias-Fano.
             for (i, o) in offsets.iter_mut().enumerate() {
                 *o += i;
             }
-        }
+
+            (None, offsets)
+        };
 
         Self {
             n_summaries: dataset.len(),
-            dim: dataset.dim(),
+            dim: dataset.input_dim(),
             component_ids: component_ids.map(|c| c.into_boxed_slice()),
             offsets: EliasFano::from(&offsets),
             summaries_ids: BitFieldBoxed::from(summaries_ids),
@@ -382,9 +390,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SparseDatasetMut;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
+    use vectorium::{DotProduct, PlainSparseDataset, PlainSparseDatasetGrowable, PlainSparseQuantizer, SparseVector1D};
 
     fn generate_random_sparse_dataset<C>(
         seed: u64,
@@ -393,13 +401,14 @@ mod tests {
         min_nnz: usize,
         max_nnz: usize,
         value: f32,
-    ) -> SparseDataset<C, f32>
+    ) -> PlainSparseDataset<C, f32, DotProduct>
     where
         C: ComponentType + std::convert::TryFrom<usize>,
         <C as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
     {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let mut dataset = SparseDatasetMut::new();
+        let quantizer = PlainSparseQuantizer::<C, f32, DotProduct>::new(dim, dim);
+        let mut dataset = PlainSparseDatasetGrowable::<C, f32, DotProduct>::new(quantizer);
 
         for _ in 0..n_vecs {
             let nnz = rng.random_range(min_nnz..=max_nnz);
@@ -413,7 +422,7 @@ mod tests {
                 .map(|x| C::try_from(x).unwrap())
                 .collect();
             let values = vec![value; nnz];
-            dataset.push(&components, &values);
+            dataset.push(SparseVector1D::new(components, values));
         }
 
         dataset.into()
@@ -425,13 +434,14 @@ mod tests {
         dim: usize,
         min_nnz: usize,
         max_nnz: usize,
-    ) -> SparseDatasetMut<C, f32>
+    ) -> PlainSparseDatasetGrowable<C, f32, DotProduct>
     where
         C: ComponentType + std::convert::TryFrom<usize>,
         <C as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
     {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let mut dataset = SparseDatasetMut::new();
+        let quantizer = PlainSparseQuantizer::<C, f32, DotProduct>::new(dim, dim);
+        let mut dataset = PlainSparseDatasetGrowable::<C, f32, DotProduct>::new(quantizer);
 
         for _ in 0..n_queries {
             let nnz = rng.random_range(min_nnz..=max_nnz);
@@ -445,7 +455,7 @@ mod tests {
                 .map(|x| C::try_from(x).unwrap())
                 .collect();
             let values: Vec<f32> = (0..nnz).map(|_| rng.random::<f32>()).collect();
-            dataset.push(&components, &values);
+            dataset.push(SparseVector1D::new(components, values));
         }
 
         dataset
@@ -496,7 +506,7 @@ mod tests {
         );
 
         // Generate dataset with all values set to 1.0
-        let dataset: SparseDataset<u32, f32> =
+        let dataset: PlainSparseDataset<u32, f32, DotProduct> =
             generate_random_sparse_dataset(seed, n_vecs, dim, min_nnz, max_nnz, 1.0);
 
         // Generate 100 random queries
@@ -509,22 +519,29 @@ mod tests {
         );
 
         // Also add dataset itselft to the queries
-        for (c, v) in dataset.dataset_iter() {
-            queries.push(c, v);
+        for vec in dataset.iter() {
+            queries.push(SparseVector1D::new(
+                vec.components_as_slice().to_vec(),
+                vec.values_as_slice().to_vec(),
+            ));
         }
 
         // Create quantized summary
         let summary = QuantizedSummary::from(&dataset);
 
         // For each query, compare distances
-        for (query_id, (query_components, query_values)) in queries.dataset_iter().enumerate() {
+        for (query_id, vec) in queries.iter().enumerate() {
+            let query_components = vec.components_as_slice();
+            let query_values = vec.values_as_slice();
             // Get distances using DistancesIter
             let distances: Vec<f32> = summary.distances(query_components, query_values);
             assert_eq!(distances.len(), dataset.len());
 
             // Compute distances explicitly
             let mut expected_distances = Vec::with_capacity(dataset.len());
-            for (vec_components, vec_values) in dataset.dataset_iter() {
+            for vec in dataset.iter() {
+                let vec_components = vec.components_as_slice();
+                let vec_values = vec.values_as_slice();
                 let distance = compute_inner_product(
                     query_components,
                     query_values,

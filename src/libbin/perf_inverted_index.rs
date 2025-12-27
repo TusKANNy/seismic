@@ -4,7 +4,12 @@ use std::io::Write;
 use std::time::Instant;
 
 use crate::utils::read_from_path;
+use vectorium::{Dataset as VDataset, read_seismic_format, DotProduct, SparseQuantizer, VectorEncoder, Vector1D};
 use crate::*;
+
+type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
+type QueryComponentFor<E> = <E as VectorEncoder>::QueryComponentType;
+type QueryValueFor<E> = <E as VectorEncoder>::QueryValueType;
 
 use clap::Parser;
 
@@ -82,10 +87,13 @@ impl Args {
     }
 }
 
-pub fn run_performance_test_generic<S>(args: Args)
+pub fn run_performance_test_generic<S, E>(args: Args)
 where
-    S: SparseDatasetTrait + Sync + serde::Serialize + serde::de::DeserializeOwned,
-    S::Component: serde::Serialize + serde::de::DeserializeOwned,
+    S: VDataset<E> + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
+    E: VectorEncoder<QueryValueType = f32> + SparseQuantizer,
+    E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
+    ComponentFor<E>: ComponentType + vectorium::ComponentType + serde::Serialize + serde::de::DeserializeOwned,
+    QueryComponentFor<E>: ComponentType,
 {
     let index_path = args.index_file;
     let query_cut = args.query_cut;
@@ -94,18 +102,19 @@ where
 
     let nknn = args.n_knn;
 
-    let inverted_index: InvertedIndex<S> = read_from_path(index_path.unwrap().as_str()).unwrap();
+    let inverted_index: InvertedIndex<S, E> =
+        read_from_path(index_path.unwrap().as_str()).unwrap();
 
     let queries =
-        SparseDatasetMut::<S::Component, f32>::read_bin_file(&args.query_file.unwrap()).unwrap();
+        read_seismic_format::<ComponentFor<E>, f32, DotProduct>(&args.query_file.unwrap()).unwrap();
 
-    let n_queries = cmp::min(args.n_queries, queries.len());
+    let n_queries = cmp::min(args.n_queries, VDataset::len(&queries));
 
     println!("Searching for top-{} results", args.k);
     println!("Number of evaluated queries: {n_queries}");
     println!(
         "Avg number of non-zero components: {}",
-        queries.nnz() / queries.len()
+        VDataset::nnz(&queries) / VDataset::len(&queries)
     );
 
     println!("Number of documents: {}", inverted_index.len());
@@ -120,12 +129,12 @@ where
     for _ in 0..n_runs {
         results.clear();
 
-        for (query_id, (q_components, q_values)) in
-            queries.dataset_iter().take(n_queries).enumerate()
-        {
+        for (query_id, components_values) in VDataset::iter(&queries).take(n_queries).enumerate() {
+            let q_components: Vec<_> = components_values.components_as_slice().to_vec();
+            let q_values: Vec<_> = components_values.values_as_slice().to_vec();
             let cur_results = inverted_index.search(
-                q_components,
-                q_values,
+                &q_components,
+                &q_values,
                 args.k,
                 query_cut,
                 heap_factor,

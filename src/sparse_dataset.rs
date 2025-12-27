@@ -25,7 +25,6 @@ use std::io::{BufReader, Read, Result as IoResult};
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::path::Path;
-use std::time::Instant;
 
 use rayon::iter::plumbing::{Consumer, Producer, UnindexedConsumer, bridge};
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
@@ -33,10 +32,10 @@ use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
 use crate::distances::{
     dot_product_dense_sparse, dot_product_with_binary_search, dot_product_with_merge,
 };
-use crate::utils::{HollowSymmetricMatrix, MetisParams, prefetch_read};
+use crate::utils::prefetch_read;
 use crate::{ComponentType, SpaceUsage, ValueType};
 
-pub trait SparseDatasetTrait: SpaceUsage {
+pub trait SparseDatasetTrait {
     type Component: ComponentType;
     type Value: ValueType;
     type PreparedQuery<D: ComponentType, W: ValueType>;
@@ -84,35 +83,17 @@ pub trait SparseDatasetTrait: SpaceUsage {
         len: usize,
     ) -> f32;
 
-    fn offsets(&self) -> &[usize];
-
-    /// Converts the `offset` of a vector within the dataset to its id, i.e., the position
-    /// of the vector within the dataset.
-    ///
-    /// # Panics
-    /// Panics if the `offset` is not the first postion of a vector in the dataset.
-    #[inline]
-    fn offset_to_id(&self, offset: usize) -> usize {
-        self.offsets().as_ref().binary_search(&offset).unwrap()
-    }
-
     /// Returns the range of positions of the slice with the given `id`.
     ///
     /// ### Panics
     /// Panics if the `id` is out of range.
-    #[inline]
-    fn offset_range(&self, id: usize) -> Range<usize> {
-        let offsets = self.offsets();
-        assert!(id < offsets.len() - 1, "{id} is out of range");
+    fn offset_range(&self, id: usize) -> Range<usize>;
 
-        // Safety: safe accesses due to the check above
-        unsafe {
-            Range {
-                start: *offsets.get_unchecked(id),
-                end: *offsets.get_unchecked(id + 1),
-            }
-        }
-    }
+    /// Converts a range back to its dataset id.
+    ///
+    /// # Panics
+    /// Panics if the range does not match a vector boundary.
+    fn id_from_range(&self, range: Range<usize>) -> usize;
 
     /// Returns the id of the largest component, i.e., the dimensionality of the vectors in the dataset.
     fn dim(&self) -> usize;
@@ -138,9 +119,7 @@ pub trait SparseDatasetTrait: SpaceUsage {
     ///
     /// assert_eq!(dataset.len(), 3);
     /// ```
-    fn len(&self) -> usize {
-        self.offsets().len() - 1
-    }
+    fn len(&self) -> usize;
 
     /// Checks if the dataset is empty.
     ///
@@ -227,14 +206,16 @@ pub trait SparseDatasetTrait: SpaceUsage {
     ) -> Vec<(f32, usize)> {
         let prepared_query = self.prepare_query(query);
 
-        self.offsets()
-            .array_windows()
-            .map(|&[o1, o2]| {
-                let len = o2 - o1;
-                self.dot_product_from_offset::<D, W>(&prepared_query, o1, len)
+        (0..self.len())
+            .map(|i| {
+                let range = self.offset_range(i);
+                let score = self.dot_product_from_offset::<D, W>(
+                    &prepared_query,
+                    range.start,
+                    range.len(),
+                );
+                (score, i)
             })
-            .enumerate()
-            .map(|(i, s)| (s, i))
             .k_largest_by(k, |a, b| a.0.partial_cmp(&b.0).unwrap())
             .collect()
     }
@@ -368,6 +349,35 @@ where
         }
     }
 
+    #[inline]
+    fn offset_range(&self, id: usize) -> Range<usize> {
+        let offsets = &self.offsets;
+        assert!(id < offsets.as_ref().len() - 1, "{id} is out of range");
+
+        // Safety: safe accesses due to the check above
+        unsafe {
+            Range {
+                start: *offsets.as_ref().get_unchecked(id),
+                end: *offsets.as_ref().get_unchecked(id + 1),
+            }
+        }
+    }
+
+    #[inline]
+    fn id_from_range(&self, range: Range<usize>) -> usize {
+        let offsets = &self.offsets;
+        let id = offsets.as_ref().binary_search(&range.start).unwrap();
+        assert_eq!(
+            Range {
+                start: offsets.as_ref()[id],
+                end: offsets.as_ref()[id + 1],
+            },
+            range,
+            "Range does not match vector boundaries."
+        );
+        id
+    }
+
     /// Returns the number of components of the dataset, i.e., it returns one plus the ID of the largest component.
     ///
     /// # Examples
@@ -415,8 +425,8 @@ where
         self.components.as_ref().len()
     }
 
-    fn offsets(&self) -> &[usize] {
-        self.offsets.as_ref()
+    fn len(&self) -> usize {
+        self.offsets.as_ref().len() - 1
     }
 
     /// Prefetches the components and values of a vector with the specified offset and length into the CPU cache.
@@ -645,48 +655,6 @@ where
 
     pub fn dataset_par_iter(&'_ self) -> ParSparseDatasetIter<'_, C, V> {
         ParSparseDatasetIter::new(self)
-    }
-
-    pub fn adjacency_matrix_metis(&self) -> MetisParams {
-        print!("\tBuilding adjacency matrix ");
-        let time = Instant::now();
-
-        let mut adj = HollowSymmetricMatrix::new(self.dim());
-
-        for (components, _) in self.dataset_iter().progress_count(self.len() as u64) {
-            for (i, c1) in components.iter().map(|&c| c.as_()).enumerate() {
-                // Skip the components where c2 <= c1, since the matrix is symmetrical. Remember that the components are ordered.
-                for c2 in components.iter().map(|c| c.as_()).skip(i + 1) {
-                    unsafe {
-                        *adj.get_unchecked_mut(c1, c2) += 1;
-                    }
-                }
-            }
-        }
-
-        let elapsed = time.elapsed();
-        println!("{} secs", elapsed.as_secs());
-
-        let mut adjncy = Vec::new();
-        let mut weights = Vec::new();
-        let xadj = std::iter::once(0)
-            .chain((0..self.dim()).map(|c1| {
-                for (c2, &w) in adj.iter_row(c1).filter(|(_, w)| **w > 0) {
-                    adjncy.push(c2 as i32);
-                    weights.push(w);
-                }
-                adjncy.len() as i32
-            }))
-            .collect();
-
-        let elapsed = time.elapsed();
-        println!("{} secs", elapsed.as_secs());
-
-        MetisParams {
-            adjncy: adjncy.into_boxed_slice(),
-            weights: weights.into_boxed_slice(),
-            xadj,
-        }
     }
 
     pub fn components(&self) -> &AC {

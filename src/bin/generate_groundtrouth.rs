@@ -5,7 +5,7 @@ use std::io::Write;
 use indicatif::ParallelProgressIterator;
 use rayon::iter::ParallelIterator;
 
-use seismic::*;
+use vectorium::{Dataset, Distance, read_seismic_format};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -31,30 +31,26 @@ struct Args {
 pub fn main() {
     let args = Args::parse();
 
-    let dataset = SparseDatasetMut::<u32, f32>::read_bin_file(&args.input_file.unwrap()).unwrap();
-    let queries = SparseDatasetMut::<u32, f32>::read_bin_file(&args.query_file.unwrap()).unwrap();
+    let dataset =
+        read_seismic_format::<u32, f32, vectorium::DotProduct>(&args.input_file.unwrap()).unwrap();
+    let queries =
+        read_seismic_format::<u32, f32, vectorium::DotProduct>(&args.query_file.unwrap()).unwrap();
     let k = args.k;
     let output_path = args.output_path.unwrap();
 
     let results: Vec<_> = queries
-        .dataset_par_iter()
+        .par_iter()
         .progress_count(queries.len() as u64)
-        .map(|(query_components, query_values)| {
-            dataset.search(
-                query_components
-                    .iter()
-                    .zip(query_values)
-                    .map(|(&c, &v)| (c, v)),
-                k,
-            )
-        })
+        .map(|query| dataset.search(query, k))
         .collect();
 
     let mut output_file = File::create(output_path).unwrap();
 
     for (query_id, result) in results.iter().enumerate() {
         // Writes results to a file in a parsable format
-        for (idx, (score, doc_id)) in result.iter().enumerate() {
+        for (idx, item) in result.iter().enumerate() {
+            let score = item.distance.distance();
+            let doc_id = item.vector;
             writeln!(
                 &mut output_file,
                 "{query_id}\t{doc_id}\t{}\t{score}",

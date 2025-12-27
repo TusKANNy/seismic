@@ -1,23 +1,26 @@
-use core::hash::Hash;
-
 use std::{
     cmp::{Ordering, Reverse},
     collections::{BinaryHeap, HashSet},
     fs::File,
-    hash::{DefaultHasher, Hasher},
+    hash::Hash,
     hint::assert_unchecked,
     io::{BufReader, BufWriter},
-    time::Instant,
 };
 //use std::time::Instant;
 
 use itertools::Itertools;
-use metis::Graph;
 use rand::prelude::*;
-use rgb::forward::Doc;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{sparse_dataset::SparseDatasetGeneric, *};
+use crate::*;
+use vectorium::{
+    Dataset, Distance as VDistance, QueryEvaluator, SparseQuantizer, SparseVector1D, Vector1D,
+    VectorEncoder,
+};
+
+type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
+type ValueFor<E> = <E as VectorEncoder>::OutputValueType;
+type QueryValueFor<E> = <E as VectorEncoder>::QueryValueType;
 
 pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std::error::Error>> {
     let mut file = BufReader::new(File::open(path)?);
@@ -91,43 +94,49 @@ impl<T: Ord> KHeap<T> {
 }
 
 #[derive(Clone, PartialEq)]
-pub struct ScoredItem<T> {
-    pub id: usize,
+pub struct ScoredItem<T, I> {
+    pub id: I,
     pub score: T,
 }
 
-impl<T> ScoredItem<T> {
-    pub fn new(id: usize, score: T) -> Self {
+impl<T, I> ScoredItem<T, I> {
+    pub fn new(id: I, score: T) -> Self {
         Self { id, score }
     }
 }
 
-impl<T> Eq for ScoredItem<T> where T: PartialEq {}
+impl<T, I> Eq for ScoredItem<T, I>
+where
+    T: PartialEq,
+    I: PartialEq,
+{
+}
 
-impl<T> PartialOrd for ScoredItem<T>
+impl<T, I> PartialOrd for ScoredItem<T, I>
 where
     T: PartialOrd,
+    I: PartialEq,
 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<T> Ord for ScoredItem<T>
+impl<T, I> Ord for ScoredItem<T, I>
 where
     T: PartialOrd,
+    I: PartialEq,
 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         unsafe { self.score.partial_cmp(&other.score).unwrap_unchecked() }
     }
 }
 
-/// Instead of string doc_ids we store their offsets in the forward_index and the lengths of the vectors
+/// Instead of storing doc_ids we store their offsets in the forward_index and the lengths of the vectors
 /// This allows us to save the random accesses that would be needed to access exactly these values from the
 /// forward index. The values of each doc are packed into a single u64 in `packed_postings`.
 /// We use 48 bits for the offset and 16 bits for the length. This choice limits the size of the dataset to be 1<<48.
 /// We use the forward index to convert the offsets of the top-k back to the id of the corresponding documents.
-/// Preferably use #[repr(packed)], if u48 becomes a thing: https://github.com/rust-lang/rfcs/issues/2903
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub(crate) struct PackedPostingBlock {
     pub n: u64,
@@ -135,18 +144,33 @@ pub(crate) struct PackedPostingBlock {
 
 impl PackedPostingBlock {
     #[inline]
-    pub fn new_pack(offset: u64, len: u16) -> Self {
+    pub fn pack(range: std::ops::Range<usize>) -> Self {
+        let start = range.start as u64;
+        assert!(
+            start < (1u64 << 48),
+            "range.start exceeds 48-bit packing limit"
+        );
+        let len = range.len();
+        assert!(
+            len <= u16::MAX as usize,
+            "range length exceeds 16-bit packing limit"
+        );
         Self {
-            n: ((offset) << 16) | (len as u64),
+            n: (start << 16) | (len as u64),
         }
     }
 
     #[inline]
-    pub fn unpack(&self) -> (usize, usize) {
-        (
-            (self.n >> 16) as usize,
-            (self.n & (u16::MAX as u64)) as usize,
-        )
+    pub fn unpack(&self) -> std::ops::Range<usize> {
+        let start = (self.n >> 16) as usize;
+        let len = (self.n & (u16::MAX as u64)) as usize;
+        start..(start + len)
+    }
+}
+
+impl SpaceUsage for PackedPostingBlock {
+    fn space_usage_byte(&self) -> usize {
+        std::mem::size_of::<Self>()
     }
 }
 
@@ -229,24 +253,48 @@ pub fn prefetch_read<T>(ptr: *const T) {
     }
 }
 
-fn compute_centroid_assignments_approx_dot_product<S: SparseDatasetTrait, T: ValueType>(
+fn iter_components_values<'a, V>(
+    vector: &'a V,
+) -> impl Iterator<Item = (V::ComponentType, V::ValueType)> + 'a
+where
+    V: Vector1D,
+    V::ComponentType: Copy,
+    V::ValueType: Copy,
+{
+    vector
+        .components_as_slice()
+        .iter()
+        .copied()
+        .zip(vector.values_as_slice().iter().copied())
+}
+
+fn compute_centroid_assignments_approx_dot_product<S, E, T>(
     doc_ids: &[usize],
     inverted_index: &[Vec<(usize, T)>],
     dataset: &S,
     centroids_doc_ids: &[usize],
     to_avoid: &HashSet<usize>,
     doc_cut: usize,
-) -> Vec<(usize, usize)> {
+) -> Vec<(usize, usize)>
+where
+    S: Dataset<E>,
+    E: SparseQuantizer,
+    ComponentFor<E>: ComponentType,
+    ValueFor<E>: ValueType,
+    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+    T: ValueType,
+{
     let mut scores = vec![0_f32; centroids_doc_ids.len()];
 
     doc_ids
         .iter()
         .map(|&doc_id| {
             scores.iter_mut().for_each(|v| *v = 0_f32);
-            for (component_id, value) in dataset
-                .get_iter(doc_id)
-                .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(&b.1).unwrap())
-            {
+            let posting = dataset.get(doc_id as u64);
+            let iter = iter_components_values(&posting)
+                .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(&b.1).unwrap());
+            for (component_id, value) in iter {
                 for &(centroid_id, score) in inverted_index[component_id.as_()].iter() {
                     scores[centroid_id] += score.to_f32().unwrap() * value.to_f32().unwrap();
                 }
@@ -271,7 +319,7 @@ fn compute_centroid_assignments_approx_dot_product<S: SparseDatasetTrait, T: Val
 /// The function uses a simple pruned inverted index to speed up the computation and computes the
 /// true dot product between the document and the centroids.
 /// The parameter `doc_cut` specifies how many components of the document vector to consider while computing the dot product.
-pub fn do_random_kmeans_on_docids_ii_approx_dot_product<S>(
+pub fn do_random_kmeans_on_docids_ii_approx_dot_product<S, E>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &S,
@@ -279,7 +327,12 @@ pub fn do_random_kmeans_on_docids_ii_approx_dot_product<S>(
     doc_cut: usize,
 ) -> Vec<(usize, usize)>
 where
-    S: SparseDatasetTrait,
+    S: Dataset<E>,
+    E: SparseQuantizer,
+    ComponentFor<E>: ComponentType,
+    ValueFor<E>: ValueType,
+    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
 {
     let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -289,10 +342,11 @@ where
         .collect();
 
     // Build an inverted index for the centroids
-    let mut inverted_index = vec![Vec::new(); dataset.dim()];
+    let mut inverted_index = vec![Vec::new(); dataset.input_dim()];
 
     for (centroid_id, &centroid_doc_id) in centroid_doc_ids.iter().enumerate() {
-        for (c, score) in dataset.get_iter(centroid_doc_id) {
+        let posting = dataset.get(centroid_doc_id as u64);
+        for (c, score) in iter_components_values(&posting) {
             inverted_index[c.as_()].push((centroid_id, score));
         }
     }
@@ -356,7 +410,7 @@ where
     final_assignments
 }
 
-fn compute_centroid_assignments_dot_product<A, T, S>(
+fn compute_centroid_assignments_dot_product<A, T, S, E>(
     doc_ids: &[usize],
     inverted_index: &[A],
     dataset: &S,
@@ -367,7 +421,15 @@ fn compute_centroid_assignments_dot_product<A, T, S>(
 where
     A: AsRef<[(T, usize)]>,
     T: ValueType,
-    S: SparseDatasetTrait,
+    S: Dataset<E>,
+    E: SparseQuantizer,
+    E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
+    ComponentFor<E>: ComponentType,
+    ValueFor<E>: ValueType,
+    QueryValueFor<E>: ValueType,
+    E: VectorEncoder<QueryValueType = f32>,
+    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
 
@@ -379,17 +441,25 @@ where
             continue;
         }
 
-        let prepared_query = dataset.prepare_query(dataset.get_iter(doc_id));
+        let doc_vec = dataset.get(doc_id as u64);
+        let components = doc_vec.components_as_slice();
+        let values = doc_vec.values_as_slice();
+        let query_values: Vec<_> = values.iter().map(|v| v.to_f32().unwrap()).collect();
+        let query = SparseVector1D::new(components, query_values.as_slice());
+        let evaluator = dataset.get_query_evaluator(&query);
         let mut visited = to_avoid.clone();
 
         // Sort query terms by score and evaluate the posting list only for the top ones
-        let (max_centroid_id, _dot) = dataset
-            .get_iter(doc_id)
+        let (max_centroid_id, _dot) = components
+            .iter()
+            .copied()
+            .zip(values.iter().copied())
             .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(&b.1).unwrap())
             .flat_map(|(component_id, _value)| inverted_index[component_id.as_()].as_ref().iter())
             .filter(|&(_score, centroid_id)| visited.insert(*centroid_id))
             .map(|&(_score, centroid_id)| {
-                let dot = dataset.dot_product_from_id(&prepared_query, centroid_id);
+                let centroid_vec = dataset.get(centroid_id as u64);
+                let dot = evaluator.compute_distance(centroid_vec).distance();
                 (centroid_id, dot)
             })
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
@@ -409,7 +479,7 @@ where
 /// true dot product between the document and the centroids.
 /// The parameter `pruning_factor` controls the size of the pruned inverted index.
 /// The parameter `doc_cut` specifies how many components of the document vector to consider while computing the dot product.
-pub fn do_random_kmeans_on_docids_ii_dot_product<S>(
+pub fn do_random_kmeans_on_docids_ii_dot_product<S, E>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &S,
@@ -418,7 +488,15 @@ pub fn do_random_kmeans_on_docids_ii_dot_product<S>(
     doc_cut: usize,
 ) -> Vec<(usize, usize)>
 where
-    S: SparseDatasetTrait,
+    S: Dataset<E>,
+    E: SparseQuantizer,
+    E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
+    ComponentFor<E>: ComponentType,
+    ValueFor<E>: ValueType,
+    QueryValueFor<E>: ValueType,
+    E: VectorEncoder<QueryValueType = f32>,
+    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
 {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -430,10 +508,11 @@ where
     let pruned_list_size = 5.max((doc_ids.len() as f32 * pruning_factor) as usize);
 
     // Build an inverted index for the centroids
-    let mut inverted_index = vec![Vec::new(); dataset.dim()];
+    let mut inverted_index = vec![Vec::new(); dataset.input_dim()];
 
     for &centroid_id in centroid_ids.iter() {
-        for (c, score) in dataset.get_iter(centroid_id) {
+        let posting = dataset.get(centroid_id as u64);
+        for (c, score) in iter_components_values(&posting) {
             inverted_index[c.as_()].push((score, centroid_id));
         }
     }
@@ -504,14 +583,22 @@ where
     final_assignments
 }
 
-fn compute_centroid_assignments<S>(
+fn compute_centroid_assignments<S, E>(
     doc_ids: &[usize],
     dataset: &S,
     centroids: &[usize],
     to_avoid: &HashSet<usize>,
 ) -> Vec<(usize, usize)>
 where
-    S: SparseDatasetTrait,
+    S: Dataset<E>,
+    E: SparseQuantizer,
+    E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
+    ComponentFor<E>: ComponentType,
+    ValueFor<E>: ValueType,
+    QueryValueFor<E>: ValueType,
+    E: VectorEncoder<QueryValueType = f32>,
+    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
     let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
@@ -521,12 +608,18 @@ where
             centroid_assignments.push((doc_id, doc_id));
             continue;
         }
-        let prepared_query = dataset.prepare_query(dataset.get_iter(doc_id));
+        let doc_vec = dataset.get(doc_id as u64);
+        let components = doc_vec.components_as_slice();
+        let values = doc_vec.values_as_slice();
+        let query_values: Vec<_> = values.iter().map(|v| v.to_f32().unwrap()).collect();
+        let query = SparseVector1D::new(components, query_values.as_slice());
+        let evaluator = dataset.get_query_evaluator(&query);
 
         let (centroid_max, _dot) = centroids
             .iter()
             .map(|&centroid_id| {
-                let dot = dataset.dot_product_from_id(&prepared_query, centroid_id);
+                let centroid_vec = dataset.get(centroid_id as u64);
+                let dot = evaluator.compute_distance(centroid_vec).distance();
                 (centroid_id, dot)
             })
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
@@ -539,14 +632,22 @@ where
     centroid_assignments
 }
 
-pub fn do_random_kmeans_on_docids<S>(
+pub fn do_random_kmeans_on_docids<S, E>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &S,
     min_cluster_size: usize,
 ) -> Vec<(usize, usize)>
 where
-    S: SparseDatasetTrait,
+    S: Dataset<E>,
+    E: SparseQuantizer,
+    E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
+    ComponentFor<E>: ComponentType,
+    ValueFor<E>: ValueType,
+    QueryValueFor<E>: ValueType,
+    E: VectorEncoder<QueryValueType = f32>,
+    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
+        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
 {
     let seed = 42; // You can use any u64 value as the seed
     let mut rng = StdRng::seed_from_u64(seed);
@@ -602,173 +703,4 @@ where
     final_assignments.sort();
 
     final_assignments
-}
-
-/// A symmetrical matrix where the diagonal components are 0. Only the upper part of the matrix is stored.
-pub struct HollowSymmetricMatrix<T: Zero + Copy> {
-    dim: usize,
-    data: Box<[T]>,
-}
-
-impl<T: Zero + Copy> HollowSymmetricMatrix<T> {
-    pub fn new(dim: usize) -> Self {
-        let size = (dim * (dim - 1)) / 2;
-        let data = vec![T::zero(); size].into_boxed_slice();
-        Self { dim, data }
-    }
-
-    /// # Safety
-    /// - `j > i`
-    /// - `i < self.dim && j < self.dim`
-    pub unsafe fn get_unchecked(&self, i: usize, j: usize) -> &T {
-        unsafe {
-            assert_unchecked(j > i);
-            let index = i * self.dim + j - ((i + 2) * (i + 1)) / 2;
-            self.data.get_unchecked(index)
-        }
-    }
-
-    /// # Safety
-    /// - `j > i`
-    /// - `i < self.dim && j < self.dim`
-    pub unsafe fn get_unchecked_mut(&mut self, i: usize, j: usize) -> &mut T {
-        unsafe {
-            assert_unchecked(j > i);
-            let index = i * self.dim + j - ((i + 2) * (i + 1)) / 2;
-            self.data.get_unchecked_mut(index)
-        }
-    }
-
-    /// Iterates the specified row (how it's supposed to be, not how it's represented).
-    /// The diagonal element is skipped.
-    pub fn iter_row(&self, i: usize) -> impl Iterator<Item = (usize, &T)> {
-        let before = (0..i).map(move |j| (j, unsafe { self.get_unchecked(j, i) }));
-        let after = ((i + 1)..self.dim).map(move |j| (j, unsafe { self.get_unchecked(i, j) }));
-        before.chain(after)
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct MetisParams {
-    pub adjncy: Box<[i32]>,
-    pub weights: Box<[i32]>,
-    pub xadj: Box<[i32]>,
-}
-
-impl MetisParams {
-    pub fn build_partitions(&self, n_partitions: i32) -> Vec<i32> {
-        print!("\tBuilding partitions ");
-        let time = Instant::now();
-
-        let mut part = vec![0; self.xadj.len() - 1];
-
-        Graph::new(1, n_partitions, &self.xadj, &self.adjncy)
-            .unwrap()
-            .set_adjwgt(&self.weights)
-            .part_recursive(part.as_mut_slice())
-            .unwrap();
-
-        let elapsed = time.elapsed();
-        println!("{} secs", elapsed.as_secs());
-
-        part
-    }
-}
-
-/// Load the dataset's adjacency matrix
-///
-/// Hash the dataset's components and offsets so that its adjacency can be cached (as it's a very long operation)
-pub fn build_or_load_metis_params<C, V, O, AC, AV>(
-    dataset: &SparseDatasetGeneric<C, V, O, AC, AV>,
-) -> MetisParams
-where
-    C: ComponentType,
-    V: ValueType,
-    O: AsRef<[usize]> + SpaceUsage + Hash,
-    AC: AsRef<[C]> + SpaceUsage + Hash,
-    AV: AsRef<[V]> + SpaceUsage,
-{
-    let mut s = DefaultHasher::new();
-    dataset.components().hash(&mut s);
-    dataset.offsets().hash(&mut s);
-    let hash = s.finish();
-    let filename = format!("cached_adjacency_{}", hash);
-    if !std::fs::exists(filename.as_str()).is_ok_and(|b| b) {
-        println!("Adjacency matrix not cached. Creating.");
-        let params = dataset.adjacency_matrix_metis();
-
-        println!("Saving ... {}", filename);
-        write_to_path(&params, filename.as_str()).unwrap();
-
-        params
-    } else {
-        println!("Loading adjacency matrix {}.", filename.as_str());
-        read_from_path(filename.as_str()).unwrap()
-    }
-}
-
-pub fn permute_or_load_with_graph_bisection<C, O, AC, AV>(
-    dataset: &SparseDatasetGeneric<C, f32, O, AC, AV>,
-) -> Box<[C]>
-where
-    C: ComponentType + Serialize + DeserializeOwned,
-    O: AsRef<[usize]> + SpaceUsage + Hash,
-    AC: AsRef<[C]> + SpaceUsage + Hash,
-    AV: AsRef<[f32]> + SpaceUsage,
-{
-    let mut s = DefaultHasher::new();
-    dataset.components().hash(&mut s);
-    dataset.offsets().hash(&mut s);
-    let hash = s.finish();
-    let filename = format!("cached_permutation_{}", hash);
-    if !std::fs::exists(filename.as_str()).is_ok_and(|b| b) {
-        println!("Permutation not cached. Creating.");
-        let perm = permute_graph_bisection(dataset);
-
-        println!("Saving ... {}", filename);
-        write_to_path(&perm, filename.as_str()).unwrap();
-
-        perm
-    } else {
-        println!("Loading permutation {}.", filename.as_str());
-        read_from_path(filename.as_str()).unwrap()
-    }
-}
-
-/// Compute a permutation of components using recursive graph bisection.
-/// Components that often appear together in documents will be grouped close together.
-pub fn permute_graph_bisection<C, O, AC, AV>(
-    dataset: &SparseDatasetGeneric<C, f32, O, AC, AV>,
-) -> Box<[C]>
-where
-    C: ComponentType,
-    O: AsRef<[usize]> + SpaceUsage,
-    AC: AsRef<[C]> + SpaceUsage,
-    AV: AsRef<[f32]> + SpaceUsage,
-{
-    // One Doc for each component. RGB's terminology is the opposite of what we need in Seismic
-    let mut components = Vec::with_capacity(dataset.dim());
-    for component_id in 0..dataset.dim() {
-        components.push(Doc {
-            terms: Vec::with_capacity(256), // initial estimate for uniq terms in doc
-            org_id: component_id as u32,
-            gain: 0.0,
-            leaf_id: -1,
-        });
-    }
-
-    for (doc_id, (doc_components, _values)) in dataset.dataset_iter().enumerate() {
-        for &component_id in doc_components.iter() {
-            components[component_id.as_()].terms.push(doc_id as u32);
-        }
-    }
-
-    rgb::recursive_graph_bisection(&mut components, dataset.len(), 20, 16, 100, 10, 1, true, 1);
-
-    let mut perm = vec![C::default(); components.len()];
-    for (new_id, comp) in components.iter().enumerate() {
-        perm[comp.org_id as usize] = C::from_usize(new_id).unwrap();
-    }
-
-    perm.into_boxed_slice()
 }

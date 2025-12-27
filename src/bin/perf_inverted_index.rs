@@ -1,5 +1,4 @@
 use clap::Parser;
-use seismic::SparseDataset;
 use seismic::libbin::perf_inverted_index::*;
 use seismic::match_component_value;
 
@@ -13,7 +12,10 @@ pub fn main() {
                 stringify!($C),
                 stringify!($V)
             );
-            run_performance_test_generic::<SparseDataset<$C, $V>>(args);
+            run_performance_test_generic::<
+                vectorium::PlainSparseDataset<$C, $V, vectorium::DotProduct>,
+                vectorium::PlainSparseQuantizer<$C, $V, vectorium::DotProduct>,
+            >(args);
         };
     }
 

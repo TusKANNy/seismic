@@ -3,7 +3,8 @@ use seismic::inverted_index::{
     KnnConfiguration, PruningStrategy, SummarizationStrategy,
 };
 use seismic::utils::write_to_path;
-use seismic::{SeismicIndex, SparseDataset, SparseDatasetMut};
+use seismic::SeismicIndex;
+use vectorium::{DotProduct, ScalarSparseQuantizer, SparseDataset};
 
 use half::f16;
 
@@ -116,11 +117,10 @@ pub fn main() {
     //    let inverted_index = InvertedIndexWrapper::new(dataset, config, None, None);
     let collection_path = args.input_file.unwrap();
 
-    let index = SeismicIndex::<SparseDataset<u16, f16>>::from_json::<SparseDatasetMut<u16, f32>>(
-        &collection_path,
-        config,
-        None,
-    );
+    type Encoder = ScalarSparseQuantizer<u16, f32, f16, DotProduct>;
+    type Dataset = SparseDataset<Encoder>;
+
+    let index = SeismicIndex::<Dataset, Encoder>::from_json(&collection_path, config, None);
 
     let elapsed = time.elapsed();
     println!(

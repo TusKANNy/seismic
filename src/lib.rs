@@ -14,18 +14,9 @@
 use bytemuck::AnyBitPattern;
 use fixed::FixedU8;
 use fixed::FixedU16;
-use num_traits::PrimInt;
-use num_traits::{AsPrimitive, FromPrimitive, ToPrimitive, Unsigned, Zero};
-
-pub mod sparse_dataset;
-use std::fmt::Debug;
-use std::hash::Hash;
 
 use bytemuck::Pod;
-pub use sparse_dataset::FromDatasetGenericF32;
-pub use sparse_dataset::SparseDataset;
-pub use sparse_dataset::SparseDatasetMut;
-pub use sparse_dataset::SparseDatasetTrait;
+pub use vectorium::{SparseDataset, SparseDatasetGrowable};
 
 pub mod inverted_index;
 pub use inverted_index::InvertedIndex;
@@ -37,10 +28,7 @@ pub use inverted_index_wrapper::SeismicIndex;
 pub mod quantized_summary;
 pub use quantized_summary::QuantizedSummary;
 
-mod num_marker;
-
-pub mod space_usage;
-pub use space_usage::SpaceUsage;
+pub use vectorium::{ComponentType, FromF32, SpaceUsage, ValueType};
 
 #[derive(Debug, Clone)]
 pub enum PermutationStrategy {
@@ -56,44 +44,12 @@ pub mod utils;
 
 pub mod libbin;
 
-use crate::num_marker::FromF32;
-
 /// Type aliases for quantized fixed-point types. You can change FRAC in the `fixed` crate to adjust the precision.
 /// The `FixedU8Q` type uses 6 fractional bits, while `FixedU16Q` uses 8 fractional bits.
 use fixed::types::extra::U6;
 use fixed::types::extra::U13;
 pub type FixedU8Q = FixedU8<U6>;
 pub type FixedU16Q = FixedU16<U13>;
-
-/// Marker for types used as values in a dataset
-pub trait ValueType = SpaceUsage
-    + Copy
-    + ToPrimitive
-    + Zero
-    + Send
-    + Sync
-    + PartialOrd
-    + FromPrimitive
-    + FromF32
-    + Pod
-    + 'static;
-
-pub trait ComponentType = Unsigned
-    + PrimInt
-    + AsPrimitive<usize>
-    + FromPrimitive
-    + ToPrimitive
-    + Unsigned
-    + SpaceUsage
-    + Copy
-    + Debug
-    + Default
-    + Send
-    + Sync
-    + Hash
-    + Eq
-    + Ord
-    + Pod;
 
 pub trait SimdyValueType = std::simd::SimdElement + Pod + AnyBitPattern;
 
