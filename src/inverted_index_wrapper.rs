@@ -12,6 +12,7 @@ use vectorium::{
     Dataset, Distance, GrowableDataset as VGrowableDataset, SparseDatasetGrowable, SparseQuantizer,
     SparseVector1D, Vector1D, VectorEncoder,
 };
+use vectorium::dataset::Result as ScoredVector;
 
 use indicatif::ProgressIterator;
 use itertools::Itertools;
@@ -34,6 +35,7 @@ type SparseEncodedVector<'a, E> = SparseVector1D<
     &'a [ComponentFor<E>],
     &'a [ValueFor<E>],
 >;
+type ScoredVectorFor<E> = ScoredVector<<E as VectorEncoder>::Distance>;
 
 #[derive(Default, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SeismicIndex<S, E>
@@ -97,17 +99,27 @@ where
 
     pub fn remap_doc_ids(
         &self,
-        plain_results: impl IntoIterator<Item = (f32, usize)>,
+        plain_results: impl IntoIterator<Item = ScoredVectorFor<E>>,
         query_id: &str,
     ) -> Vec<(String, f32, String)> {
         match &self.document_mapping {
             Some(mapping) => plain_results
                 .into_iter()
-                .map(|(distance, doc_id)| (query_id.to_owned(), distance, mapping[doc_id].clone()))
+                .map(|result| {
+                    let doc_id = result.vector as usize;
+                    (
+                        query_id.to_owned(),
+                        result.distance.distance(),
+                        mapping[doc_id].clone(),
+                    )
+                })
                 .collect(),
             None => plain_results
                 .into_iter()
-                .map(|(distance, doc_id)| (query_id.to_owned(), distance, doc_id.to_string()))
+                .map(|result| {
+                    let doc_id = result.vector as usize;
+                    (query_id.to_owned(), result.distance.distance(), doc_id.to_string())
+                })
                 .collect(),
         }
     }
@@ -122,7 +134,7 @@ where
         heap_factor: f32,
         n_knn: usize,
         first_sorted: bool,
-    ) -> Vec<(f32, usize)> {
+    ) -> Vec<ScoredVectorFor<E>> {
         let (filtered_query_components, filtered_query_values): (Vec<_>, Vec<_>) =
             query_components_original
                 .iter()
@@ -135,9 +147,9 @@ where
                 .sorted_by(|(a, _), (b, _)| a.cmp(b))
                 .unzip();
 
+        let query = SparseVector1D::new(filtered_query_components, filtered_query_values);
         self.inverted_index.search(
-            &filtered_query_components,
-            &filtered_query_values,
+            &query,
             k,
             query_cut,
             heap_factor,

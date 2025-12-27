@@ -1,9 +1,7 @@
 use std::{
-    cmp::{Ordering, Reverse},
     collections::{BinaryHeap, HashSet},
     fs::File,
     hash::Hash,
-    hint::assert_unchecked,
     io::{BufReader, BufWriter},
 };
 //use std::time::Instant;
@@ -14,8 +12,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::*;
 use vectorium::{
-    Dataset, Distance as VDistance, QueryEvaluator, SparseQuantizer, SparseVector1D, Vector1D,
-    VectorEncoder,
+    Dataset, Distance, QueryEvaluator, SparseQuantizer, SparseVector1D, Vector1D, VectorEncoder,
 };
 
 type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
@@ -42,10 +39,10 @@ pub fn write_to_path<E: Serialize>(val: E, path: &str) -> Result<(), Box<dyn std
     Ok(())
 }
 
-/// A min-heap that stores the top k elements
+/// A max-heap that stores the top k smallest elements.
 #[derive(Clone)]
 pub struct KHeap<T> {
-    bh: BinaryHeap<Reverse<T>>,
+    bh: BinaryHeap<T>,
     k: usize,
 }
 
@@ -62,11 +59,11 @@ impl<T: Ord> KHeap<T> {
     #[inline]
     pub fn push(&mut self, item: T) {
         if self.bh.len() < self.k {
-            self.bh.push(Reverse(item));
+            self.bh.push(item);
         } else {
-            let mut min = self.bh.peek_mut().unwrap();
-            if item > min.0 {
-                *min = Reverse(item);
+            let mut max = self.bh.peek_mut().unwrap();
+            if item < *max {
+                *max = item;
             }
         }
     }
@@ -83,52 +80,12 @@ impl<T: Ord> KHeap<T> {
 
     #[inline]
     pub fn peek(&self) -> &T {
-        &self.bh.peek().unwrap().0
+        self.bh.peek().unwrap()
     }
 
     #[inline]
     pub fn into_sorted_vec(self) -> Vec<T> {
-        // Zero-cost abstraction
-        self.bh.into_sorted_vec().into_iter().map(|i| i.0).collect()
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub struct ScoredItem<T, I> {
-    pub id: I,
-    pub score: T,
-}
-
-impl<T, I> ScoredItem<T, I> {
-    pub fn new(id: I, score: T) -> Self {
-        Self { id, score }
-    }
-}
-
-impl<T, I> Eq for ScoredItem<T, I>
-where
-    T: PartialEq,
-    I: PartialEq,
-{
-}
-
-impl<T, I> PartialOrd for ScoredItem<T, I>
-where
-    T: PartialOrd,
-    I: PartialEq,
-{
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<T, I> Ord for ScoredItem<T, I>
-where
-    T: PartialOrd,
-    I: PartialEq,
-{
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        unsafe { self.score.partial_cmp(&other.score).unwrap_unchecked() }
+        self.bh.into_sorted_vec()
     }
 }
 
@@ -137,7 +94,7 @@ where
 /// forward index. The values of each doc are packed into a single u64 in `packed_postings`.
 /// We use 48 bits for the offset and 16 bits for the length. This choice limits the size of the dataset to be 1<<48.
 /// We use the forward index to convert the offsets of the top-k back to the id of the corresponding documents.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash, Ord, PartialOrd)]
 pub(crate) struct PackedPostingBlock {
     pub n: u64,
 }

@@ -19,8 +19,8 @@ use std::collections::HashMap;
 use crate::utils::{read_from_path, write_to_path};
 use crate::InvertedIndex;
 use vectorium::{
-    ComponentType, Dataset as VDataset, DotProduct, PlainSparseDataset, ScalarSparseQuantizer,
-    SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D,
+    ComponentType, Dataset as VDataset, Distance, DotProduct, PlainSparseDataset,
+    ScalarSparseQuantizer, SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D,
 };
 
 const MAX_TOKEN_LEN: usize = 30;
@@ -1044,20 +1044,26 @@ macro_rules! impl_seismic_index_raw {
                 n_knn: usize,
                 sorted: bool,
             ) -> Vec<(f32, usize)> {
-                self.inverted_index.search(
-                    &query_components
-                        .to_vec()
-                        .unwrap()
-                        .iter()
-                        .map(|x| *x as $Key)
-                        .collect::<Vec<_>>(),
-                    &query_values.to_vec().unwrap(),
-                    k,
-                    query_cut,
-                    heap_factor,
-                    n_knn,
-                    sorted, // first_sorted is set to false
-                )
+                let components = query_components
+                    .to_vec()
+                    .unwrap()
+                    .iter()
+                    .map(|x| *x as $Key)
+                    .collect::<Vec<_>>();
+                let values = query_values.to_vec().unwrap();
+                let query = SparseVector1D::new(components, values);
+                self.inverted_index
+                    .search(
+                        &query,
+                        k,
+                        query_cut,
+                        heap_factor,
+                        n_knn,
+                        sorted, // first_sorted is set to false
+                    )
+                    .into_iter()
+                    .map(|result| (result.distance.distance(), result.vector as usize))
+                    .collect()
             }
 
 
@@ -1114,15 +1120,18 @@ macro_rules! impl_seismic_index_raw {
                 queries
                     .dataset_par_iter()
                     .map(|query| {
-                        self.inverted_index.search(
-                            query.0,
-                            query.1,
-                            k,
-                            query_cut,
-                            heap_factor,
-                            n_knn,
-                            sorted,
-                        )
+                        self.inverted_index
+                            .search(
+                                &SparseVector1D::new(query.0, query.1),
+                                k,
+                                query_cut,
+                                heap_factor,
+                                n_knn,
+                                sorted,
+                            )
+                            .into_iter()
+                            .map(|result| (result.distance.distance(), result.vector as usize))
+                            .collect()
                     })
                     .collect::<Vec<_>>()
             }

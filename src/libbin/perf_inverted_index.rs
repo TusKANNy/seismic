@@ -4,7 +4,10 @@ use std::io::Write;
 use std::time::Instant;
 
 use crate::utils::read_from_path;
-use vectorium::{Dataset as VDataset, read_seismic_format, DotProduct, SparseQuantizer, VectorEncoder, Vector1D};
+use vectorium::{
+    Dataset as VDataset, Distance, DotProduct, SparseQuantizer, SparseVector1D, Vector1D,
+    VectorEncoder, read_seismic_format,
+};
 use crate::*;
 
 type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
@@ -132,9 +135,9 @@ where
         for (query_id, components_values) in VDataset::iter(&queries).take(n_queries).enumerate() {
             let q_components: Vec<_> = components_values.components_as_slice().to_vec();
             let q_values: Vec<_> = components_values.values_as_slice().to_vec();
+            let query = SparseVector1D::new(q_components, q_values);
             let cur_results = inverted_index.search(
-                &q_components,
-                &q_values,
+                &query,
                 args.k,
                 query_cut,
                 heap_factor,
@@ -166,11 +169,13 @@ where
 
     for (query_id, result) in results.iter().enumerate() {
         // Writes results to a file in a parsable format
-        for (idx, (score, doc_id)) in result.iter().enumerate() {
+        for (idx, scored) in result.iter().enumerate() {
             writeln!(
                 &mut output_file,
-                "{query_id}\t{doc_id}\t{}\t{score}",
+                "{query_id}\t{}\t{}\t{}",
+                scored.vector,
                 idx + 1,
+                scored.distance.distance(),
             )
             .unwrap();
         }

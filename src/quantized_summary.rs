@@ -62,10 +62,18 @@ impl<C: ComponentType> QuantizedSummary<C> {
         EliasFano::estimate_space_bits(max_offset + 1 + d, d)
     }
 
-    pub fn distances<V>(&self, query_components: &[C], query_values: &[V]) -> Vec<f32>
+    pub fn distances<V, QC, QV>(
+        &self,
+        query: &SparseVector1D<C, V, QC, QV>,
+    ) -> Vec<f32>
     where
         V: ValueType,
+        QC: AsRef<[C]>,
+        QV: AsRef<[V]>,
     {
+        let query_components = query.components_as_slice();
+        let query_values = query.values_as_slice();
+
         let mut accumulator = vec![0_f32; self.n_summaries];
 
         if let Some(component_ids) = self.component_ids.as_ref() {
@@ -534,7 +542,8 @@ mod tests {
             let query_components = vec.components_as_slice();
             let query_values = vec.values_as_slice();
             // Get distances using DistancesIter
-            let distances: Vec<f32> = summary.distances(query_components, query_values);
+            let query = SparseVector1D::new(query_components, query_values);
+            let distances: Vec<f32> = summary.distances(&query);
             assert_eq!(distances.len(), dataset.len());
 
             // Compute distances explicitly
