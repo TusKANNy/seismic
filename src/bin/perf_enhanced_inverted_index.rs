@@ -132,7 +132,7 @@ pub fn main() {
         "Time {} microsecs per query",
         elapsed.as_micros() / (n_runs * n_queries) as u128
     );
-    let space_usage = inverted_index.space_usage_byte();
+    let space_usage = inverted_index.space_usage_bytes();
     eprintln!(
         "{}\t{}",
         elapsed.as_micros() / (n_runs * n_queries) as u128,

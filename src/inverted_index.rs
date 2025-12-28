@@ -54,16 +54,16 @@ where
     S: Dataset<E> + SpaceUsage,
     E: VectorEncoder,
 {
-    fn space_usage_byte(&self) -> usize {
-        let forward = SpaceUsage::space_usage_byte(&self.forward_index);
+    fn space_usage_bytes(&self) -> usize {
+        let forward = SpaceUsage::space_usage_bytes(&self.forward_index);
 
         let postings: usize = self
             .posting_lists
             .iter()
-            .map(|list| list.space_usage_byte())
+            .map(|list| list.space_usage_bytes())
             .sum();
         let knn_size = match &self.knn {
-            Some(knn) => knn.space_usage_byte(),
+            Some(knn) => knn.space_usage_bytes(),
             None => 0,
         };
 
@@ -144,7 +144,7 @@ where
         S: SpaceUsage,
     {
         println!("Space Usage:");
-        let forward = SpaceUsage::space_usage_byte(&self.forward_index);
+        let forward = SpaceUsage::space_usage_bytes(&self.forward_index);
         println!("\tForward Index: {:} Bytes", forward);
 
         // Breakdown dettagliato delle posting lists
@@ -153,9 +153,9 @@ where
         let mut total_summaries = 0;
 
         for posting_list in self.posting_lists.iter() {
-            total_packed_postings += SpaceUsage::space_usage_byte(&posting_list.packed_postings);
-            total_block_offsets += SpaceUsage::space_usage_byte(&posting_list.block_offsets);
-            total_summaries += posting_list.summaries.space_usage_byte();
+            total_packed_postings += SpaceUsage::space_usage_bytes(&posting_list.packed_postings);
+            total_block_offsets += SpaceUsage::space_usage_bytes(&posting_list.block_offsets);
+            total_summaries += posting_list.summaries.space_usage_bytes();
         }
 
         let postings_total = total_packed_postings + total_block_offsets + total_summaries;
@@ -178,7 +178,7 @@ where
         );
 
         let knn_size = match &self.knn {
-            Some(knn) => knn.space_usage_byte(),
+            Some(knn) => knn.space_usage_bytes(),
             None => 0,
         };
 
@@ -214,7 +214,7 @@ where
             "Query components must be sorted in ascending order."
         );
 
-        let evaluator = self.forward_index.get_query_evaluator(query);
+        let evaluator = self.forward_index.query_evaluator(query);
 
         let mut heap = KHeap::new(k);
         let mut visited = HashSet::with_capacity(query_cut.min(query_components.len()) * 5000); // TODO: 5000 should be n_postings
@@ -277,7 +277,7 @@ where
                 Distance = DotProduct,
             >,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
     {
         print!("Distributing and pruning postings: ");
         let time = Instant::now();
@@ -488,7 +488,7 @@ where
     fn fixed_pruning(dataset: &S, n_postings: usize) -> Vec<Vec<(ValueFor<E>, usize)>>
     where
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
     {
         let mut inverted_pairs: Vec<KHeap<ScoredVectorDotProduct>> =
             vec![KHeap::new(n_postings); dataset.input_dim()];
@@ -552,7 +552,7 @@ where
     ) -> Vec<Vec<(ValueFor<E>, usize)>>
     where
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
     {
         let mut new_inverted_pairs = vec![Vec::new(); dataset.input_dim()];
 
@@ -633,10 +633,10 @@ struct PostingList<C: ComponentType> {
 }
 
 impl<C: ComponentType> SpaceUsage for PostingList<C> {
-    fn space_usage_byte(&self) -> usize {
-        SpaceUsage::space_usage_byte(&self.packed_postings)
-            + SpaceUsage::space_usage_byte(&self.block_offsets)
-            + self.summaries.space_usage_byte()
+    fn space_usage_bytes(&self) -> usize {
+        SpaceUsage::space_usage_bytes(&self.packed_postings)
+            + SpaceUsage::space_usage_bytes(&self.block_offsets)
+            + self.summaries.space_usage_bytes()
     }
 }
 
@@ -787,7 +787,7 @@ impl<C: ComponentType> PostingList<C> {
                 QueryValueType = f32,
             >,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
     {
         let mut posting_list: Vec<_> = postings.iter().map(|(_, docid)| *docid).collect();
 
@@ -884,7 +884,7 @@ impl<C: ComponentType> PostingList<C> {
         E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
         E: VectorEncoder<QueryValueType = f32>,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
     {
         if posting_list.is_empty() {
             return Vec::new();
@@ -958,7 +958,7 @@ impl<C: ComponentType> PostingList<C> {
         S: Dataset<E>,
         E: VectorEncoder,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
     {
         let mut hash: HashMap<ComponentFor<E>, f32> = HashMap::new();
         for &doc_id in block.iter() {
@@ -991,7 +991,7 @@ impl<C: ComponentType> PostingList<C> {
         S: Dataset<E>,
         E: VectorEncoder,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
     {
         let mut hash: HashMap<ComponentFor<E>, f32> = HashMap::new();
         for &doc_id in block.iter() {
@@ -1148,10 +1148,10 @@ pub struct Knn {
 }
 
 impl SpaceUsage for Knn {
-    fn space_usage_byte(&self) -> usize {
+    fn space_usage_bytes(&self) -> usize {
         self.neighbours.mem_size(SizeFlags::empty())
-            + SpaceUsage::space_usage_byte(&self.n_vecs)
-            + SpaceUsage::space_usage_byte(&self.dim)
+            + SpaceUsage::space_usage_bytes(&self.n_vecs)
+            + SpaceUsage::space_usage_bytes(&self.dim)
     }
 }
 
@@ -1163,7 +1163,7 @@ impl Knn {
         E: VectorEncoder<QueryComponentType = ComponentFor<E>, Distance = DotProduct>,
         E: VectorEncoder<QueryValueType = f32>,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
     {
         const KNN_QUERY_CUT: usize = 10;
         const KNN_HEAP_FACTOR: f32 = 0.7;

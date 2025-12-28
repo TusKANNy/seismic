@@ -60,9 +60,9 @@ where
     E: VectorEncoder,
     ComponentFor<E>: ComponentType,
 {
-    fn space_usage_byte(&self) -> usize {
+    fn space_usage_bytes(&self) -> usize {
         //TODO: add the SpaceUsage of document_mapping and token_to_id_map
-        self.inverted_index.space_usage_byte()
+        self.inverted_index.space_usage_bytes()
     }
 }
 
@@ -426,7 +426,7 @@ where
         ComponentFor<E>: ComponentType,
         ValueFor<E>: ValueType,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
     {
         let dim = dataset.sparse_dataset.input_dim();
         let quantizer = E::new(dim, dim);

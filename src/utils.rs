@@ -126,7 +126,7 @@ impl PackedPostingBlock {
 }
 
 impl SpaceUsage for PackedPostingBlock {
-    fn space_usage_byte(&self) -> usize {
+    fn space_usage_bytes(&self) -> usize {
         std::mem::size_of::<Self>()
     }
 }
@@ -212,11 +212,11 @@ pub fn prefetch_read<T>(ptr: *const T) {
 
 fn iter_components_values<'a, V>(
     vector: &'a V,
-) -> impl Iterator<Item = (V::ComponentType, V::ValueType)> + 'a
+) -> impl Iterator<Item = (V::Component, V::Value)> + 'a
 where
     V: Vector1D,
-    V::ComponentType: Copy,
-    V::ValueType: Copy,
+    V::Component: Copy,
+    V::Value: Copy,
 {
     vector
         .components_as_slice()
@@ -239,7 +239,7 @@ where
     ComponentFor<E>: ComponentType,
     ValueFor<E>: ValueType,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
     T: ValueType,
 {
     let mut scores = vec![0_f32; centroids_doc_ids.len()];
@@ -289,7 +289,7 @@ where
     ComponentFor<E>: ComponentType,
     ValueFor<E>: ValueType,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
 {
     let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -386,7 +386,7 @@ where
     QueryValueFor<E>: ValueType,
     E: VectorEncoder<QueryValueType = f32>,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
 
@@ -403,7 +403,7 @@ where
         let values = doc_vec.values_as_slice();
         let query_values: Vec<_> = values.iter().map(|v| v.to_f32().unwrap()).collect();
         let query = SparseVector1D::new(components, query_values.as_slice());
-        let evaluator = dataset.get_query_evaluator(&query);
+        let evaluator = dataset.query_evaluator(&query);
         let mut visited = to_avoid.clone();
 
         // Sort query terms by score and evaluate the posting list only for the top ones
@@ -453,7 +453,7 @@ where
     QueryValueFor<E>: ValueType,
     E: VectorEncoder<QueryValueType = f32>,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
 {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -555,7 +555,7 @@ where
     QueryValueFor<E>: ValueType,
     E: VectorEncoder<QueryValueType = f32>,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
     let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
@@ -570,7 +570,7 @@ where
         let values = doc_vec.values_as_slice();
         let query_values: Vec<_> = values.iter().map(|v| v.to_f32().unwrap()).collect();
         let query = SparseVector1D::new(components, query_values.as_slice());
-        let evaluator = dataset.get_query_evaluator(&query);
+        let evaluator = dataset.query_evaluator(&query);
 
         let (centroid_max, _dot) = centroids
             .iter()
@@ -604,7 +604,7 @@ where
     QueryValueFor<E>: ValueType,
     E: VectorEncoder<QueryValueType = f32>,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
 {
     let seed = 42; // You can use any u64 value as the seed
     let mut rng = StdRng::seed_from_u64(seed);

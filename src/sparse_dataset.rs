@@ -1314,11 +1314,11 @@ where
     AV: AsRef<[V]> + SpaceUsage,
 {
     /// Returns the size of the dataset in bytes.
-    fn space_usage_byte(&self) -> usize {
-        self.dim.space_usage_byte()
-            + self.offsets.space_usage_byte()
-            + self.components.space_usage_byte()
-            + self.values.space_usage_byte()
+    fn space_usage_bytes(&self) -> usize {
+        self.dim.space_usage_bytes()
+            + self.offsets.space_usage_bytes()
+            + self.components.space_usage_bytes()
+            + self.values.space_usage_bytes()
     }
 }
 

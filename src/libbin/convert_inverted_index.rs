@@ -64,7 +64,7 @@ where
     ComponentFor<E>: serde::Serialize + serde::de::DeserializeOwned + ComponentType,
     ValueFor<E>: ValueType,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<ComponentType = ComponentFor<E>, ValueType = ValueFor<E>>,
+        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
 {
     println!("Loading inverted index...");
 

@@ -26,21 +26,21 @@ pub struct QuantizedSummary<C: ComponentType> {
 use mem_dbg::{MemSize, SizeFlags};
 
 impl<C: ComponentType> SpaceUsage for QuantizedSummary<C> {
-    fn space_usage_byte(&self) -> usize {
+    fn space_usage_bytes(&self) -> usize {
         let component_ids_size = if let Some(ref component_ids) = self.component_ids {
-            SpaceUsage::space_usage_byte(component_ids)
+            SpaceUsage::space_usage_bytes(component_ids)
         } else {
             0_usize
         };
 
         component_ids_size
-            + SpaceUsage::space_usage_byte(&self.n_summaries)
-            + SpaceUsage::space_usage_byte(&self.dim)
+            + SpaceUsage::space_usage_bytes(&self.n_summaries)
+            + SpaceUsage::space_usage_bytes(&self.dim)
             + self.offsets.mem_size(SizeFlags::empty())
             + self.summaries_ids.mem_size(SizeFlags::empty())
-            + SpaceUsage::space_usage_byte(&self.values)
-            + SpaceUsage::space_usage_byte(&self.minimums)
-            + SpaceUsage::space_usage_byte(&self.quants)
+            + SpaceUsage::space_usage_bytes(&self.values)
+            + SpaceUsage::space_usage_bytes(&self.minimums)
+            + SpaceUsage::space_usage_bytes(&self.quants)
     }
 }
 
@@ -152,18 +152,18 @@ impl<C: ComponentType> QuantizedSummary<C> {
     pub fn print_space_usage(&self) {
         // Calcolo la dimensione in byte di ogni campo
         let component_ids_size = if let Some(ref component_ids) = self.component_ids {
-            SpaceUsage::space_usage_byte(component_ids)
+            SpaceUsage::space_usage_bytes(component_ids)
         } else {
             0_usize
         };
 
-        let n_summaries_size = SpaceUsage::space_usage_byte(&self.n_summaries);
-        let d_size = SpaceUsage::space_usage_byte(&self.dim);
+        let n_summaries_size = SpaceUsage::space_usage_bytes(&self.n_summaries);
+        let d_size = SpaceUsage::space_usage_bytes(&self.dim);
         let offsets_size = self.offsets.mem_size(SizeFlags::empty());
         let summaries_ids_size = self.summaries_ids.mem_size(SizeFlags::empty());
-        let values_size = SpaceUsage::space_usage_byte(&self.values);
-        let minimums_size = SpaceUsage::space_usage_byte(&self.minimums);
-        let quants_size = SpaceUsage::space_usage_byte(&self.quants);
+        let values_size = SpaceUsage::space_usage_bytes(&self.values);
+        let minimums_size = SpaceUsage::space_usage_bytes(&self.minimums);
+        let quants_size = SpaceUsage::space_usage_bytes(&self.quants);
 
         // Calcolo il totale
         let total_size = component_ids_size
