@@ -1,22 +1,8 @@
 #![allow(refining_impl_trait)]
 #![allow(internal_features)]
 #![allow(incomplete_features)]
-#![feature(core_intrinsics)]
-#![feature(float_algebraic)]
-#![feature(gen_blocks)]
-#![feature(generic_const_exprs)]
-#![feature(iter_map_windows)]
-#![feature(portable_simd)]
-#![feature(trait_alias)]
-#![feature(vec_into_chunks)]
-#![feature(vec_push_within_capacity)]
 #![doc = include_str!("../README.md")]
 
-use bytemuck::AnyBitPattern;
-use fixed::FixedU8;
-use fixed::FixedU16;
-
-use bytemuck::Pod;
 pub use vectorium::{SparseDataset, SparseDatasetGrowable};
 
 pub mod inverted_index;
@@ -31,24 +17,11 @@ pub use quantized_summary::QuantizedSummary;
 
 pub use vectorium::{ComponentType, FromF32, SpaceUsage, ValueType};
 
-#[derive(Debug, Clone)]
-pub enum PermutationStrategy {
-    None,
-    Metis,
-    GraphBisection,
-}
-
 pub mod json_utils;
 pub mod utils;
 
-/// Type aliases for quantized fixed-point types. You can change FRAC in the `fixed` crate to adjust the precision.
-/// The `FixedU8Q` type uses 6 fractional bits, while `FixedU16Q` uses 8 fractional bits.
-use fixed::types::extra::U6;
-use fixed::types::extra::U13;
-pub type FixedU8Q = FixedU8<U6>;
-pub type FixedU16Q = FixedU16<U13>;
-
-pub trait SimdyValueType = std::simd::SimdElement + Pod + AnyBitPattern;
+/// Type aliases for quantized fixed-point types (re-exported from vectorium).
+pub use vectorium::{FixedU8Q, FixedU16Q};
 
 #[cfg(feature = "pyo3")]
 pub mod pylib;
