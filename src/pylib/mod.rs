@@ -19,8 +19,9 @@ use std::collections::HashMap;
 use crate::utils::{read_from_path, write_to_path};
 use crate::InvertedIndex;
 use vectorium::{
-    ComponentType, Dataset as VDataset, Distance, DotProduct, PlainSparseDataset,
+    ComponentType, Dataset as VDataset, Distance, DotProduct, GrowableDataset, PlainSparseDataset,
     ScalarSparseQuantizer, SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D,
+    VectorEncoder,
 };
 
 const MAX_TOKEN_LEN: usize = 30;
@@ -354,6 +355,7 @@ macro_rules! impl_seismic_index {
             input_token_to_id_map: Option<HashMap<String, usize>>,
             num_threads: usize,
         ) -> PyResult<$rust_name> {
+            let _ = batched_indexing;
             rayon::ThreadPoolBuilder::new()
                 .num_threads(num_threads)
                 .build()
@@ -374,8 +376,7 @@ macro_rules! impl_seismic_index {
                     },
                 })
                 .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
-                .knn(knn_config)
-                .batched_indexing(batched_indexing);
+                .knn(knn_config);
 
             println!("\nBuilding the index...");
             println!("{:?}", config);
@@ -445,6 +446,7 @@ macro_rules! impl_seismic_index {
             batched_indexing: Option<usize>,
             num_threads: usize,
         ) -> PyResult<$rust_name> {
+            let _ = batched_indexing;
             rayon::ThreadPoolBuilder::new()
                 .num_threads(num_threads)
                 .build()
@@ -465,8 +467,7 @@ macro_rules! impl_seismic_index {
                     },
                 })
                 .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
-                .knn(knn_config)
-                .batched_indexing(batched_indexing);
+                .knn(knn_config);
 
             println!("\nBuilding the index...");
             println!("{:?}", config);
@@ -974,6 +975,7 @@ macro_rules! impl_seismic_index_raw {
                 knn_path: Option<String>,
                 batched_indexing: Option<usize>,
             ) -> PyResult<$rust_name> {
+                let _ = batched_indexing;
                 let dataset = vectorium::read_seismic_format::<$Key, f32, DotProduct>(input_file)
                     .unwrap();
                 let dataset = quantize_f32_dataset_to_f16(dataset);
@@ -993,8 +995,7 @@ macro_rules! impl_seismic_index_raw {
                         },
                     })
                     .summarization_strategy(SummarizationStrategy::EnergyPreserving { summary_energy })
-                    .knn(knn_config)
-                    .batched_indexing(batched_indexing);
+                    .knn(knn_config);
                 println!("\nBuilding the index...");
                 println!("{:?}", config);
 
@@ -1118,11 +1119,11 @@ macro_rules! impl_seismic_index_raw {
                     vectorium::read_seismic_format::<$Key, f32, DotProduct>(query_path).unwrap();
 
                 queries
-                    .dataset_par_iter()
+                    .par_iter()
                     .map(|query| {
                         self.inverted_index
                             .search(
-                                &SparseVector1D::new(query.0, query.1),
+                                &query,
                                 k,
                                 query_cut,
                                 heap_factor,

@@ -2,7 +2,6 @@ use std::{collections::HashMap, fs::File, io::BufReader};
 
 use serde::Deserialize;
 
-//use qwt::SpaceUsage as SpaceUsageQwt;
 use serde_json::Deserializer;
 
 use crate::ValueType;
