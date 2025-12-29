@@ -10,7 +10,7 @@ use crate::{ComponentType, ValueType};
 use half::f16;
 use vectorium::{
     Dataset, Distance, DotProduct, GrowableDataset, SparseDataset, SparseDatasetGrowable,
-    SparseQuantizer,
+    SparseVectorEncoder,
     SparseVector1D, SpaceUsage, Vector1D, VectorEncoder,
 };
 use vectorium::dataset::ScoredVectorDotProduct;
@@ -71,7 +71,7 @@ where
     S: Dataset<E> + Sync + SpaceUsage,
     E: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-    E: SparseQuantizer<InputComponentType = ComponentFor<E>, InputValueType = f32>,
+    E: SparseVectorEncoder<InputComponentType = ComponentFor<E>, InputValueType = f32>,
     E: vectorium::SpaceUsage,
     for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
     S: From<SparseDataset<E>>,
@@ -190,7 +190,7 @@ where
         token_to_id_mapping: HashMap<String, usize>,
     ) -> (S, Vec<String>, HashMap<String, usize>)
     where
-        E: SparseQuantizer<InputComponentType = ComponentFor<E>, InputValueType = f32>,
+        E: SparseVectorEncoder<InputComponentType = ComponentFor<E>, InputValueType = f32>,
         for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
         ComponentFor<E>: ComponentType,
         S: From<SparseDataset<E>>,
@@ -421,7 +421,7 @@ where
     pub fn from_dataset(dataset: SeismicDataset<ComponentFor<E>>, config: Configuration) -> Self
     where
         S: From<SparseDataset<E>>,
-        E: SparseQuantizer<InputComponentType = ComponentFor<E>, InputValueType = f32>,
+        E: SparseVectorEncoder<InputComponentType = ComponentFor<E>, InputValueType = f32>,
         for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
         ComponentFor<E>: ComponentType,
         ValueFor<E>: ValueType,
@@ -570,7 +570,7 @@ where
         let query = SparseVector1D::new(components, values);
         let plain_results = self
             .sparse_dataset
-            .search(query, k)
+            .search(&query, k)
             .into_iter()
             .map(|result| (result.distance.distance(), result.vector as usize))
             .collect();

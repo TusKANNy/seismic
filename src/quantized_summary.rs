@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::quantize;
 use vectorium::{
-    ComponentType, Dataset, SparseDataset, SparseQuantizer, SparseVector1D, SpaceUsage, ValueType,
+    ComponentType, Dataset, SparseDataset, SparseVectorEncoder, SparseVector1D, SpaceUsage, ValueType,
     Vector1D, VectorEncoder,
 };
 
@@ -261,7 +261,7 @@ impl<C: ComponentType> QuantizedSummary<C> {
 
 impl<Q, C, V> From<SparseDataset<Q>> for QuantizedSummary<C>
 where
-    Q: SparseQuantizer<OutputComponentType = C, OutputValueType = V> + vectorium::SpaceUsage,
+    Q: SparseVectorEncoder<OutputComponentType = C, OutputValueType = V> + vectorium::SpaceUsage,
     for<'a> Q: VectorEncoder<EncodedVector<'a> = SparseVector1D<C, V, &'a [C], &'a [V]>>,
     C: ComponentType + vectorium::SpaceUsage,
     V: ValueType + vectorium::SpaceUsage,
@@ -275,7 +275,7 @@ where
 
 impl<Q, C, V> From<&SparseDataset<Q>> for QuantizedSummary<C>
 where
-    Q: SparseQuantizer<OutputComponentType = C, OutputValueType = V> + vectorium::SpaceUsage,
+    Q: SparseVectorEncoder<OutputComponentType = C, OutputValueType = V> + vectorium::SpaceUsage,
     for<'a> Q: VectorEncoder<EncodedVector<'a> = SparseVector1D<C, V, &'a [C], &'a [V]>>,
     C: ComponentType + vectorium::SpaceUsage,
     V: ValueType + vectorium::SpaceUsage,
@@ -399,7 +399,10 @@ mod tests {
     use super::*;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
-    use vectorium::{DotProduct, PlainSparseDataset, PlainSparseDatasetGrowable, PlainSparseQuantizer, SparseVector1D};
+    use vectorium::{
+        DotProduct, GrowableDataset, PlainSparseDataset, PlainSparseDatasetGrowable,
+        PlainSparseQuantizer, SparseVector1D,
+    };
 
     fn generate_random_sparse_dataset<C>(
         seed: u64,

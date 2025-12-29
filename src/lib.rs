@@ -38,12 +38,8 @@ pub enum PermutationStrategy {
     GraphBisection,
 }
 
-pub mod distances;
-
 pub mod json_utils;
 pub mod utils;
-
-pub mod libbin;
 
 /// Type aliases for quantized fixed-point types. You can change FRAC in the `fixed` crate to adjust the precision.
 /// The `FixedU8Q` type uses 6 fractional bits, while `FixedU16Q` uses 8 fractional bits.

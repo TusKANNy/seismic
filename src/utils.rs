@@ -11,8 +11,8 @@ use rand::prelude::*;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use vectorium::{
-    ComponentType, Dataset, Distance, QueryEvaluator, SparseQuantizer, SparseVector1D, SpaceUsage,
-    ValueType, Vector1D, VectorEncoder,
+    ComponentType, Dataset, Distance, QueryEvaluator, SpaceUsage, SparseVector1D,
+    SparseVectorEncoder, ValueType, Vector1D, VectorEncoder,
 };
 
 type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
@@ -156,60 +156,6 @@ pub(crate) fn quantize<T: ValueType>(values: &[T]) -> (f32, f32, Vec<u8>) {
     (min, quant, quantized_values)
 }
 
-/// Computes the size of the intersection of two unsorted lists of integers.
-pub fn intersection<T: Eq + Hash + Clone>(s: &[T], groundtruth: &[T]) -> usize {
-    let s_set: HashSet<_> = s.iter().cloned().collect();
-    let mut size = 0;
-    for v in groundtruth {
-        if s_set.contains(v) {
-            size += 1;
-        }
-    }
-    size
-}
-
-const THRESHOLD_BINARY_SEARCH: usize = 10;
-
-#[inline]
-#[must_use]
-pub fn conditionally_densify<C>(
-    query_components: &[C],
-    query_values: &[f32],
-    query_dim: usize,
-) -> Option<Vec<f32>>
-where
-    C: ComponentType,
-{
-    if query_components.len() > THRESHOLD_BINARY_SEARCH && query_dim <= 2_usize.pow(18) {
-        let mut vec = vec![0.0; query_dim];
-        for (&i, &v) in query_components.iter().zip(query_values) {
-            vec[i.as_()] = v;
-        }
-        Some(vec)
-    } else {
-        None
-    }
-}
-
-#[inline]
-pub fn prefetch_read<T>(ptr: *const T) {
-    let ptr = ptr as *const u8;
-
-    // Prefetching is much better when done by a constant value, as doing branches to dynamically choose how much to prefetch defeats the point.
-    // The milion dollar question: how much to prefetch? It depends on the computer.
-    // On newer computers, the optimal amount of data to prefetch is 1, which is why it's the default.
-    // Older computers however gain to most advantage by prefetching multiple times.
-    const LEN: usize = match envparse::parse_env!(try "PREFETCH_LEN" as usize) {
-        Some(l) => l,
-        None => 1,
-    };
-    const CACHE_LINE_SIZE: usize = 64;
-
-    for i in 0..LEN {
-        core::intrinsics::prefetch_read_data::<_, 0>(ptr.wrapping_add(i * CACHE_LINE_SIZE));
-    }
-}
-
 fn iter_components_values<'a, V>(
     vector: &'a V,
 ) -> impl Iterator<Item = (V::Component, V::Value)> + 'a
@@ -235,7 +181,7 @@ fn compute_centroid_assignments_approx_dot_product<S, E, T>(
 ) -> Vec<(usize, usize)>
 where
     S: Dataset<E>,
-    E: SparseQuantizer,
+    E: SparseVectorEncoder,
     ComponentFor<E>: ComponentType,
     ValueFor<E>: ValueType,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
@@ -285,7 +231,7 @@ pub fn do_random_kmeans_on_docids_ii_approx_dot_product<S, E>(
 ) -> Vec<(usize, usize)>
 where
     S: Dataset<E>,
-    E: SparseQuantizer,
+    E: SparseVectorEncoder,
     ComponentFor<E>: ComponentType,
     ValueFor<E>: ValueType,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
@@ -379,7 +325,7 @@ where
     A: AsRef<[(T, usize)]>,
     T: ValueType,
     S: Dataset<E>,
-    E: SparseQuantizer,
+    E: SparseVectorEncoder,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
     ComponentFor<E>: ComponentType,
     ValueFor<E>: ValueType,
@@ -446,7 +392,7 @@ pub fn do_random_kmeans_on_docids_ii_dot_product<S, E>(
 ) -> Vec<(usize, usize)>
 where
     S: Dataset<E>,
-    E: SparseQuantizer,
+    E: SparseVectorEncoder,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
     ComponentFor<E>: ComponentType,
     ValueFor<E>: ValueType,
@@ -548,7 +494,7 @@ fn compute_centroid_assignments<S, E>(
 ) -> Vec<(usize, usize)>
 where
     S: Dataset<E>,
-    E: SparseQuantizer,
+    E: SparseVectorEncoder,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
     ComponentFor<E>: ComponentType,
     ValueFor<E>: ValueType,
@@ -597,7 +543,7 @@ pub fn do_random_kmeans_on_docids<S, E>(
 ) -> Vec<(usize, usize)>
 where
     S: Dataset<E>,
-    E: SparseQuantizer,
+    E: SparseVectorEncoder,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
     ComponentFor<E>: ComponentType,
     ValueFor<E>: ValueType,

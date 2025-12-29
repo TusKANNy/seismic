@@ -8,7 +8,7 @@ use vectorium::dataset::{ScoredRangeDotProduct, ScoredVectorDotProduct};
 use vectorium::{
     ComponentType, Dataset, Distance, DotProduct, DotVByteFixedU8Quantizer, GrowableDataset,
     PackedDataset, PlainSparseDataset, PlainSparseQuantizer, QueryEvaluator, QueryVectorFor,
-    SpaceUsage, SparseDataset, SparseDatasetGrowable, SparseQuantizer, SparseVector1D, ValueType,
+    SpaceUsage, SparseDataset, SparseDatasetGrowable, SparseVectorEncoder, SparseVector1D, ValueType,
     Vector1D, VectorEncoder,
 };
 
@@ -270,7 +270,7 @@ where
     /// `n_postings`: minimum number of postings to select for each component
     pub fn build(dataset: S, config: Configuration) -> Self
     where
-        E: SparseQuantizer,
+        E: SparseVectorEncoder,
         E: VectorEncoder<
                 QueryComponentType = ComponentFor<E>,
                 QueryValueType = f32,
@@ -362,7 +362,7 @@ where
     pub fn from_inverted_index<T, ET>(inverted_index: InvertedIndex<T, ET>) -> Self
     where
         S: Dataset<E> + From<SparseDataset<E>>,
-        E: SparseQuantizer<InputValueType = f32, InputComponentType = ComponentFor<E>>,
+        E: SparseVectorEncoder<InputValueType = f32, InputComponentType = ComponentFor<E>>,
         E: vectorium::SpaceUsage,
         for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
         T: Dataset<ET>,
@@ -418,11 +418,11 @@ where
     pub fn from_base_dataset<T, ET>(dataset: T, config: Configuration) -> Self
     where
         S: Dataset<E> + From<SparseDataset<E>>,
-        E: SparseQuantizer<InputValueType = f32, InputComponentType = ComponentFor<E>>,
+        E: SparseVectorEncoder<InputValueType = f32, InputComponentType = ComponentFor<E>>,
         E: vectorium::SpaceUsage,
         for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
         T: Dataset<ET> + Sync,
-        ET: SparseQuantizer,
+        ET: SparseVectorEncoder,
         ET: VectorEncoder<
                 QueryComponentType = ComponentFor<ET>,
                 QueryValueType = f32,
@@ -780,7 +780,7 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Self
     where
         S: Dataset<E>,
-        E: SparseQuantizer,
+        E: SparseVectorEncoder,
         E: VectorEncoder<
                 OutputComponentType = C,
                 QueryComponentType = ComponentFor<E>,
@@ -880,7 +880,7 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Vec<usize>
     where
         S: Dataset<E>,
-        E: SparseQuantizer,
+        E: SparseVectorEncoder,
         E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
         E: VectorEncoder<QueryValueType = f32>,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
@@ -1159,7 +1159,7 @@ impl Knn {
     pub fn new<S, E>(index: &InvertedIndex<S, E>, dim: usize) -> Self
     where
         S: Dataset<E> + Sync,
-        E: SparseQuantizer,
+        E: SparseVectorEncoder,
         E: VectorEncoder<QueryComponentType = ComponentFor<E>, Distance = DotProduct>,
         E: VectorEncoder<QueryValueType = f32>,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
@@ -1347,10 +1347,11 @@ mod tests {
         assert_eq!(index.dim(), 5);
         assert_eq!(index.nnz(), 7);
 
-        let results = index.search(&[0, 1, 2, 3], &[1.0, 2.0, 3.0, 4.0], 10, 5, 0.7, 0, false);
+        let query = SparseVector1D::new(vec![0_u16, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0]);
+        let results = index.search(&query, 10, 5, 0.7, 0, false);
 
         assert_eq!(results.len(), 2); // Empty vectors are never retrieved becasue they do not belong to any posting list!
-        assert_eq!(results[0].1, 3);
-        assert_eq!(results[1].1, 0);
+        assert_eq!(results[0].vector, 3);
+        assert_eq!(results[1].vector, 0);
     }
 }
