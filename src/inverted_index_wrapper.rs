@@ -8,6 +8,7 @@ use std::{
 use crate::json_utils::{JsonFormat, extract_jsonl};
 use crate::{ComponentType, ValueType};
 use half::f16;
+use num_traits::{FromPrimitive, ToPrimitive};
 use vectorium::{
     Dataset, Distance, DotProduct, GrowableDataset, SparseDataset, SparseDatasetGrowable,
     SparseVectorEncoder,
@@ -58,7 +59,7 @@ impl<S, E> SpaceUsage for SeismicIndex<S, E>
 where
     S: Dataset<E> + SpaceUsage,
     E: VectorEncoder,
-    ComponentFor<E>: ComponentType,
+    ComponentFor<E>: ComponentType + SpaceUsage,
 {
     fn space_usage_bytes(&self) -> usize {
         //TODO: add the SpaceUsage of document_mapping and token_to_id_map
@@ -88,7 +89,11 @@ where
         config: Configuration,
         document_mapping: Option<impl Into<Box<[String]>>>,
         token_to_id_map: HashMap<String, usize>,
-    ) -> Self {
+    ) -> Self
+    where
+        ComponentFor<E>: SpaceUsage + std::hash::Hash,
+        ValueFor<E>: vectorium::FromF32 + PartialOrd,
+    {
         let inverted_index = InvertedIndex::build(dataset, config);
 
         Self {
@@ -135,7 +140,10 @@ where
         heap_factor: f32,
         n_knn: usize,
         first_sorted: bool,
-    ) -> Vec<ScoredVectorFor> {
+    ) -> Vec<ScoredVectorFor>
+    where
+        ComponentFor<E>: FromPrimitive,
+    {
         let (filtered_query_components, filtered_query_values): (Vec<_>, Vec<_>) =
             query_components_original
                 .iter()
@@ -143,9 +151,10 @@ where
                 .filter_map(|(qc, &qv)| {
                     self.token_to_id_map
                         .get(qc)
-                        .map(|id| (ComponentFor::<E>::from_usize(*id).unwrap(), qv))
+                        .and_then(|id| ComponentFor::<E>::from_usize(*id))
+                        .map(|component| (component, qv))
                 })
-                .sorted_by(|(a, _), (b, _)| a.cmp(b))
+                .sorted_by_key(|(component, _)| *component)
                 .unzip();
 
         let query = SparseVector1D::new(filtered_query_components, filtered_query_values);
@@ -170,7 +179,10 @@ where
         heap_factor: f32,
         n_knn: usize,
         first_sorted: bool,
-    ) -> Vec<(String, f32, String)> {
+    ) -> Vec<(String, f32, String)>
+    where
+        ComponentFor<E>: FromPrimitive,
+    {
         let results = self.search_raw(
             query_components_original,
             query_values,
@@ -192,7 +204,7 @@ where
     where
         E: SparseVectorEncoder<InputComponentType = ComponentFor<E>, InputValueType = f32>,
         for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
-        ComponentFor<E>: ComponentType,
+        ComponentFor<E>: ComponentType + FromPrimitive,
         S: From<SparseDataset<E>>,
     {
         let mut doc_id_mapping = Vec::with_capacity(row_count);
@@ -210,7 +222,10 @@ where
 
             let ids: Vec<_> = tokens
                 .into_iter()
-                .map(|t| ComponentFor::<E>::from_usize(token_to_id_mapping[&t]).unwrap())
+                .map(|t| {
+                    ComponentFor::<E>::from_usize(token_to_id_mapping[&t])
+                        .expect("Failed to convert token id to component type")
+                })
                 .collect();
 
             let converted_iterator = ids.into_iter().zip(values).sorted_by_key(|&(c, _)| c);
@@ -257,6 +272,9 @@ where
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
     ) -> Result<Self, io::Error>
+    where
+        ComponentFor<E>: FromPrimitive + SpaceUsage + std::hash::Hash,
+        ValueFor<E>: vectorium::FromF32 + PartialOrd,
     {
         if file_path.ends_with(".jsonl") {
             Ok(SeismicIndex::from_json(
@@ -283,6 +301,9 @@ where
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
     ) -> Self
+    where
+        ComponentFor<E>: FromPrimitive + SpaceUsage + std::hash::Hash,
+        ValueFor<E>: vectorium::FromF32 + PartialOrd,
     {
         println!("Reading the collection..");
         let start = Instant::now();
@@ -329,6 +350,9 @@ where
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
     ) -> Self
+    where
+        ComponentFor<E>: FromPrimitive + SpaceUsage + std::hash::Hash,
+        ValueFor<E>: vectorium::FromF32 + PartialOrd,
     {
         println!("Reading the collection..");
         let start = Instant::now();
@@ -382,7 +406,10 @@ where
         )
     }
 
-    pub fn print_space_usage_byte(&self) {
+    pub fn print_space_usage_byte(&self)
+    where
+        ComponentFor<E>: SpaceUsage,
+    {
         self.inverted_index.print_space_usage_byte();
     }
 
@@ -424,7 +451,8 @@ where
         E: SparseVectorEncoder<InputComponentType = ComponentFor<E>, InputValueType = f32>,
         for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
         ComponentFor<E>: ComponentType,
-        ValueFor<E>: ValueType,
+        ComponentFor<E>: SpaceUsage + std::hash::Hash,
+        ValueFor<E>: ValueType + vectorium::FromF32 + PartialOrd,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
     {

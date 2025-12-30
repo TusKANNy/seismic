@@ -15,10 +15,12 @@ use vectorium::{
 use indicatif::ParallelProgressIterator;
 
 use itertools::Itertools;
+use num_traits::{AsPrimitive, ToPrimitive};
 use rayon::prelude::*;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::cmp;
+use std::hash::Hash;
 
 use mem_dbg::{MemSize, SizeFlags};
 use std::collections::{HashMap, HashSet};
@@ -53,6 +55,7 @@ impl<S, E> SpaceUsage for InvertedIndex<S, E>
 where
     S: Dataset<E> + SpaceUsage,
     E: VectorEncoder,
+    ComponentFor<E>: SpaceUsage,
 {
     fn space_usage_bytes(&self) -> usize {
         let forward = SpaceUsage::space_usage_bytes(&self.forward_index);
@@ -142,6 +145,7 @@ where
     pub fn print_space_usage_byte(&self) -> usize
     where
         S: SpaceUsage,
+        ComponentFor<E>: SpaceUsage,
     {
         println!("Space Usage:");
         let forward = SpaceUsage::space_usage_bytes(&self.forward_index);
@@ -204,6 +208,7 @@ where
         QC: AsRef<[ComponentFor<E>]>,
         QV: AsRef<[QueryValueFor<E>]>,
         SparseVector1D<ComponentFor<E>, QueryValueFor<E>, QC, QV>: QueryVectorFor<E>,
+        QueryValueFor<E>: PartialOrd,
     {
         let query_components = query.components_as_slice();
         let query_values = query.values_as_slice();
@@ -278,6 +283,8 @@ where
             >,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+        ComponentFor<E>: SpaceUsage + Hash,
+        ValueFor<E>: vectorium::FromF32 + PartialOrd,
     {
         print!("Distributing and pruning postings: ");
         let time = Instant::now();
@@ -437,6 +444,8 @@ where
                 &'a [f32],
             >,
         >,
+        ComponentFor<E>: SpaceUsage + Hash,
+        <ET as VectorEncoder>::OutputValueType: vectorium::FromF32 + PartialOrd,
     {
         let inverted_index = InvertedIndex::<T, ET>::build(dataset, config);
         Self::from_inverted_index(inverted_index)
@@ -489,6 +498,7 @@ where
     where
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+        ValueFor<E>: vectorium::FromF32,
     {
         let mut inverted_pairs: Vec<KHeap<ScoredVectorDotProduct>> =
             vec![KHeap::new(n_postings); dataset.input_dim()];
@@ -525,7 +535,7 @@ where
 
     // Implementation of the pruning strategy that selects the top-x posting from each posting list where x is alpha times the number of postings in the list or max_n_posting if too big.
     #[allow(unused)]
-    fn coi_pruning<V: ValueType>(
+    fn coi_pruning<V: ValueType + PartialOrd>(
         inverted_pairs: &mut Vec<Vec<(V, usize)>>,
         alpha: f32,
         max_n_postings: usize,
@@ -553,6 +563,7 @@ where
     where
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+        ValueFor<E>: PartialOrd,
     {
         let mut new_inverted_pairs = vec![Vec::new(); dataset.input_dim()];
 
@@ -632,7 +643,7 @@ struct PostingList<C: ComponentType> {
     summaries: QuantizedSummary<C>,
 }
 
-impl<C: ComponentType> SpaceUsage for PostingList<C> {
+impl<C: ComponentType + SpaceUsage> SpaceUsage for PostingList<C> {
     fn space_usage_bytes(&self) -> usize {
         SpaceUsage::space_usage_bytes(&self.packed_postings)
             + SpaceUsage::space_usage_bytes(&self.block_offsets)
@@ -788,6 +799,8 @@ impl<C: ComponentType> PostingList<C> {
             >,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+        C: SpaceUsage + Hash,
+        ValueFor<E>: PartialOrd,
     {
         let mut posting_list: Vec<_> = postings.iter().map(|(_, docid)| *docid).collect();
 
@@ -885,6 +898,7 @@ impl<C: ComponentType> PostingList<C> {
         E: VectorEncoder<QueryValueType = f32>,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+        ValueFor<E>: PartialOrd,
     {
         if posting_list.is_empty() {
             return Vec::new();
@@ -959,6 +973,7 @@ impl<C: ComponentType> PostingList<C> {
         E: VectorEncoder,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+        ComponentFor<E>: Hash,
     {
         let mut hash: HashMap<ComponentFor<E>, f32> = HashMap::new();
         for &doc_id in block.iter() {
@@ -976,7 +991,9 @@ impl<C: ComponentType> PostingList<C> {
 
         hash.into_iter()
             // Take up to limit by decreasing scores
-            .k_largest_by(n_components, |a, b| a.1.partial_cmp(&b.1).unwrap())
+            .k_largest_by(n_components, |a, b| {
+                a.1.partial_cmp(&b.1).unwrap_or(cmp::Ordering::Equal)
+            })
             // Sort by id to make binary search possible
             .sorted_unstable_by_key(|&(id, _)| id)
             .collect()
@@ -992,6 +1009,7 @@ impl<C: ComponentType> PostingList<C> {
         E: VectorEncoder,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+        ComponentFor<E>: Hash,
     {
         let mut hash: HashMap<ComponentFor<E>, f32> = HashMap::new();
         for &doc_id in block.iter() {
@@ -1009,7 +1027,9 @@ impl<C: ComponentType> PostingList<C> {
 
         let mut components_values: Vec<_> = hash.into_iter().collect();
 
-        components_values.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        components_values.sort_unstable_by(|a, b| {
+            b.1.partial_cmp(&a.1).unwrap_or(cmp::Ordering::Equal)
+        });
         let total_sum: f32 = components_values
             .iter()
             .map(|(_, x)| x.to_f32().unwrap())

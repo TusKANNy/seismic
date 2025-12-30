@@ -25,7 +25,7 @@ pub struct QuantizedSummary<C: ComponentType> {
 
 use mem_dbg::{MemSize, SizeFlags};
 
-impl<C: ComponentType> SpaceUsage for QuantizedSummary<C> {
+impl<C: ComponentType + SpaceUsage> SpaceUsage for QuantizedSummary<C> {
     fn space_usage_bytes(&self) -> usize {
         let component_ids_size = if let Some(ref component_ids) = self.component_ids {
             SpaceUsage::space_usage_bytes(component_ids)
@@ -149,7 +149,10 @@ impl<C: ComponentType> QuantizedSummary<C> {
     }
 
     /// Print detailed space usage breakdown for this QuantizedSummary
-    pub fn print_space_usage(&self) {
+    pub fn print_space_usage(&self)
+    where
+        C: SpaceUsage,
+    {
         // Calcolo la dimensione in byte di ogni campo
         let component_ids_size = if let Some(ref component_ids) = self.component_ids {
             SpaceUsage::space_usage_bytes(component_ids)
@@ -263,8 +266,8 @@ impl<Q, C, V> From<SparseDataset<Q>> for QuantizedSummary<C>
 where
     Q: SparseVectorEncoder<OutputComponentType = C, OutputValueType = V> + vectorium::SpaceUsage,
     for<'a> Q: VectorEncoder<EncodedVector<'a> = SparseVector1D<C, V, &'a [C], &'a [V]>>,
-    C: ComponentType + vectorium::SpaceUsage,
-    V: ValueType + vectorium::SpaceUsage,
+    C: ComponentType + vectorium::SpaceUsage + std::hash::Hash,
+    V: ValueType + vectorium::SpaceUsage + PartialOrd,
 {
     /// # Panics
     /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)
@@ -277,8 +280,8 @@ impl<Q, C, V> From<&SparseDataset<Q>> for QuantizedSummary<C>
 where
     Q: SparseVectorEncoder<OutputComponentType = C, OutputValueType = V> + vectorium::SpaceUsage,
     for<'a> Q: VectorEncoder<EncodedVector<'a> = SparseVector1D<C, V, &'a [C], &'a [V]>>,
-    C: ComponentType + vectorium::SpaceUsage,
-    V: ValueType + vectorium::SpaceUsage,
+    C: ComponentType + vectorium::SpaceUsage + std::hash::Hash,
+    V: ValueType + vectorium::SpaceUsage + PartialOrd,
 {
     /// # Panics
     /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)

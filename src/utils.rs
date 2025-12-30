@@ -1,4 +1,5 @@
 use std::{
+    cmp,
     collections::{BinaryHeap, HashSet},
     fs::File,
     hash::Hash,
@@ -7,6 +8,7 @@ use std::{
 //use std::time::Instant;
 
 use itertools::Itertools;
+use num_traits::{AsPrimitive, ToPrimitive};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -131,7 +133,7 @@ impl SpaceUsage for PackedPostingBlock {
     }
 }
 
-pub(crate) fn quantize<T: ValueType>(values: &[T]) -> (f32, f32, Vec<u8>) {
+pub(crate) fn quantize<T: ValueType + PartialOrd>(values: &[T]) -> (f32, f32, Vec<u8>) {
     assert!(!values.is_empty());
 
     const MAX_QUANT: f32 = u8::MAX as f32;
@@ -183,7 +185,7 @@ where
     S: Dataset<E>,
     E: SparseVectorEncoder,
     ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType,
+    ValueFor<E>: ValueType + PartialOrd,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
         Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
     T: ValueType,
@@ -207,7 +209,7 @@ where
                 .iter()
                 .zip(scores.iter())
                 .filter(|(centroid_doc_id, _)| !to_avoid.contains(centroid_doc_id))
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(cmp::Ordering::Equal))
                 .unwrap_or((&centroids_doc_ids[0], &0.0));
 
             (max_centroid_doc_id, doc_id)
@@ -233,7 +235,7 @@ where
     S: Dataset<E>,
     E: SparseVectorEncoder,
     ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType,
+    ValueFor<E>: ValueType + PartialOrd,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
         Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
 {
@@ -323,12 +325,12 @@ fn compute_centroid_assignments_dot_product<A, T, S, E>(
 ) -> Vec<(usize, usize)>
 where
     A: AsRef<[(T, usize)]>,
-    T: ValueType,
+    T: ValueType + PartialOrd,
     S: Dataset<E>,
     E: SparseVectorEncoder,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
     ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType,
+    ValueFor<E>: ValueType + PartialOrd,
     QueryValueFor<E>: ValueType,
     E: VectorEncoder<QueryValueType = f32>,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
@@ -365,7 +367,7 @@ where
                 let dot = evaluator.compute_distance(centroid_vec).distance();
                 (centroid_id, dot)
             })
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(cmp::Ordering::Equal))
             .unwrap_or((centroids[0], 0.0));
 
         centroid_assignments.push((max_centroid_id, doc_id));
@@ -395,7 +397,7 @@ where
     E: SparseVectorEncoder,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
     ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType,
+    ValueFor<E>: ValueType + PartialOrd,
     QueryValueFor<E>: ValueType,
     E: VectorEncoder<QueryValueType = f32>,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
@@ -497,7 +499,7 @@ where
     E: SparseVectorEncoder,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
     ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType,
+    ValueFor<E>: ValueType + PartialOrd,
     QueryValueFor<E>: ValueType,
     E: VectorEncoder<QueryValueType = f32>,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:
@@ -546,7 +548,7 @@ where
     E: SparseVectorEncoder,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
     ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType,
+    ValueFor<E>: ValueType + PartialOrd,
     QueryValueFor<E>: ValueType,
     E: VectorEncoder<QueryValueType = f32>,
     for<'a> <E as VectorEncoder>::EncodedVector<'a>:

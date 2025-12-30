@@ -8,11 +8,13 @@ use seismic::inverted_index::{
 };
 use seismic::utils::write_to_path;
 use seismic::{ComponentType, InvertedIndex, ValueType};
+use num_traits::FromPrimitive;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::hash::Hash;
 use std::time::Instant;
 use vectorium::{
-    Dataset as VDataset, DotProduct, DotVByteFixedU8Quantizer, Float, PackedDataset,
+    Dataset as VDataset, DotProduct, DotVByteFixedU8Quantizer, Float, PackedDataset, SpaceUsage,
     PlainSparseDataset, PlainSparseQuantizer, ScalarSparseQuantizer, SparseDataset,
     read_seismic_format,
 };
@@ -154,15 +156,27 @@ fn convert_index<C, V>(
     base_index: BaseIndex<C>,
 ) -> InvertedIndex<TargetDataset<C, V>, TargetQuantizer<C, V>>
 where
-    C: ComponentType + vectorium::ComponentType + Serialize + DeserializeOwned,
-    V: ValueType + vectorium::ValueType + Float + Serialize + DeserializeOwned,
+    C: ComponentType + vectorium::ComponentType + Serialize + DeserializeOwned + SpaceUsage + Hash,
+    V: ValueType
+        + vectorium::ValueType
+        + Float
+        + vectorium::FromF32
+        + PartialOrd
+        + Serialize
+        + DeserializeOwned,
 {
     InvertedIndex::<TargetDataset<C, V>, TargetQuantizer<C, V>>::from_inverted_index(base_index)
 }
 
 fn build_base_index<C>(args: &Args) -> BaseIndex<C>
 where
-    C: ComponentType + vectorium::ComponentType + Serialize + DeserializeOwned,
+    C: ComponentType
+        + vectorium::ComponentType
+        + SpaceUsage
+        + Hash
+        + FromPrimitive
+        + Serialize
+        + DeserializeOwned,
 {
     let dataset =
         read_seismic_format::<C, f32, DotProduct>(args.input_file.as_ref().unwrap()).unwrap();
@@ -191,7 +205,13 @@ fn write_index<T: serde::Serialize>(index: T, output_file: &str, elapsed: Instan
 
 fn build_for_component<C>(args: &Args)
 where
-    C: ComponentType + vectorium::ComponentType + Serialize + DeserializeOwned,
+    C: ComponentType
+        + vectorium::ComponentType
+        + SpaceUsage
+        + Hash
+        + FromPrimitive
+        + Serialize
+        + DeserializeOwned,
 {
     let time = Instant::now();
     let base_index = build_base_index::<C>(args);

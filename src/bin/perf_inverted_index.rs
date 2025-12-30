@@ -4,6 +4,7 @@ use std::io::Write;
 use std::time::Instant;
 
 use clap::Parser;
+use num_traits::FromPrimitive;
 use seismic::utils::read_from_path;
 use seismic::InvertedIndex;
 use vectorium::{
@@ -140,7 +141,9 @@ where
     S: VDataset<E> + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
     E: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-    ComponentFor<E>: ComponentType + vectorium::ComponentType + serde::Serialize + serde::de::DeserializeOwned,
+    ComponentFor<E>:
+        ComponentType + vectorium::ComponentType + FromPrimitive + SpaceUsage
+        + serde::Serialize + serde::de::DeserializeOwned,
     QueryComponentFor<E>: ComponentType,
     SparseVector1D<ComponentFor<E>, f32, Vec<ComponentFor<E>>, Vec<f32>>: QueryVectorFor<E>,
 {

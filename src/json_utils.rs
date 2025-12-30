@@ -5,6 +5,7 @@ use serde::Deserialize;
 use serde_json::Deserializer;
 
 use crate::ValueType;
+use vectorium::FromF32;
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)] // This allows deserializing without tagging the enum variants
@@ -37,7 +38,7 @@ impl JsonFormat {
 
 pub fn extract_jsonl<V>(current_jsonl: JsonFormat) -> (String, Vec<String>, Vec<V>)
 where
-    V: ValueType,
+    V: ValueType + FromF32,
 {
     let (coords, values): (Vec<_>, Vec<_>) = current_jsonl
         .vector()
