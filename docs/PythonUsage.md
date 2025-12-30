@@ -49,7 +49,7 @@ Then, we compile and install Seismic with `maturin`:
 
 ```bash
 pip install maturin
-RUSTFLAGS="-C target-cpu=native" maturin develop --release
+RUSTFLAGS="-C target-cpu=native" maturin develop --release --features python
 ```
 
 ## Usage Example in Python

@@ -23,10 +23,10 @@ pub mod utils;
 /// Type aliases for quantized fixed-point types (re-exported from vectorium).
 pub use vectorium::{FixedU8Q, FixedU16Q};
 
-#[cfg(feature = "pyo3")]
+#[cfg(feature = "python")]
 pub mod pylib;
 
-#[cfg(feature = "pyo3")]
+#[cfg(feature = "python")]
 use {
     pylib::SeismicDataset as PySeismicDataset,
     pylib::SeismicDatasetLV as PySeismicDatasetLV,
@@ -40,7 +40,7 @@ use {
     pyo3::{Bound, PyResult, pymodule},
 };
 
-#[cfg(feature = "pyo3")]
+#[cfg(feature = "python")]
 /// A Python module implemented in Rust. The name of this function must match the `lib.name`
 /// setting in the `Cargo.toml`, otherwise Python will not be able to import the module.
 #[pymodule]

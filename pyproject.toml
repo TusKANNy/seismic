@@ -32,4 +32,4 @@ dependencies = [
 ]
 
 [tool.maturin]
-features = ["default", "pyo3"]
+features = ["default", "python"]
