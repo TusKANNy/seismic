@@ -26,7 +26,7 @@ use serde_json::Deserializer;
 use flate2::read::GzDecoder;
 use tar::Archive;
 
-use crate::{InvertedIndex, inverted_index::Configuration, inverted_index::Knn};
+use crate::{InvertedIndex, configurations::Configuration, inverted_index::Knn};
 
 type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
 type ValueFor<E> = <E as VectorEncoder>::OutputValueType;

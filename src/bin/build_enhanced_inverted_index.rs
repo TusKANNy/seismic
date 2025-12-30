@@ -1,6 +1,6 @@
-use seismic::inverted_index::{
-    BlockingStrategy, ClusteringAlgorithm, ClusteringAlgorithmClap, Configuration,
-    KnnConfiguration, PruningStrategy, SummarizationStrategy,
+use seismic::configurations::{
+    BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
+    SummarizationStrategy,
 };
 use seismic::utils::write_to_path;
 use seismic::SeismicIndex;
@@ -10,6 +10,16 @@ use half::f16;
 
 use clap::Parser;
 use std::time::Instant;
+
+// clap does not support enums with associated values; keep CLI-only types in the bin.
+#[derive(clap::ValueEnum, Default, Debug, Clone)]
+#[clap(rename_all = "kebab-case")]
+enum ClusteringAlgorithmClap {
+    RandomKmeans,
+    RandomKmeansInvertedIndex,
+    #[default]
+    RandomKmeansInvertedIndexApprox,
+}
 
 // TODO:
 // - add control to the Rayon's number of threads

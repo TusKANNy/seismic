@@ -2,7 +2,6 @@ use std::{
     cmp,
     collections::{BinaryHeap, HashSet},
     fs::File,
-    hash::Hash,
     io::{BufReader, BufWriter},
 };
 //use std::time::Instant;
@@ -10,11 +9,11 @@ use std::{
 use itertools::Itertools;
 use num_traits::{AsPrimitive, ToPrimitive};
 use rand::prelude::*;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Serialize, de::DeserializeOwned};
 
 use vectorium::{
-    ComponentType, Dataset, Distance, QueryEvaluator, SpaceUsage, SparseVector1D,
-    SparseVectorEncoder, ValueType, Vector1D, VectorEncoder,
+    ComponentType, Dataset, Distance, QueryEvaluator, SparseVector1D, SparseVectorEncoder,
+    ValueType, Vector1D, VectorEncoder,
 };
 
 type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
@@ -91,47 +90,6 @@ impl<T: Ord> KHeap<T> {
     }
 }
 
-/// Instead of storing doc_ids we store their offsets in the forward_index and the lengths of the vectors
-/// This allows us to save the random accesses that would be needed to access exactly these values from the
-/// forward index. The values of each doc are packed into a single u64 in `packed_postings`.
-/// We use 48 bits for the offset and 16 bits for the length. This choice limits the size of the dataset to be 1<<48.
-/// We use the forward index to convert the offsets of the top-k back to the id of the corresponding documents.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash, Ord, PartialOrd)]
-pub(crate) struct PackedPostingBlock {
-    pub n: u64,
-}
-
-impl PackedPostingBlock {
-    #[inline]
-    pub fn pack(range: std::ops::Range<usize>) -> Self {
-        let start = range.start as u64;
-        assert!(
-            start < (1u64 << 48),
-            "range.start exceeds 48-bit packing limit"
-        );
-        let len = range.len();
-        assert!(
-            len <= u16::MAX as usize,
-            "range length exceeds 16-bit packing limit"
-        );
-        Self {
-            n: (start << 16) | (len as u64),
-        }
-    }
-
-    #[inline]
-    pub fn unpack(&self) -> std::ops::Range<usize> {
-        let start = (self.n >> 16) as usize;
-        let len = (self.n & (u16::MAX as u64)) as usize;
-        start..(start + len)
-    }
-}
-
-impl SpaceUsage for PackedPostingBlock {
-    fn space_usage_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-    }
-}
 
 pub(crate) fn quantize<T: ValueType + PartialOrd>(values: &[T]) -> (f32, f32, Vec<u8>) {
     assert!(!values.is_empty());

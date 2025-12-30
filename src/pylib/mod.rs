@@ -1,7 +1,8 @@
-use crate::inverted_index::{
-    BlockingStrategy, ClusteringAlgorithm, Configuration, Knn, KnnConfiguration, PruningStrategy,
+use crate::configurations::{
+    BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
     SummarizationStrategy,
 };
+use crate::inverted_index::Knn;
 
 use crate::SeismicDataset as Dataset;
 use crate::SeismicIndex as Index;

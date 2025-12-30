@@ -2,9 +2,9 @@ use clap::Parser;
 use half::{bf16, f16};
 use seismic::FixedU16Q;
 use seismic::FixedU8Q;
-use seismic::inverted_index::{
-    BlockingStrategy, ClusteringAlgorithm, ClusteringAlgorithmClap, Configuration,
-    KnnConfiguration, PruningStrategy, PruningStrategyClap, SummarizationStrategy,
+use seismic::configurations::{
+    BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
+    SummarizationStrategy,
 };
 use seismic::utils::write_to_path;
 use seismic::{ComponentType, InvertedIndex, ValueType};
@@ -18,6 +18,26 @@ use vectorium::{
     PlainSparseDataset, PlainSparseQuantizer, ScalarSparseQuantizer, SparseDataset,
     read_seismic_format,
 };
+
+// clap does not support enums with associated values; keep CLI-only types in the bin.
+#[derive(clap::ValueEnum, Default, Debug, Clone)]
+#[clap(rename_all = "kebab-case")]
+enum PruningStrategyClap {
+    FixedSize,
+    #[default]
+    GlobalThreshold,
+    CoiThreshold,
+}
+
+// clap does not support enums with associated values; keep CLI-only types in the bin.
+#[derive(clap::ValueEnum, Default, Debug, Clone)]
+#[clap(rename_all = "kebab-case")]
+enum ClusteringAlgorithmClap {
+    RandomKmeans,
+    RandomKmeansInvertedIndex,
+    #[default]
+    RandomKmeansInvertedIndexApprox,
+}
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]

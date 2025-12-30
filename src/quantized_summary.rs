@@ -92,15 +92,23 @@ impl<C: ComponentType> QuantizedSummary<C> {
 
                     // let current_summaries_ids =
                     //     &summaries.summaries_ids[current_offset..next_offset];
+                    debug_assert!(current_offset <= next_offset);
+                    debug_assert!(next_offset <= self.values.len());
+                    // SAFETY: offsets are monotonic and within values bounds (validated via debug asserts).
                     let current_values =
                         unsafe { self.values.get_unchecked(current_offset..next_offset) };
 
                     for (pos, &v) in (current_offset..next_offset).zip(current_values) {
+                        debug_assert!(pos < self.summaries_ids.len());
+                        // SAFETY: pos is within summaries_ids bounds (validated via debug assert).
                         let s_id = unsafe { self.summaries_ids.get_unchecked(pos) as usize };
                         let dequantized_val = unsafe {
+                            // SAFETY: s_id comes from summaries_ids and must be < minimums/quants len.
                             v as f32 * self.quants.get_unchecked(s_id)
                                 + self.minimums.get_unchecked(s_id)
                         };
+                        debug_assert!(s_id < accumulator.len());
+                        // SAFETY: s_id is within accumulator bounds (validated via debug assert).
                         *unsafe { accumulator.get_unchecked_mut(s_id) } +=
                             dequantized_val * qv.to_f32().unwrap();
                     }
@@ -126,15 +134,23 @@ impl<C: ComponentType> QuantizedSummary<C> {
                 let next_offset = self.offsets.select(qc.as_() + 1).unwrap() - (qc.as_() + 1);
 
                 // let current_summaries_ids = unsafe {self.summaries_ids.get_unchecked(current_offset..next_offset)};
+                debug_assert!(current_offset <= next_offset);
+                debug_assert!(next_offset <= self.values.len());
+                // SAFETY: offsets are monotonic and within values bounds (validated via debug asserts).
                 let current_values =
                     unsafe { self.values.get_unchecked(current_offset..next_offset) };
 
                 for (pos, &v) in (current_offset..next_offset).zip(current_values) {
+                    debug_assert!(pos < self.summaries_ids.len());
+                    // SAFETY: pos is within summaries_ids bounds (validated via debug assert).
                     let s_id = unsafe { self.summaries_ids.get_unchecked(pos) as usize };
                     let dequantized_val = unsafe {
+                        // SAFETY: s_id comes from summaries_ids and must be < minimums/quants len.
                         v as f32 * self.quants.get_unchecked(s_id)
                             + self.minimums.get_unchecked(s_id)
                     };
+                    debug_assert!(s_id < accumulator.len());
+                    // SAFETY: s_id is within accumulator bounds (validated via debug assert).
                     *unsafe { accumulator.get_unchecked_mut(s_id) } +=
                         dequantized_val * qv.to_f32().unwrap();
                 }

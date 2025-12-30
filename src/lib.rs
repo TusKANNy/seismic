@@ -2,6 +2,9 @@
 
 pub use vectorium::{SparseDataset, SparseDatasetGrowable};
 
+pub mod configurations;
+pub(crate) mod posting_list;
+
 pub mod inverted_index;
 pub use inverted_index::InvertedIndex;
 
