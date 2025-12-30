@@ -1,5 +1,3 @@
-#![allow(internal_features)]
-#![allow(incomplete_features)]
 #![doc = include_str!("../README.md")]
 
 pub use vectorium::{SparseDataset, SparseDatasetGrowable};
