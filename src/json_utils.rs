@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use serde_json::Deserializer;
 
-use crate::ValueType;
+use vectorium::ValueType;
 use vectorium::FromF32;
 
 #[derive(Debug, Deserialize)]

@@ -15,7 +15,6 @@ pub use inverted_index_wrapper::SeismicIndex;
 pub mod quantized_summary;
 pub use quantized_summary::QuantizedSummary;
 
-pub use vectorium::{ComponentType, FromF32, SpaceUsage, ValueType};
 
 pub mod json_utils;
 pub mod utils;

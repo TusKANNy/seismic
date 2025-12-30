@@ -280,10 +280,10 @@ impl<C: ComponentType> QuantizedSummary<C> {
 
 impl<Q, C, V> From<SparseDataset<Q>> for QuantizedSummary<C>
 where
-    Q: SparseVectorEncoder<OutputComponentType = C, OutputValueType = V> + vectorium::SpaceUsage,
+    Q: SparseVectorEncoder<OutputComponentType = C, OutputValueType = V>,
     for<'a> Q: VectorEncoder<EncodedVector<'a> = SparseVector1D<C, V, &'a [C], &'a [V]>>,
-    C: ComponentType + vectorium::SpaceUsage + std::hash::Hash,
-    V: ValueType + vectorium::SpaceUsage + PartialOrd,
+    C: ComponentType + std::hash::Hash,
+    V: ValueType + PartialOrd,
 {
     /// # Panics
     /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)
@@ -294,10 +294,10 @@ where
 
 impl<Q, C, V> From<&SparseDataset<Q>> for QuantizedSummary<C>
 where
-    Q: SparseVectorEncoder<OutputComponentType = C, OutputValueType = V> + vectorium::SpaceUsage,
+    Q: SparseVectorEncoder<OutputComponentType = C, OutputValueType = V>,
     for<'a> Q: VectorEncoder<EncodedVector<'a> = SparseVector1D<C, V, &'a [C], &'a [V]>>,
-    C: ComponentType + vectorium::SpaceUsage + std::hash::Hash,
-    V: ValueType + vectorium::SpaceUsage + PartialOrd,
+    C: ComponentType + std::hash::Hash,
+    V: ValueType + PartialOrd,
 {
     /// # Panics
     /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)

@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::json_utils::{JsonFormat, extract_jsonl};
-use crate::{ComponentType, ValueType};
+use vectorium::{ComponentType, ValueType};
 use half::f16;
 use num_traits::{FromPrimitive, ToPrimitive};
 use vectorium::{

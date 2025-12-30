@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 
+use crate::QuantizedSummary;
 use crate::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, SummarizationStrategy,
 };
 use crate::utils::{
-    do_random_kmeans_on_docids, do_random_kmeans_on_docids_ii_approx_dot_product,
-    do_random_kmeans_on_docids_ii_dot_product, KHeap,
+    KHeap, do_random_kmeans_on_docids, do_random_kmeans_on_docids_ii_approx_dot_product,
+    do_random_kmeans_on_docids_ii_dot_product,
 };
-use crate::QuantizedSummary;
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use num_traits::ToPrimitive;
 use vectorium::dataset::ScoredRangeDotProduct;
 use vectorium::{
-    ComponentType, Dataset, Distance, DotProduct, GrowableDataset, QueryEvaluator, SparseDataset,
-    SparseDatasetGrowable, SparseVectorEncoder, SparseVector1D, SpaceUsage, Vector1D,
+    ComponentType, Dataset, Distance, DotProduct, GrowableDataset, QueryEvaluator, SpaceUsage,
+    SparseDataset, SparseDatasetGrowable, SparseVector1D, SparseVectorEncoder, Vector1D,
     VectorEncoder,
 };
 
@@ -198,10 +198,7 @@ impl<C: ComponentType> PostingList<C> {
             if visited.insert(range.start) {
                 let vector = forward_index.get_by_range(range.clone());
                 let distance = evaluator.compute_distance(vector);
-                heap.push(ScoredRangeDotProduct {
-                    distance,
-                    range,
-                });
+                heap.push(ScoredRangeDotProduct { distance, range });
             }
 
             cur_pack = next_pack;
@@ -223,7 +220,7 @@ impl<C: ComponentType> PostingList<C> {
             >,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
-        C: SpaceUsage + std::hash::Hash,
+        C: std::hash::Hash,
         ValueFor<E>: PartialOrd,
     {
         let mut posting_list: Vec<_> = postings.iter().map(|(_, docid)| *docid).collect();
@@ -362,21 +359,16 @@ impl<C: ComponentType> PostingList<C> {
 
         clusters.sort_unstable_by(|a, b| a.0.cmp(&b.0));
 
-        for group in clusters.chunk_by(
-            |&(centroid_id_a, _doc_id_a), &(centroid_id_b, _doc_id_b)| {
+        for group in
+            clusters.chunk_by(|&(centroid_id_a, _doc_id_a), &(centroid_id_b, _doc_id_b)| {
                 centroid_id_a == centroid_id_b
-            },
-        ) {
-            let centroid_id = group[0].0;
+            })
+        {
+            let _centroid_id = group[0].0;
             for &(_centroid_id, doc_id) in group {
                 reordered_posting_list.push(doc_id);
             }
             block_offsets.push(reordered_posting_list.len());
-
-            assert!(
-                centroid_id <= u16::MAX as usize,
-                "centroid_id exceeds u16::MAX; centroid ids are stored as u16."
-            );
         }
 
         posting_list.copy_from_slice(&reordered_posting_list);
@@ -444,9 +436,8 @@ impl<C: ComponentType> PostingList<C> {
 
         let mut components_values: Vec<_> = hash.into_iter().collect();
 
-        components_values.sort_unstable_by(|a, b| {
-            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        components_values
+            .sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         let total_sum: f32 = components_values
             .iter()
             .map(|(_, x)| x.to_f32().unwrap())

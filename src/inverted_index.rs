@@ -8,7 +8,7 @@ use vectorium::dataset::{ScoredRangeDotProduct, ScoredVectorDotProduct};
 use vectorium::{
     Dataset, Distance, DotProduct, DotVByteFixedU8Quantizer, GrowableDataset, PackedDataset,
     PlainSparseDataset, PlainSparseQuantizer, QueryEvaluator, QueryVectorFor, SpaceUsage,
-    SparseDataset, SparseDatasetGrowable, SparseVectorEncoder, SparseVector1D, ValueType, Vector1D,
+    SparseDataset, SparseDatasetGrowable, SparseVector1D, SparseVectorEncoder, ValueType, Vector1D,
     VectorEncoder,
 };
 
@@ -94,7 +94,7 @@ where
 ///
 impl<S, E> InvertedIndex<S, E>
 where
-    S: Dataset<E> + Sync,
+    S: Dataset<E>,
     E: VectorEncoder,
 {
     pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
@@ -111,7 +111,7 @@ where
     }
 
     /// Help function to print the space usage of the index.
-    pub fn print_space_usage_byte(&self) -> usize
+    pub fn print_space_usage_byte(&self)
     where
         S: SpaceUsage,
         ComponentFor<E>: SpaceUsage,
@@ -157,8 +157,6 @@ where
 
         println!("\tKnn: {:} Bytes", knn_size);
         println!("\tTotal: {:} Bytes", forward + postings_total + knn_size);
-
-        forward + postings_total + knn_size
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -244,6 +242,7 @@ where
     /// `n_postings`: minimum number of postings to select for each component
     pub fn build(dataset: S, config: Configuration) -> Self
     where
+        S: Sync,
         E: SparseVectorEncoder,
         E: VectorEncoder<
                 QueryComponentType = ComponentFor<E>,
@@ -252,7 +251,7 @@ where
             >,
         for<'a> <E as VectorEncoder>::EncodedVector<'a>:
             Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
-        ComponentFor<E>: SpaceUsage + Hash,
+        ComponentFor<E>: Hash,
         ValueFor<E>: vectorium::FromF32 + PartialOrd,
     {
         print!("Distributing and pruning postings: ");

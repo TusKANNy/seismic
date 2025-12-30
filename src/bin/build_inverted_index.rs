@@ -7,7 +7,8 @@ use seismic::configurations::{
     SummarizationStrategy,
 };
 use seismic::utils::write_to_path;
-use seismic::{ComponentType, InvertedIndex, ValueType};
+use seismic::InvertedIndex;
+use vectorium::{ComponentType, ValueType};
 use num_traits::FromPrimitive;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
