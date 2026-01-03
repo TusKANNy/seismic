@@ -186,7 +186,7 @@ where
         + Serialize
         + DeserializeOwned,
 {
-    InvertedIndex::<TargetDataset<C, V>, TargetQuantizer<C, V>>::from_inverted_index(base_index)
+    base_index.convert_dataset_into()
 }
 
 fn build_base_index<C>(args: &Args) -> BaseIndex<C>
@@ -267,10 +267,10 @@ fn build_for_component_u16(args: &Args) {
         "fixedu8" => write_index(convert_index::<u16, FixedU8Q>(base_index), args.output_file.as_ref().unwrap(), time),
         "fixedu16" => write_index(convert_index::<u16, FixedU16Q>(base_index), args.output_file.as_ref().unwrap(), time),
         "dotvbyte" => {
-            let converted = InvertedIndex::<
+            let converted = base_index.convert_dataset_into::<
                 PackedDataset<DotVByteFixedU8Quantizer>,
                 DotVByteFixedU8Quantizer,
-            >::from_inverted_index_dotvbyte(base_index);
+            >();
             write_index(converted, args.output_file.as_ref().unwrap(), time);
         }
         _ => {

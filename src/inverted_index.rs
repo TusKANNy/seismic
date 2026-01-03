@@ -1,15 +1,13 @@
 use crate::posting_list::{PackedPostingBlock, PostingList};
 use crate::utils::{KHeap, read_from_path, write_to_path};
 
-use toolkit::BitFieldBoxed;
-use toolkit::bitfield::BitFieldVec;
+use toolkit::BitField;
+use toolkit::bitfield::BitFieldGrowable;
 
-use vectorium::dataset::{ScoredRangeDotProduct, ScoredVectorDotProduct};
+use vectorium::dataset::{ConvertFrom, ConvertInto, ScoredRangeDotProduct, ScoredVectorDotProduct};
 use vectorium::{
-    Dataset, Distance, DotProduct, DotVByteFixedU8Quantizer, GrowableDataset, PackedDataset,
-    PlainSparseDataset, PlainSparseQuantizer, QueryEvaluator, QueryVectorFor, SpaceUsage,
-    SparseDataset, SparseDatasetGrowable, SparseVector1D, SparseVectorEncoder, ValueType, Vector1D,
-    VectorEncoder,
+    Dataset, Distance, DotProduct, QueryEvaluator, QueryVectorFor, SpaceUsage, SparseVector1D,
+    SparseVectorEncoder, ValueType, Vector1D, VectorEncoder,
 };
 
 use indicatif::ParallelProgressIterator;
@@ -31,8 +29,6 @@ use std::io::Result as IoResult;
 type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
 type ValueFor<E> = <E as VectorEncoder>::OutputValueType;
 type QueryValueFor<E> = <E as VectorEncoder>::QueryValueType;
-type SparseEncodedVector<'a, E> =
-    SparseVector1D<ComponentFor<E>, ValueFor<E>, &'a [ComponentFor<E>], &'a [ValueFor<E>]>;
 type ScoredVectorFor = ScoredVectorDotProduct;
 
 pub use crate::configurations::{
@@ -334,47 +330,32 @@ where
     }
 
     /// Convert the `InvertedIndex`'s dataset to another one.
-    pub fn from_inverted_index<T, ET>(inverted_index: InvertedIndex<T, ET>) -> Self
+    pub fn convert_dataset_from<T, ET>(inverted_index: InvertedIndex<T, ET>) -> Self
     where
-        S: Dataset<E> + From<SparseDataset<E>>,
-        E: SparseVectorEncoder<InputValueType = f32, InputComponentType = ComponentFor<E>>,
-        E: vectorium::SpaceUsage,
-        for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
+        S: Dataset<E> + ConvertFrom<T>,
         T: Dataset<ET>,
-        ET: VectorEncoder<OutputComponentType = ComponentFor<E>, OutputValueType = f32>,
-        for<'a> ET: VectorEncoder<
-            EncodedVector<'a> = SparseVector1D<
-                ComponentFor<E>,
-                f32,
-                &'a [ComponentFor<E>],
-                &'a [f32],
-            >,
-        >,
+        ET: VectorEncoder<OutputComponentType = ComponentFor<E>>,
     {
-        // For datasets that are only used as bases for conversion, it would be better to store the id
-        let old_packs: Box<_> = (0..inverted_index.forward_index.len())
-            .map(|i| PackedPostingBlock::pack(inverted_index.forward_index.range_from_id(i as u64)))
+        let InvertedIndex {
+            forward_index,
+            mut posting_lists,
+            config,
+            knn,
+        } = inverted_index;
+        let old_packs: Vec<_> = (0..forward_index.len())
+            .map(|i| PackedPostingBlock::pack(forward_index.range_from_id(i as u64)))
             .collect();
-        let input_dim = inverted_index.forward_index.input_dim();
-        let output_dim = inverted_index.forward_index.output_dim();
-        let quantizer = E::new(input_dim, output_dim);
-        let mut growable = SparseDatasetGrowable::<E>::new(quantizer);
-        for vector in inverted_index.forward_index.iter() {
-            let components = vector.components_as_slice();
-            let values = vector.values_as_slice();
-            growable.push(SparseVector1D::new(components, values));
-        }
-        let frozen: SparseDataset<E> = growable.into();
-        let new_dataset: S = frozen.into();
-        let packs_map: HashMap<_, _> = old_packs
-            .into_iter()
-            .zip(
-                (0..new_dataset.len())
-                    .map(|i| PackedPostingBlock::pack(new_dataset.range_from_id(i as u64))),
-            )
+        let new_dataset: S = forward_index.convert_into();
+        let new_packs: Vec<_> = (0..new_dataset.len())
+            .map(|i| PackedPostingBlock::pack(new_dataset.range_from_id(i as u64)))
             .collect();
+        assert_eq!(
+            old_packs.len(),
+            new_packs.len(),
+            "Converted dataset length mismatch."
+        );
+        let packs_map: HashMap<_, _> = old_packs.into_iter().zip(new_packs).collect();
 
-        let mut posting_lists = inverted_index.posting_lists;
         for posting in posting_lists.iter_mut() {
             for pack in posting.packed_postings.iter_mut() {
                 *pack = packs_map[pack];
@@ -384,75 +365,39 @@ where
         Self {
             forward_index: new_dataset,
             posting_lists,
-            config: inverted_index.config,
-            knn: inverted_index.knn,
+            config,
+            knn,
         }
     }
 
-    /// Convenience function to build InvertedIndex using a certain dataset as a base, then convering the dataset.
+    /// Convert the `InvertedIndex`'s dataset to another one.
+    pub fn convert_dataset_into<T, ET>(self) -> InvertedIndex<T, ET>
+    where
+        T: Dataset<ET> + ConvertFrom<S>,
+        ET: VectorEncoder<OutputComponentType = ComponentFor<E>>,
+    {
+        InvertedIndex::<T, ET>::convert_dataset_from(self)
+    }
+
+    /// Convenience function to build InvertedIndex using a dataset as a base, then converting it.
     pub fn from_base_dataset<T, ET>(dataset: T, config: Configuration) -> Self
     where
-        S: Dataset<E> + From<SparseDataset<E>>,
-        E: SparseVectorEncoder<InputValueType = f32, InputComponentType = ComponentFor<E>>,
-        E: vectorium::SpaceUsage,
-        for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
+        S: ConvertFrom<T>,
         T: Dataset<ET> + Sync,
+        ET: VectorEncoder<OutputComponentType = ComponentFor<E>>,
         ET: SparseVectorEncoder,
         ET: VectorEncoder<
                 QueryComponentType = ComponentFor<ET>,
                 QueryValueType = f32,
                 Distance = DotProduct,
             >,
-        ET: VectorEncoder<OutputComponentType = ComponentFor<E>, OutputValueType = f32>,
-        for<'a> ET: VectorEncoder<
-            EncodedVector<'a> = SparseVector1D<
-                ComponentFor<E>,
-                f32,
-                &'a [ComponentFor<E>],
-                &'a [f32],
-            >,
-        >,
-        ComponentFor<E>: SpaceUsage + Hash,
-        <ET as VectorEncoder>::OutputValueType: vectorium::FromF32 + PartialOrd,
+        for<'a> <ET as VectorEncoder>::EncodedVector<'a>:
+            Vector1D<Component = ComponentFor<ET>, Value = ValueFor<ET>>,
+        ComponentFor<ET>: Hash,
+        ValueFor<ET>: vectorium::FromF32 + PartialOrd,
     {
         let inverted_index = InvertedIndex::<T, ET>::build(dataset, config);
-        Self::from_inverted_index(inverted_index)
-    }
-
-    /// Convert a `PlainSparseDataset<u16, f32>`-backed index into a DotVByte packed dataset.
-    pub fn from_inverted_index_dotvbyte(
-        inverted_index: InvertedIndex<
-            PlainSparseDataset<u16, f32, DotProduct>,
-            PlainSparseQuantizer<u16, f32, DotProduct>,
-        >,
-    ) -> InvertedIndex<PackedDataset<DotVByteFixedU8Quantizer>, DotVByteFixedU8Quantizer> {
-        let old_packs: Box<_> = (0..inverted_index.forward_index.len())
-            .map(|i| PackedPostingBlock::pack(inverted_index.forward_index.range_from_id(i as u64)))
-            .collect();
-
-        let new_dataset: PackedDataset<DotVByteFixedU8Quantizer> =
-            inverted_index.forward_index.into();
-        let packs_map: HashMap<_, _> = old_packs
-            .into_iter()
-            .zip(
-                (0..new_dataset.len())
-                    .map(|i| PackedPostingBlock::pack(new_dataset.range_from_id(i as u64))),
-            )
-            .collect();
-
-        let mut posting_lists = inverted_index.posting_lists;
-        for posting in posting_lists.iter_mut() {
-            for pack in posting.packed_postings.iter_mut() {
-                *pack = packs_map[pack];
-            }
-        }
-
-        InvertedIndex {
-            forward_index: new_dataset,
-            posting_lists,
-            config: inverted_index.config,
-            knn: inverted_index.knn,
-        }
+        Self::convert_dataset_from(inverted_index)
     }
 
     // Add a precomputed knn graph to the index, limiting the number of neighbours to limit if it is not None
@@ -608,7 +553,7 @@ where
 pub struct Knn {
     n_vecs: usize,
     dim: usize,
-    neighbours: BitFieldBoxed,
+    neighbours: BitField,
 }
 
 impl SpaceUsage for Knn {
@@ -667,7 +612,7 @@ impl Knn {
             .map(|result| result.vector)
             .collect();
 
-        let bitfield = BitFieldBoxed::from(neighbours);
+        let bitfield = BitField::from(neighbours);
 
         Self {
             n_vecs,
@@ -696,7 +641,8 @@ impl Knn {
             println!("We only take {:} neighbors per element!", nknn);
         }
 
-        let mut neighbours = BitFieldVec::with_capacity(knn.n_vecs, knn.neighbours.field_width());
+        let mut neighbours =
+            BitFieldGrowable::with_capacity(knn.n_vecs, knn.neighbours.field_width());
 
         for id in 0..knn.n_vecs {
             let base_pos = id * knn.dim;
@@ -705,11 +651,12 @@ impl Knn {
                 neighbours.push(neighbor);
             }
         }
+        let bitfield = BitField::from(neighbours);
 
         Knn {
             n_vecs: knn.n_vecs,
             dim: nknn,
-            neighbours: neighbours.convert_into(),
+            neighbours: bitfield,
         }
     }
 
@@ -767,8 +714,8 @@ impl Knn {
 mod tests {
     use super::*;
     use vectorium::{
-        DotProduct, PlainSparseDataset, PlainSparseDatasetGrowable, PlainSparseQuantizer,
-        SparseVector1D,
+        DotProduct, GrowableDataset, PlainSparseDataset, PlainSparseDatasetGrowable,
+        PlainSparseQuantizer, SparseVector1D,
     };
 
     // Test pushing empty vectors.
@@ -819,5 +766,29 @@ mod tests {
         assert_eq!(results.len(), 2); // Empty vectors are never retrieved becasue they do not belong to any posting list!
         assert_eq!(results[0].vector, 3);
         assert_eq!(results[1].vector, 0);
+    }
+
+    #[test]
+    fn test_convert_dataset_preserves_postings() {
+        let quantizer = PlainSparseQuantizer::<u16, f32, DotProduct>::new(4, 4);
+        let mut dataset = PlainSparseDatasetGrowable::new(quantizer);
+        dataset.push(SparseVector1D::new(vec![0, 2], vec![1.0, 2.0]));
+        dataset.push(SparseVector1D::new(vec![1, 3], vec![3.0, 4.0]));
+        let dataset: PlainSparseDataset<u16, f32, DotProduct> = dataset.into();
+
+        let index = InvertedIndex::build(dataset, Configuration::default());
+        let dim = index.dim();
+        let expected_doc_ids: Vec<_> = (0..dim).map(|i| index.get_doc_ids_in_postings(i)).collect();
+
+        let converted: InvertedIndex<
+            PlainSparseDatasetGrowable<u16, f32, DotProduct>,
+            PlainSparseQuantizer<u16, f32, DotProduct>,
+        > = index.convert_dataset_into();
+
+        assert_eq!(converted.dim(), dim);
+        assert_eq!(converted.len(), 2);
+        for (list_id, expected) in expected_doc_ids.into_iter().enumerate() {
+            assert_eq!(converted.get_doc_ids_in_postings(list_id), expected);
+        }
     }
 }

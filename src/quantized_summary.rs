@@ -8,7 +8,7 @@ use vectorium::{
 
 use rustc_hash::FxHashMap;
 
-use toolkit::BitFieldBoxed;
+use toolkit::BitField;
 use toolkit::EliasFano;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -17,7 +17,7 @@ pub struct QuantizedSummary<C: ComponentType> {
     dim: usize,
     component_ids: Option<Box<[C]>>,
     offsets: EliasFano,
-    summaries_ids: BitFieldBoxed,
+    summaries_ids: BitField,
     values: Box<[u8]>,
     minimums: Box<[f32]>,
     quants: Box<[f32]>,
@@ -403,7 +403,7 @@ where
             dim: dataset.input_dim(),
             component_ids: component_ids.map(|c| c.into_boxed_slice()),
             offsets: EliasFano::from(&offsets),
-            summaries_ids: BitFieldBoxed::from(summaries_ids),
+            summaries_ids: BitField::from(summaries_ids),
             values: codes.into_boxed_slice(),
             minimums: minimums.into_boxed_slice(),
             quants: quants.into_boxed_slice(),

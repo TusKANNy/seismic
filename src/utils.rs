@@ -20,6 +20,7 @@ type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
 type ValueFor<E> = <E as VectorEncoder>::OutputValueType;
 type QueryValueFor<E> = <E as VectorEncoder>::QueryValueType;
 
+/// Read a bincode-serialized value from `path` using fixed-int, little-endian encoding.
 pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std::error::Error>> {
     let mut file = BufReader::new(File::open(path)?);
     // let config = bincode::config::standard();
@@ -30,6 +31,7 @@ pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std:
     Ok(result)
 }
 
+/// Write a value to `path` using bincode with fixed-int, little-endian encoding.
 pub fn write_to_path<E: Serialize>(val: E, path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = BufWriter::new(File::create(path)?);
     //let config = bincode::config::standard();
@@ -40,7 +42,7 @@ pub fn write_to_path<E: Serialize>(val: E, path: &str) -> Result<(), Box<dyn std
     Ok(())
 }
 
-/// A max-heap that stores the top k smallest elements.
+/// A max-heap that keeps the k smallest elements seen so far.
 #[derive(Clone)]
 pub struct KHeap<T> {
     bh: BinaryHeap<T>,
@@ -49,6 +51,7 @@ pub struct KHeap<T> {
 
 impl<T: Ord> KHeap<T> {
     #[inline]
+    /// Create a heap that retains the k smallest elements; panics if `k == 0`.
     pub fn new(k: usize) -> Self {
         assert!(k > 0);
         Self {
@@ -58,6 +61,7 @@ impl<T: Ord> KHeap<T> {
     }
 
     #[inline]
+    /// Insert an item, keeping only the k smallest elements.
     pub fn push(&mut self, item: T) {
         if self.bh.len() < self.k {
             self.bh.push(item);
@@ -70,26 +74,29 @@ impl<T: Ord> KHeap<T> {
     }
 
     #[inline]
+    /// Return the number of elements currently stored.
     pub fn len(&self) -> usize {
         self.bh.len()
     }
 
     #[inline]
+    /// Return whether the heap is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     #[inline]
+    /// Return the current maximum among the retained elements; panics if empty.
     pub fn peek(&self) -> &T {
         self.bh.peek().unwrap()
     }
 
     #[inline]
+    /// Consume the heap and return the retained elements in ascending order.
     pub fn into_sorted_vec(self) -> Vec<T> {
         self.bh.into_sorted_vec()
     }
 }
-
 
 pub(crate) fn quantize<T: ValueType + PartialOrd>(values: &[T]) -> (f32, f32, Vec<u8>) {
     assert!(!values.is_empty());
@@ -182,7 +189,7 @@ where
 /// The function uses a simple pruned inverted index to speed up the computation and computes the
 /// true dot product between the document and the centroids.
 /// The parameter `doc_cut` specifies how many components of the document vector to consider while computing the dot product.
-pub fn do_random_kmeans_on_docids_ii_approx_dot_product<S, E>(
+pub(crate) fn do_random_kmeans_on_docids_ii_approx_dot_product<S, E>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &S,
@@ -342,7 +349,7 @@ where
 /// true dot product between the document and the centroids.
 /// The parameter `pruning_factor` controls the size of the pruned inverted index.
 /// The parameter `doc_cut` specifies how many components of the document vector to consider while computing the dot product.
-pub fn do_random_kmeans_on_docids_ii_dot_product<S, E>(
+pub(crate) fn do_random_kmeans_on_docids_ii_dot_product<S, E>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &S,
@@ -495,7 +502,9 @@ where
     centroid_assignments
 }
 
-pub fn do_random_kmeans_on_docids<S, E>(
+/// Run randomized k-means on document ids using exact dot products for assignment.
+/// Returns `(cluster_id, doc_id)` pairs sorted by `cluster_id`.
+pub(crate) fn do_random_kmeans_on_docids<S, E>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &S,
