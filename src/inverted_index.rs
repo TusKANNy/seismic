@@ -763,7 +763,7 @@ mod tests {
         let query = SparseVector1D::new(vec![0_u16, 1, 2, 3], vec![1.0, 2.0, 3.0, 4.0]);
         let results = index.search(&query, 10, 5, 0.7, 0, false);
 
-        assert_eq!(results.len(), 2); // Empty vectors are never retrieved becasue they do not belong to any posting list!
+        assert_eq!(results.len(), 2); // Empty vectors are never retrieved because they do not belong to any posting list!
         assert_eq!(results[0].vector, 3);
         assert_eq!(results[1].vector, 0);
     }

@@ -329,6 +329,7 @@ impl<C: ComponentType> PostingList<C> {
 
         let mut reordered_posting_list = Vec::<_>::with_capacity(posting_list.len());
         let mut block_offsets = Vec::<_>::with_capacity(n_centroids + 1);
+        block_offsets.push(0);
 
         // Build k-means clusters on the posting list
         let mut clusters = match clustering_algorithm {
@@ -372,6 +373,10 @@ impl<C: ComponentType> PostingList<C> {
         }
 
         posting_list.copy_from_slice(&reordered_posting_list);
+
+        if *block_offsets.last().unwrap_or(&0) != posting_list.len() {
+            block_offsets.push(posting_list.len());
+        }
 
         block_offsets
     }
