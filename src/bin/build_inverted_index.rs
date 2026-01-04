@@ -1,23 +1,24 @@
 use clap::Parser;
 use half::{bf16, f16};
-use seismic::FixedU16Q;
+use num_traits::FromPrimitive;
 use seismic::FixedU8Q;
+use seismic::FixedU16Q;
+use seismic::InvertedIndex;
 use seismic::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
     SummarizationStrategy,
 };
 use seismic::utils::write_to_path;
-use seismic::InvertedIndex;
-use vectorium::{ComponentType, ValueType};
-use num_traits::FromPrimitive;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
+
 use std::hash::Hash;
 use std::time::Instant;
+
+use vectorium::ComponentType;
 use vectorium::{
-    Dataset as VDataset, DotProduct, DotVByteFixedU8Quantizer, Float, PackedDataset, SpaceUsage,
-    PlainSparseDataset, PlainSparseQuantizer, ScalarSparseQuantizer, SparseDataset,
-    read_seismic_format,
+    Dataset, DotProduct, DotVByteFixedU8Quantizer, PackedDataset, PlainSparseDataset,
+    PlainSparseQuantizer, ScalarSparseQuantizer, SpaceUsage, SparseDataset, read_seismic_format,
 };
 
 // clap does not support enums with associated values; keep CLI-only types in the bin.
@@ -165,29 +166,12 @@ fn build_config(args: &Args) -> Configuration {
         .knn(knn_config)
 }
 
-type BaseIndex<C> = InvertedIndex<
-    PlainSparseDataset<C, f32, DotProduct>,
-    PlainSparseQuantizer<C, f32, DotProduct>,
->;
+type BaseIndex<C> =
+    InvertedIndex<PlainSparseDataset<C, f32, DotProduct>, PlainSparseQuantizer<C, f32, DotProduct>>;
 
 type TargetQuantizer<C, V> = ScalarSparseQuantizer<C, f32, V, DotProduct>;
 type TargetDataset<C, V> = SparseDataset<TargetQuantizer<C, V>>;
-
-fn convert_index<C, V>(
-    base_index: BaseIndex<C>,
-) -> InvertedIndex<TargetDataset<C, V>, TargetQuantizer<C, V>>
-where
-    C: ComponentType + vectorium::ComponentType + Serialize + DeserializeOwned + SpaceUsage + Hash,
-    V: ValueType
-        + vectorium::ValueType
-        + Float
-        + vectorium::FromF32
-        + PartialOrd
-        + Serialize
-        + DeserializeOwned,
-{
-    base_index.convert_dataset_into()
-}
+type TargetIndex<C, V> = InvertedIndex<TargetDataset<C, V>, TargetQuantizer<C, V>>;
 
 fn build_base_index<C>(args: &Args) -> BaseIndex<C>
 where
@@ -202,11 +186,11 @@ where
     let dataset =
         read_seismic_format::<C, f32, DotProduct>(args.input_file.as_ref().unwrap()).unwrap();
 
-    println!("Number of Vectors: {}", VDataset::len(&dataset));
-    println!("Number of Dimensions: {}", VDataset::input_dim(&dataset));
+    println!("Number of Vectors: {}", Dataset::len(&dataset));
+    println!("Number of Dimensions: {}", Dataset::input_dim(&dataset));
     println!(
         "Avg number of components: {:.2}",
-        VDataset::nnz(&dataset) as f32 / VDataset::len(&dataset) as f32
+        Dataset::nnz(&dataset) as f32 / Dataset::len(&dataset) as f32
     );
 
     let config = build_config(args);
@@ -239,10 +223,26 @@ where
 
     match args.value_type.as_str() {
         "f32" => write_index(base_index, args.output_file.as_ref().unwrap(), time),
-        "f16" => write_index(convert_index::<C, f16>(base_index), args.output_file.as_ref().unwrap(), time),
-        "bf16" => write_index(convert_index::<C, bf16>(base_index), args.output_file.as_ref().unwrap(), time),
-        "fixedu8" => write_index(convert_index::<C, FixedU8Q>(base_index), args.output_file.as_ref().unwrap(), time),
-        "fixedu16" => write_index(convert_index::<C, FixedU16Q>(base_index), args.output_file.as_ref().unwrap(), time),
+        "f16" => write_index(
+            TargetIndex::<C, f16>::convert_dataset_from(base_index),
+            args.output_file.as_ref().unwrap(),
+            time,
+        ),
+        "bf16" => write_index(
+            TargetIndex::<C, bf16>::convert_dataset_from(base_index),
+            args.output_file.as_ref().unwrap(),
+            time,
+        ),
+        "fixedu8" => write_index(
+            TargetIndex::<C, FixedU8Q>::convert_dataset_from(base_index),
+            args.output_file.as_ref().unwrap(),
+            time,
+        ),
+        "fixedu16" => write_index(
+            TargetIndex::<C, FixedU16Q>::convert_dataset_from(base_index),
+            args.output_file.as_ref().unwrap(),
+            time,
+        ),
         "dotvbyte" => {
             eprintln!("Error: value-type 'dotvbyte' is only supported with component-type 'u16'");
             std::process::exit(1);
@@ -256,36 +256,23 @@ where
     }
 }
 
-fn build_for_component_u16(args: &Args) {
+fn build_dotvbyte_u16(args: &Args) {
     let time = Instant::now();
     let base_index = build_base_index::<u16>(args);
-
-    match args.value_type.as_str() {
-        "f32" => write_index(base_index, args.output_file.as_ref().unwrap(), time),
-        "f16" => write_index(convert_index::<u16, f16>(base_index), args.output_file.as_ref().unwrap(), time),
-        "bf16" => write_index(convert_index::<u16, bf16>(base_index), args.output_file.as_ref().unwrap(), time),
-        "fixedu8" => write_index(convert_index::<u16, FixedU8Q>(base_index), args.output_file.as_ref().unwrap(), time),
-        "fixedu16" => write_index(convert_index::<u16, FixedU16Q>(base_index), args.output_file.as_ref().unwrap(), time),
-        "dotvbyte" => {
-            let converted = base_index.convert_dataset_into::<
-                PackedDataset<DotVByteFixedU8Quantizer>,
-                DotVByteFixedU8Quantizer,
-            >();
-            write_index(converted, args.output_file.as_ref().unwrap(), time);
-        }
-        _ => {
-            eprintln!(
-                "Error: value-type must be 'f16', 'bf16', 'f32', 'fixedu16', 'fixedu8', or 'dotvbyte'"
-            );
-            std::process::exit(1);
-        }
-    }
+    let converted = base_index
+        .convert_dataset_into::<PackedDataset<DotVByteFixedU8Quantizer>, DotVByteFixedU8Quantizer>(
+        );
+    write_index(converted, args.output_file.as_ref().unwrap(), time);
 }
 
 fn main() {
     let args = Args::parse();
+    if args.component_type.as_str() == "u16" && args.value_type.as_str() == "dotvbyte" {
+        build_dotvbyte_u16(&args);
+        return;
+    }
     match args.component_type.as_str() {
-        "u16" => build_for_component_u16(&args),
+        "u16" => build_for_component::<u16>(&args),
         "u32" => build_for_component::<u32>(&args),
         _ => {
             eprintln!("Error: component-type must be either 'u16' or 'u32'");

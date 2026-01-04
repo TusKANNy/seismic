@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use crate::utils::{read_from_path, write_to_path};
 use crate::InvertedIndex;
 use vectorium::{
-    ComponentType, Dataset as VDataset, Distance, DotProduct, GrowableDataset, PlainSparseDataset,
+    ComponentType, Dataset, Distance, DotProduct, GrowableDataset, PlainSparseDataset,
     ScalarSparseQuantizer, SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D,
     VectorEncoder,
 };
@@ -35,7 +35,7 @@ fn quantize_f32_dataset_to_f16<C>(dataset: PlainSparseDataset<C, f32, DotProduct
 where
     C: ComponentType,
 {
-    let dim = VDataset::input_dim(&dataset);
+    let dim = Dataset::input_dim(&dataset);
     let quantizer = IndexQuantizer::<C>::new(dim, dim);
     let mut growable = SparseDatasetGrowable::<IndexQuantizer<C>>::new(quantizer);
     for vec in dataset.iter() {

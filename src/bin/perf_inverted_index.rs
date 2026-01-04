@@ -8,9 +8,8 @@ use num_traits::FromPrimitive;
 use seismic::utils::read_from_path;
 use seismic::InvertedIndex;
 use vectorium::{
-    ComponentType, Dataset as VDataset, Distance, DotProduct, DotVByteFixedU8Quantizer,
-    PackedDataset, QueryVectorFor, SpaceUsage, SparseVector1D, Vector1D, VectorEncoder,
-    read_seismic_format,
+    ComponentType, Dataset, Distance, DotProduct, DotVByteFixedU8Quantizer, PackedDataset,
+    QueryVectorFor, SpaceUsage, SparseVector1D, Vector1D, VectorEncoder, read_seismic_format,
 };
 
 type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
@@ -138,7 +137,7 @@ macro_rules! match_component_value {
 
 pub fn run_performance_test_generic<S, E>(args: Args)
 where
-    S: VDataset<E> + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
+    S: Dataset<E> + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
     E: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
     E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
     ComponentFor<E>:
@@ -160,13 +159,13 @@ where
     let queries =
         read_seismic_format::<ComponentFor<E>, f32, DotProduct>(&args.query_file.unwrap()).unwrap();
 
-    let n_queries = cmp::min(args.n_queries, VDataset::len(&queries));
+    let n_queries = cmp::min(args.n_queries, Dataset::len(&queries));
 
     println!("Searching for top-{} results", args.k);
     println!("Number of evaluated queries: {n_queries}");
     println!(
         "Avg number of non-zero components: {}",
-        VDataset::nnz(&queries) / VDataset::len(&queries)
+        Dataset::nnz(&queries) / Dataset::len(&queries)
     );
 
     println!("Number of documents: {}", inverted_index.len());
@@ -181,7 +180,7 @@ where
     for _ in 0..n_runs {
         results.clear();
 
-        for (query_id, components_values) in VDataset::iter(&queries).take(n_queries).enumerate() {
+        for (query_id, components_values) in Dataset::iter(&queries).take(n_queries).enumerate() {
             let q_components: Vec<_> = components_values.components_as_slice().to_vec();
             let q_values: Vec<_> = components_values.values_as_slice().to_vec();
             let query = SparseVector1D::new(q_components, q_values);

@@ -6,7 +6,8 @@ pub mod configurations;
 pub(crate) mod posting_list;
 
 pub mod inverted_index;
-pub use inverted_index::InvertedIndex;
+pub use inverted_index::InvertedIndexBase;
+pub type InvertedIndex<S, E> = inverted_index::InvertedIndexBase<S, E>;
 
 pub mod inverted_index_wrapper;
 pub use inverted_index_wrapper::SeismicDataset;

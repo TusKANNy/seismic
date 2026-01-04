@@ -37,7 +37,7 @@ pub use crate::configurations::{
 };
 
 #[derive(Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct InvertedIndex<S, E>
+pub struct InvertedIndexBase<S, E>
 where
     S: Dataset<E>,
     E: VectorEncoder,
@@ -52,7 +52,7 @@ where
     knn: Option<Knn>,
 }
 
-impl<S, E> SpaceUsage for InvertedIndex<S, E>
+impl<S, E> SpaceUsage for InvertedIndexBase<S, E>
 where
     S: Dataset<E> + SpaceUsage,
     E: VectorEncoder,
@@ -88,7 +88,7 @@ where
 /// quantization strategy, we need to chose the right function to call while
 /// computing the distance between vectors.
 ///
-impl<S, E> InvertedIndex<S, E>
+impl<S, E> InvertedIndexBase<S, E>
 where
     S: Dataset<E>,
     E: VectorEncoder,
@@ -304,7 +304,7 @@ where
             };
         }
 
-        let me = InvertedIndex::<S, E> {
+        let me = InvertedIndexBase::<S, E> {
             forward_index: dataset,
             posting_lists: posting_lists.into_boxed_slice(),
             config: config.clone(),
@@ -329,14 +329,14 @@ where
         }
     }
 
-    /// Convert the `InvertedIndex`'s dataset to another one.
-    pub fn convert_dataset_from<T, ET>(inverted_index: InvertedIndex<T, ET>) -> Self
+    /// Convert the `InvertedIndexBase`'s dataset to another one.
+    pub fn convert_dataset_from<T, ET>(inverted_index: InvertedIndexBase<T, ET>) -> Self
     where
         S: Dataset<E> + ConvertFrom<T>,
         T: Dataset<ET>,
         ET: VectorEncoder<OutputComponentType = ComponentFor<E>>,
     {
-        let InvertedIndex {
+        let InvertedIndexBase {
             forward_index,
             mut posting_lists,
             config,
@@ -370,16 +370,16 @@ where
         }
     }
 
-    /// Convert the `InvertedIndex`'s dataset to another one.
-    pub fn convert_dataset_into<T, ET>(self) -> InvertedIndex<T, ET>
+    /// Convert the `InvertedIndexBase`'s dataset to another one.
+    pub fn convert_dataset_into<T, ET>(self) -> InvertedIndexBase<T, ET>
     where
         T: Dataset<ET> + ConvertFrom<S>,
         ET: VectorEncoder<OutputComponentType = ComponentFor<E>>,
     {
-        InvertedIndex::<T, ET>::convert_dataset_from(self)
+        InvertedIndexBase::<T, ET>::convert_dataset_from(self)
     }
 
-    /// Convenience function to build InvertedIndex using a dataset as a base, then converting it.
+    /// Convenience function to build InvertedIndexBase using a dataset as a base, then converting it.
     pub fn from_base_dataset<T, ET>(dataset: T, config: Configuration) -> Self
     where
         S: ConvertFrom<T>,
@@ -396,7 +396,7 @@ where
         ComponentFor<ET>: Hash,
         ValueFor<ET>: vectorium::FromF32 + PartialOrd,
     {
-        let inverted_index = InvertedIndex::<T, ET>::build(dataset, config);
+        let inverted_index = InvertedIndexBase::<T, ET>::build(dataset, config);
         Self::convert_dataset_from(inverted_index)
     }
 
@@ -565,7 +565,7 @@ impl SpaceUsage for Knn {
 }
 
 impl Knn {
-    pub fn new<S, E>(index: &InvertedIndex<S, E>, dim: usize) -> Self
+    pub fn new<S, E>(index: &InvertedIndexBase<S, E>, dim: usize) -> Self
     where
         S: Dataset<E> + Sync,
         E: SparseVectorEncoder,
@@ -755,7 +755,7 @@ mod tests {
 
         let dataset: PlainSparseDataset<u16, f32, DotProduct> = dataset.into();
 
-        let index = InvertedIndex::build(dataset, Configuration::default());
+        let index = InvertedIndexBase::build(dataset, Configuration::default());
         assert_eq!(index.len(), 4);
         assert_eq!(index.dim(), 5);
         assert_eq!(index.nnz(), 7);
@@ -776,11 +776,11 @@ mod tests {
         dataset.push(SparseVector1D::new(vec![1, 3], vec![3.0, 4.0]));
         let dataset: PlainSparseDataset<u16, f32, DotProduct> = dataset.into();
 
-        let index = InvertedIndex::build(dataset, Configuration::default());
+        let index = InvertedIndexBase::build(dataset, Configuration::default());
         let dim = index.dim();
         let expected_doc_ids: Vec<_> = (0..dim).map(|i| index.get_doc_ids_in_postings(i)).collect();
 
-        let converted: InvertedIndex<
+        let converted: InvertedIndexBase<
             PlainSparseDatasetGrowable<u16, f32, DotProduct>,
             PlainSparseQuantizer<u16, f32, DotProduct>,
         > = index.convert_dataset_into();
