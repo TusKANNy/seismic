@@ -10,9 +10,8 @@ use vectorium::{ComponentType, ValueType};
 use half::f16;
 use num_traits::{FromPrimitive, ToPrimitive};
 use vectorium::{
-    Dataset, Distance, DotProduct, GrowableDataset, SparseDataset, SparseDatasetGrowable,
-    SparseVectorEncoder,
-    SparseVector1D, SpaceUsage, Vector1D, VectorEncoder,
+    Dataset, Distance, DotProduct, GrowableDataset, QueryEvaluator, SparseDataset,
+    SparseDatasetGrowable, SparseVectorEncoder, SparseVector1D, SpaceUsage, Vector1D, VectorEncoder,
 };
 use vectorium::dataset::ScoredVectorDotProduct;
 
@@ -26,40 +25,30 @@ use serde_json::Deserializer;
 use flate2::read::GzDecoder;
 use tar::Archive;
 
-use crate::{InvertedIndex, configurations::Configuration, inverted_index::Knn};
+use crate::{InvertedIndexBase, configurations::Configuration, inverted_index::Knn};
 
-type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
-type ValueFor<E> = <E as VectorEncoder>::OutputValueType;
-type QueryValueFor<E> = <E as VectorEncoder>::QueryValueType;
-type SparseEncodedVector<'a, E> = SparseVector1D<
-    ComponentFor<E>,
-    ValueFor<E>,
-    &'a [ComponentFor<E>],
-    &'a [ValueFor<E>],
->;
-type ScoredVectorFor = ScoredVectorDotProduct;
+type EncoderFor<S> = <S as Dataset>::Encoder;
+type ComponentFor<S> = <EncoderFor<S> as VectorEncoder>::OutputComponentType;
+type ValueFor<S> = <EncoderFor<S> as VectorEncoder>::OutputValueType;
 
 #[derive(Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct SeismicIndex<S, E>
+pub struct SeismicIndex<S>
 where
-    S: Dataset<E>,
-    E: VectorEncoder,
-    ComponentFor<E>: ComponentType,
+    S: Dataset,
 {
     #[serde(bound(
-        serialize = "S: Serialize, ComponentFor<E>: Serialize",
-        deserialize = "S: DeserializeOwned, ComponentFor<E>: DeserializeOwned"
+        serialize = "S: Serialize, ComponentFor<S>: Serialize",
+        deserialize = "S: DeserializeOwned, ComponentFor<S>: DeserializeOwned"
     ))]
-    inverted_index: InvertedIndex<S, E>,
+    inverted_index: InvertedIndexBase<S>,
     document_mapping: Option<Box<[String]>>,
     token_to_id_map: HashMap<String, usize>,
 }
 
-impl<S, E> SpaceUsage for SeismicIndex<S, E>
+impl<S> SpaceUsage for SeismicIndex<S>
 where
-    S: Dataset<E> + SpaceUsage,
-    E: VectorEncoder,
-    ComponentFor<E>: ComponentType + SpaceUsage,
+    S: Dataset + SpaceUsage,
+    ComponentFor<S>: SpaceUsage,
 {
     fn space_usage_bytes(&self) -> usize {
         //TODO: add the SpaceUsage of document_mapping and token_to_id_map
@@ -67,18 +56,13 @@ where
     }
 }
 
-impl<S, E> SeismicIndex<S, E>
+impl<S> SeismicIndex<S>
 where
-    S: Dataset<E> + Sync + SpaceUsage,
-    E: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
-    E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-    E: SparseVectorEncoder<InputComponentType = ComponentFor<E>, InputValueType = f32>,
-    E: vectorium::SpaceUsage,
-    for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
-    S: From<SparseDataset<E>>,
-    ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType,
-    QueryValueFor<E>: ValueType,
+    S: Dataset + Sync + SpaceUsage,
+    EncoderFor<S>: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
+    EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
+    EncoderFor<S>: SparseVectorEncoder<InputComponentType = ComponentFor<S>, InputValueType = f32>,
+    S: From<SparseDataset<EncoderFor<S>>>,
 {
     pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
         self.inverted_index.get_doc_ids_in_postings(list_id)
@@ -91,10 +75,13 @@ where
         token_to_id_map: HashMap<String, usize>,
     ) -> Self
     where
-        ComponentFor<E>: SpaceUsage + std::hash::Hash,
-        ValueFor<E>: vectorium::FromF32 + PartialOrd,
+        ComponentFor<S>: SpaceUsage + std::hash::Hash,
+        ValueFor<S>: vectorium::FromF32 + PartialOrd,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
     {
-        let inverted_index = InvertedIndex::build(dataset, config);
+        let inverted_index = InvertedIndexBase::build(dataset, config);
 
         Self {
             inverted_index,
@@ -105,7 +92,7 @@ where
 
     pub fn remap_doc_ids(
         &self,
-        plain_results: impl IntoIterator<Item = ScoredVectorFor>,
+        plain_results: impl IntoIterator<Item = ScoredVectorDotProduct>,
         query_id: &str,
     ) -> Vec<(String, f32, String)> {
         match &self.document_mapping {
@@ -140,9 +127,11 @@ where
         heap_factor: f32,
         n_knn: usize,
         first_sorted: bool,
-    ) -> Vec<ScoredVectorFor>
+    ) -> Vec<ScoredVectorDotProduct>
     where
-        ComponentFor<E>: FromPrimitive,
+        ComponentFor<S>: FromPrimitive,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
     {
         let (filtered_query_components, filtered_query_values): (Vec<_>, Vec<_>) =
             query_components_original
@@ -151,7 +140,7 @@ where
                 .filter_map(|(qc, &qv)| {
                     self.token_to_id_map
                         .get(qc)
-                        .and_then(|id| ComponentFor::<E>::from_usize(*id))
+                        .and_then(|id| ComponentFor::<S>::from_usize(*id))
                         .map(|component| (component, qv))
                 })
                 .sorted_by_key(|(component, _)| *component)
@@ -181,7 +170,9 @@ where
         first_sorted: bool,
     ) -> Vec<(String, f32, String)>
     where
-        ComponentFor<E>: FromPrimitive,
+        ComponentFor<S>: FromPrimitive,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
     {
         let results = self.search_raw(
             query_components_original,
@@ -202,13 +193,13 @@ where
         token_to_id_mapping: HashMap<String, usize>,
     ) -> (S, Vec<String>, HashMap<String, usize>)
     where
-        E: SparseVectorEncoder<InputComponentType = ComponentFor<E>, InputValueType = f32>,
-        for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
-        ComponentFor<E>: ComponentType + FromPrimitive,
-        S: From<SparseDataset<E>>,
+        EncoderFor<S>: SparseVectorEncoder<InputComponentType = ComponentFor<S>, InputValueType = f32>,
+        ComponentFor<S>: FromPrimitive,
+        S: From<SparseDataset<EncoderFor<S>>>,
     {
         let mut doc_id_mapping = Vec::with_capacity(row_count);
-        let mut converted_data = SparseDatasetGrowable::<E>::new(E::new(
+        let mut converted_data =
+            SparseDatasetGrowable::<EncoderFor<S>>::new(EncoderFor::<S>::new(
             token_to_id_mapping.len(),
             token_to_id_mapping.len(),
         ));
@@ -223,7 +214,7 @@ where
             let ids: Vec<_> = tokens
                 .into_iter()
                 .map(|t| {
-                    ComponentFor::<E>::from_usize(token_to_id_mapping[&t])
+                    ComponentFor::<S>::from_usize(token_to_id_mapping[&t])
                         .expect("Failed to convert token id to component type")
                 })
                 .collect();
@@ -234,7 +225,7 @@ where
             converted_data.push(SparseVector1D::new(components, values));
         }
 
-        let frozen: SparseDataset<E> = converted_data.into();
+        let frozen: SparseDataset<EncoderFor<S>> = converted_data.into();
         let final_data: S = frozen.into();
 
         (final_data, doc_id_mapping, token_to_id_mapping)
@@ -257,7 +248,7 @@ where
             }
         }
 
-        let n_bits = size_of::<ComponentFor<E>>() as u32 * 8;
+        let n_bits = size_of::<ComponentFor<S>>() as u32 * 8;
         assert!(
             token_to_id_mapping.len() < 2_usize.pow(n_bits),
             "The number of different tokens exceeds 2^{}.",
@@ -273,8 +264,11 @@ where
         input_token_to_id_map: Option<HashMap<String, usize>>,
     ) -> Result<Self, io::Error>
     where
-        ComponentFor<E>: FromPrimitive + SpaceUsage + std::hash::Hash,
-        ValueFor<E>: vectorium::FromF32 + PartialOrd,
+        ComponentFor<S>: FromPrimitive + SpaceUsage + std::hash::Hash,
+        ValueFor<S>: vectorium::FromF32 + PartialOrd,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
     {
         if file_path.ends_with(".jsonl") {
             Ok(SeismicIndex::from_json(
@@ -302,8 +296,11 @@ where
         input_token_to_id_map: Option<HashMap<String, usize>>,
     ) -> Self
     where
-        ComponentFor<E>: FromPrimitive + SpaceUsage + std::hash::Hash,
-        ValueFor<E>: vectorium::FromF32 + PartialOrd,
+        ComponentFor<S>: FromPrimitive + SpaceUsage + std::hash::Hash,
+        ValueFor<S>: vectorium::FromF32 + PartialOrd,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
     {
         println!("Reading the collection..");
         let start = Instant::now();
@@ -351,8 +348,11 @@ where
         input_token_to_id_map: Option<HashMap<String, usize>>,
     ) -> Self
     where
-        ComponentFor<E>: FromPrimitive + SpaceUsage + std::hash::Hash,
-        ValueFor<E>: vectorium::FromF32 + PartialOrd,
+        ComponentFor<S>: FromPrimitive + SpaceUsage + std::hash::Hash,
+        ValueFor<S>: vectorium::FromF32 + PartialOrd,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
     {
         println!("Reading the collection..");
         let start = Instant::now();
@@ -408,7 +408,7 @@ where
 
     pub fn print_space_usage_byte(&self)
     where
-        ComponentFor<E>: SpaceUsage,
+        ComponentFor<S>: SpaceUsage,
     {
         self.inverted_index.print_space_usage_byte();
     }
@@ -429,7 +429,7 @@ where
         self.inverted_index.is_empty()
     }
 
-    pub fn inverted_index(&self) -> &InvertedIndex<S, E> {
+    pub fn inverted_index(&self) -> &InvertedIndexBase<S> {
         &self.inverted_index
     }
 
@@ -445,29 +445,28 @@ where
         self.inverted_index.knn_len()
     }
 
-    pub fn from_dataset(dataset: SeismicDataset<ComponentFor<E>>, config: Configuration) -> Self
+    pub fn from_dataset(dataset: SeismicDataset<ComponentFor<S>>, config: Configuration) -> Self
     where
-        S: From<SparseDataset<E>>,
-        E: SparseVectorEncoder<InputComponentType = ComponentFor<E>, InputValueType = f32>,
-        for<'a> E: VectorEncoder<EncodedVector<'a> = SparseEncodedVector<'a, E>>,
-        ComponentFor<E>: ComponentType,
-        ComponentFor<E>: SpaceUsage + std::hash::Hash,
-        ValueFor<E>: ValueType + vectorium::FromF32 + PartialOrd,
-        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+        S: From<SparseDataset<EncoderFor<S>>>,
+        EncoderFor<S>: SparseVectorEncoder<InputComponentType = ComponentFor<S>, InputValueType = f32>,
+        ComponentFor<S>: SpaceUsage + std::hash::Hash,
+        ValueFor<S>: ValueType + vectorium::FromF32 + PartialOrd,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
     {
         let dim = dataset.sparse_dataset.input_dim();
-        let quantizer = E::new(dim, dim);
-        let mut converted = SparseDatasetGrowable::<E>::new(quantizer);
+        let quantizer = EncoderFor::<S>::new(dim, dim);
+        let mut converted = SparseDatasetGrowable::<EncoderFor<S>>::new(quantizer);
         for vec in dataset.sparse_dataset.iter() {
             let components = vec.components_as_slice().to_vec();
             let values: Vec<_> = vec.values_as_slice().iter().map(|v| v.to_f32().unwrap()).collect();
             converted.push(SparseVector1D::new(components, values));
         }
 
-        let frozen: SparseDataset<E> = converted.into();
+        let frozen: SparseDataset<EncoderFor<S>> = converted.into();
         Self {
-            inverted_index: InvertedIndex::build(frozen.into(), config),
+            inverted_index: InvertedIndexBase::build(frozen.into(), config),
             document_mapping: Some(dataset.document_mapping.into_boxed_slice()),
             token_to_id_map: dataset.token_to_id_map,
         }

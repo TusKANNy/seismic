@@ -26,10 +26,10 @@ use std::time::Instant;
 
 use std::io::Result as IoResult;
 
-type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
-type ValueFor<E> = <E as VectorEncoder>::OutputValueType;
-type QueryValueFor<E> = <E as VectorEncoder>::QueryValueType;
-type ScoredVectorFor = ScoredVectorDotProduct;
+type EncoderFor<S> = <S as Dataset>::Encoder;
+type ComponentFor<S> = <EncoderFor<S> as VectorEncoder>::OutputComponentType;
+type ValueFor<S> = <EncoderFor<S> as VectorEncoder>::OutputValueType;
+type QueryValueFor<S> = <EncoderFor<S> as VectorEncoder>::QueryValueType;
 
 pub use crate::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
@@ -37,26 +37,24 @@ pub use crate::configurations::{
 };
 
 #[derive(Default, PartialEq, Clone, Serialize, Deserialize)]
-pub struct InvertedIndexBase<S, E>
+pub struct InvertedIndexBase<S>
 where
-    S: Dataset<E>,
-    E: VectorEncoder,
+    S: Dataset,
 {
     forward_index: S,
     #[serde(bound(
-        serialize = "ComponentFor<E>: Serialize",
-        deserialize = "ComponentFor<E>: DeserializeOwned"
+        serialize = "ComponentFor<S>: Serialize",
+        deserialize = "ComponentFor<S>: DeserializeOwned"
     ))]
-    posting_lists: Box<[PostingList<ComponentFor<E>>]>,
+    posting_lists: Box<[PostingList<ComponentFor<S>>]>,
     config: Configuration,
     knn: Option<Knn>,
 }
 
-impl<S, E> SpaceUsage for InvertedIndexBase<S, E>
+impl<S> SpaceUsage for InvertedIndexBase<S>
 where
-    S: Dataset<E> + SpaceUsage,
-    E: VectorEncoder,
-    ComponentFor<E>: SpaceUsage,
+    S: Dataset + SpaceUsage,
+    ComponentFor<S>: SpaceUsage,
 {
     fn space_usage_bytes(&self) -> usize {
         let forward = SpaceUsage::space_usage_bytes(&self.forward_index);
@@ -88,10 +86,9 @@ where
 /// quantization strategy, we need to chose the right function to call while
 /// computing the distance between vectors.
 ///
-impl<S, E> InvertedIndexBase<S, E>
+impl<S> InvertedIndexBase<S>
 where
-    S: Dataset<E>,
-    E: VectorEncoder,
+    S: Dataset,
 {
     pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
         assert!(
@@ -110,7 +107,7 @@ where
     pub fn print_space_usage_byte(&self)
     where
         S: SpaceUsage,
-        ComponentFor<E>: SpaceUsage,
+        ComponentFor<S>: SpaceUsage,
     {
         println!("Space Usage:");
         let forward = SpaceUsage::space_usage_bytes(&self.forward_index);
@@ -159,19 +156,21 @@ where
     #[must_use]
     pub fn search<QC, QV>(
         &self,
-        query: &SparseVector1D<ComponentFor<E>, QueryValueFor<E>, QC, QV>,
+        query: &SparseVector1D<ComponentFor<S>, QueryValueFor<S>, QC, QV>,
         k: usize,
         query_cut: usize,
         heap_factor: f32,
         n_knn: usize,
         first_sorted: bool,
-    ) -> Vec<ScoredVectorFor>
+    ) -> Vec<ScoredVectorDotProduct>
     where
-        E: VectorEncoder<QueryComponentType = ComponentFor<E>, Distance = DotProduct>,
-        QC: AsRef<[ComponentFor<E>]>,
-        QV: AsRef<[QueryValueFor<E>]>,
-        SparseVector1D<ComponentFor<E>, QueryValueFor<E>, QC, QV>: QueryVectorFor<E>,
-        QueryValueFor<E>: PartialOrd,
+        EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>, Distance = DotProduct>,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
+        QC: AsRef<[ComponentFor<S>]>,
+        QV: AsRef<[QueryValueFor<S>]>,
+        SparseVector1D<ComponentFor<S>, QueryValueFor<S>, QC, QV>: QueryVectorFor<EncoderFor<S>>,
+        QueryValueFor<S>: PartialOrd,
     {
         let query_components = query.components_as_slice();
         let query_values = query.values_as_slice();
@@ -239,16 +238,17 @@ where
     pub fn build(dataset: S, config: Configuration) -> Self
     where
         S: Sync,
-        E: SparseVectorEncoder,
-        E: VectorEncoder<
-                QueryComponentType = ComponentFor<E>,
+        EncoderFor<S>: SparseVectorEncoder,
+        EncoderFor<S>: VectorEncoder<
+                QueryComponentType = ComponentFor<S>,
                 QueryValueType = f32,
                 Distance = DotProduct,
             >,
-        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
-        ComponentFor<E>: Hash,
-        ValueFor<E>: vectorium::FromF32 + PartialOrd,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
+        ComponentFor<S>: Hash,
+        ValueFor<S>: ValueType + vectorium::FromF32 + PartialOrd,
     {
         print!("Distributing and pruning postings: ");
         let time = Instant::now();
@@ -304,7 +304,7 @@ where
             };
         }
 
-        let me = InvertedIndexBase::<S, E> {
+        let me = InvertedIndexBase::<S> {
             forward_index: dataset,
             posting_lists: posting_lists.into_boxed_slice(),
             config: config.clone(),
@@ -330,11 +330,11 @@ where
     }
 
     /// Convert the `InvertedIndexBase`'s dataset to another one.
-    pub fn convert_dataset_from<T, ET>(inverted_index: InvertedIndexBase<T, ET>) -> Self
+    pub fn convert_dataset_from<T>(inverted_index: InvertedIndexBase<T>) -> Self
     where
-        S: Dataset<E> + ConvertFrom<T>,
-        T: Dataset<ET>,
-        ET: VectorEncoder<OutputComponentType = ComponentFor<E>>,
+        S: Dataset + ConvertFrom<T>,
+        T: Dataset,
+        EncoderFor<T>: VectorEncoder<OutputComponentType = ComponentFor<S>>,
     {
         let InvertedIndexBase {
             forward_index,
@@ -371,32 +371,33 @@ where
     }
 
     /// Convert the `InvertedIndexBase`'s dataset to another one.
-    pub fn convert_dataset_into<T, ET>(self) -> InvertedIndexBase<T, ET>
+    pub fn convert_dataset_into<T>(self) -> InvertedIndexBase<T>
     where
-        T: Dataset<ET> + ConvertFrom<S>,
-        ET: VectorEncoder<OutputComponentType = ComponentFor<E>>,
+        T: Dataset + ConvertFrom<S>,
+        EncoderFor<T>: VectorEncoder<OutputComponentType = ComponentFor<S>>,
     {
-        InvertedIndexBase::<T, ET>::convert_dataset_from(self)
+        InvertedIndexBase::<T>::convert_dataset_from(self)
     }
 
     /// Convenience function to build InvertedIndexBase using a dataset as a base, then converting it.
-    pub fn from_base_dataset<T, ET>(dataset: T, config: Configuration) -> Self
+    pub fn from_base_dataset<T>(dataset: T, config: Configuration) -> Self
     where
         S: ConvertFrom<T>,
-        T: Dataset<ET> + Sync,
-        ET: VectorEncoder<OutputComponentType = ComponentFor<E>>,
-        ET: SparseVectorEncoder,
-        ET: VectorEncoder<
-                QueryComponentType = ComponentFor<ET>,
+        T: Dataset + Sync,
+        EncoderFor<T>: VectorEncoder<OutputComponentType = ComponentFor<S>>,
+        EncoderFor<T>: SparseVectorEncoder,
+        EncoderFor<T>: VectorEncoder<
+                QueryComponentType = ComponentFor<T>,
                 QueryValueType = f32,
                 Distance = DotProduct,
             >,
-        for<'a> <ET as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<Component = ComponentFor<ET>, Value = ValueFor<ET>>,
-        ComponentFor<ET>: Hash,
-        ValueFor<ET>: vectorium::FromF32 + PartialOrd,
+        for<'a> T::Vector<'a>: Vector1D<Component = ComponentFor<T>, Value = ValueFor<T>>,
+        for<'a> <EncoderFor<T> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<T::Vector<'a>, DotProduct>,
+        ComponentFor<T>: Hash,
+        ValueFor<T>: ValueType + vectorium::FromF32 + PartialOrd,
     {
-        let inverted_index = InvertedIndexBase::<T, ET>::build(dataset, config);
+        let inverted_index = InvertedIndexBase::<T>::build(dataset, config);
         Self::convert_dataset_from(inverted_index)
     }
 
@@ -407,11 +408,10 @@ where
     }
 
     // Implementation of the pruning strategy that selects the top-`n_postings` from each posting list
-    fn fixed_pruning(dataset: &S, n_postings: usize) -> Vec<Vec<(ValueFor<E>, usize)>>
+    fn fixed_pruning(dataset: &S, n_postings: usize) -> Vec<Vec<(ValueFor<S>, usize)>>
     where
-        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
-        ValueFor<E>: vectorium::FromF32,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        ValueFor<S>: ValueType + vectorium::FromF32,
     {
         let mut inverted_pairs: Vec<KHeap<ScoredVectorDotProduct>> =
             vec![KHeap::new(n_postings); dataset.input_dim()];
@@ -435,7 +435,7 @@ where
                     .into_iter()
                     .map(|ScoredVectorDotProduct { distance, vector }| {
                         (
-                            <ValueFor<E> as vectorium::FromF32>::from_f32_saturating(
+                            <ValueFor<S> as vectorium::FromF32>::from_f32_saturating(
                                 distance.distance(),
                             ),
                             vector as usize,
@@ -472,11 +472,10 @@ where
         dataset: &S,
         n_postings: usize,
         max_fraction: f32,
-    ) -> Vec<Vec<(ValueFor<E>, usize)>>
+    ) -> Vec<Vec<(ValueFor<S>, usize)>>
     where
-        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
-        ValueFor<E>: PartialOrd,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        ValueFor<S>: PartialOrd,
     {
         let mut new_inverted_pairs = vec![Vec::new(); dataset.input_dim()];
 
@@ -565,14 +564,16 @@ impl SpaceUsage for Knn {
 }
 
 impl Knn {
-    pub fn new<S, E>(index: &InvertedIndexBase<S, E>, dim: usize) -> Self
+    pub fn new<S>(index: &InvertedIndexBase<S>, dim: usize) -> Self
     where
-        S: Dataset<E> + Sync,
-        E: SparseVectorEncoder,
-        E: VectorEncoder<QueryComponentType = ComponentFor<E>, Distance = DotProduct>,
-        E: VectorEncoder<QueryValueType = f32>,
-        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+        S: Dataset + Sync,
+        EncoderFor<S>: SparseVectorEncoder,
+        EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>, Distance = DotProduct>,
+        EncoderFor<S>: VectorEncoder<QueryValueType = f32>,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
+        ValueFor<S>: ValueType,
     {
         const KNN_QUERY_CUT: usize = 10;
         const KNN_HEAP_FACTOR: f32 = 0.7;
@@ -668,17 +669,18 @@ impl Knn {
     }
 
     #[inline]
-    pub(crate) fn refine<S, E, QE>(
+    pub(crate) fn refine<'a, S>(
         &self,
-        evaluator: &QE,
+        evaluator: &<EncoderFor<S> as VectorEncoder>::Evaluator<'a>,
         heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
-        forward_index: &S,
+        forward_index: &'a S,
         in_n_knn: usize,
     ) where
-        S: Dataset<E>,
-        E: VectorEncoder<Distance = DotProduct>,
-        QE: QueryEvaluator<E>,
+        S: Dataset,
+        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+        <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
     {
         let n_knn = cmp::min(self.dim, in_n_knn);
 
@@ -780,10 +782,8 @@ mod tests {
         let dim = index.dim();
         let expected_doc_ids: Vec<_> = (0..dim).map(|i| index.get_doc_ids_in_postings(i)).collect();
 
-        let converted: InvertedIndexBase<
-            PlainSparseDatasetGrowable<u16, f32, DotProduct>,
-            PlainSparseQuantizer<u16, f32, DotProduct>,
-        > = index.convert_dataset_into();
+        let converted: InvertedIndexBase<PlainSparseDatasetGrowable<u16, f32, DotProduct>> =
+            index.convert_dataset_into();
 
         assert_eq!(converted.dim(), dim);
         assert_eq!(converted.len(), 2);

@@ -16,13 +16,14 @@ use num_traits::ToPrimitive;
 use vectorium::dataset::ScoredRangeDotProduct;
 use vectorium::{
     ComponentType, Dataset, Distance, DotProduct, GrowableDataset, QueryEvaluator, SpaceUsage,
-    SparseDataset, SparseDatasetGrowable, SparseVector1D, SparseVectorEncoder, Vector1D,
+    SparseDataset, SparseDatasetGrowable, SparseVector1D, SparseVectorEncoder, ValueType, Vector1D,
     VectorEncoder,
 };
 
-type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
-type ValueFor<E> = <E as VectorEncoder>::OutputValueType;
-type QueryValueFor<E> = <E as VectorEncoder>::QueryValueType;
+type EncoderFor<S> = <S as Dataset>::Encoder;
+type ComponentFor<S> = <EncoderFor<S> as VectorEncoder>::OutputComponentType;
+type ValueFor<S> = <EncoderFor<S> as VectorEncoder>::OutputValueType;
+type QueryValueFor<S> = <EncoderFor<S> as VectorEncoder>::QueryValueType;
 
 /// Instead of storing doc_ids we store their offsets in the forward_index and the lengths of the vectors
 /// This allows us to save the random accesses that would be needed to access exactly these values from the
@@ -92,21 +93,22 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn search<S, E, QE, QC, QV>(
+    pub(crate) fn search<'a, S, QC, QV>(
         &self,
-        evaluator: &QE,
-        query: &SparseVector1D<C, QueryValueFor<E>, QC, QV>,
+        evaluator: &<EncoderFor<S> as VectorEncoder>::Evaluator<'a>,
+        query: &SparseVector1D<C, QueryValueFor<S>, QC, QV>,
         k: usize,
         heap_factor: f32,
         heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
-        forward_index: &S,
+        forward_index: &'a S,
     ) where
-        S: Dataset<E>,
-        E: VectorEncoder<Distance = DotProduct>,
-        QE: QueryEvaluator<E>,
+        S: Dataset,
+        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+        <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
         QC: AsRef<[C]>,
-        QV: AsRef<[QueryValueFor<E>]>,
+        QV: AsRef<[QueryValueFor<S>]>,
     {
         let dots = self.summaries.distances(query);
 
@@ -129,21 +131,22 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn sort_and_search<S, E, QE, QC, QV>(
+    pub(crate) fn sort_and_search<'a, S, QC, QV>(
         &self,
-        evaluator: &QE,
-        query: &SparseVector1D<C, QueryValueFor<E>, QC, QV>,
+        evaluator: &<EncoderFor<S> as VectorEncoder>::Evaluator<'a>,
+        query: &SparseVector1D<C, QueryValueFor<S>, QC, QV>,
         k: usize,
         heap_factor: f32,
         heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
-        forward_index: &S,
+        forward_index: &'a S,
     ) where
-        S: Dataset<E>,
-        E: VectorEncoder<Distance = DotProduct>,
-        QE: QueryEvaluator<E>,
+        S: Dataset,
+        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+        <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
         QC: AsRef<[C]>,
-        QV: AsRef<[QueryValueFor<E>]>,
+        QV: AsRef<[QueryValueFor<S>]>,
     {
         let dots = self.summaries.distances(query);
         let dots: Vec<_> = dots
@@ -171,17 +174,18 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn evaluate_posting_block<S, E, QE>(
+    fn evaluate_posting_block<'a, S>(
         &self,
-        evaluator: &QE,
+        evaluator: &<EncoderFor<S> as VectorEncoder>::Evaluator<'a>,
         packed_posting_block: &[PackedPostingBlock],
         heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
-        forward_index: &S,
+        forward_index: &'a S,
     ) where
-        S: Dataset<E>,
-        E: VectorEncoder<Distance = DotProduct>,
-        QE: QueryEvaluator<E>,
+        S: Dataset,
+        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+        <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
     {
         let mut iter = packed_posting_block.iter();
         let mut cur_pack = iter.next();
@@ -205,23 +209,25 @@ impl<C: ComponentType> PostingList<C> {
         }
     }
 
-    pub(crate) fn build<S, E>(
+    pub(crate) fn build<S>(
         dataset: &S,
-        postings: &[(ValueFor<E>, usize)],
+        postings: &[(ValueFor<S>, usize)],
         config: &Configuration,
     ) -> Self
     where
-        S: Dataset<E>,
-        E: SparseVectorEncoder,
-        E: VectorEncoder<
+        S: Dataset,
+        EncoderFor<S>: SparseVectorEncoder,
+        EncoderFor<S>: VectorEncoder<
                 OutputComponentType = C,
-                QueryComponentType = ComponentFor<E>,
+                QueryComponentType = ComponentFor<S>,
                 QueryValueType = f32,
             >,
-        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
         C: std::hash::Hash,
-        ValueFor<E>: PartialOrd,
+        ValueFor<S>: PartialOrd,
     {
         let mut posting_list: Vec<_> = postings.iter().map(|(_, docid)| *docid).collect();
 
@@ -247,9 +253,9 @@ impl<C: ComponentType> PostingList<C> {
             dataset.input_dim(),
             dataset.input_dim(),
         );
-        let mut summary = SparseDatasetGrowable::<
+        let mut summary = <SparseDatasetGrowable<
             vectorium::PlainSparseQuantizer<C, f32, vectorium::DotProduct>,
-        >::new(quantizer);
+        > as GrowableDataset>::new(quantizer);
         for (components, values) in
             block_offsets
                 .array_windows()
@@ -300,7 +306,7 @@ impl<C: ComponentType> PostingList<C> {
         result
     }
 
-    fn blocking_with_random_kmeans<S, E>(
+    fn blocking_with_random_kmeans<S>(
         posting_list: &mut [usize],
         centroid_fraction: f32,
         min_cluster_size: usize,
@@ -308,13 +314,15 @@ impl<C: ComponentType> PostingList<C> {
         clustering_algorithm: ClusteringAlgorithm,
     ) -> Vec<usize>
     where
-        S: Dataset<E>,
-        E: SparseVectorEncoder,
-        E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-        E: VectorEncoder<QueryValueType = f32>,
-        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
-        ValueFor<E>: PartialOrd,
+        S: Dataset,
+        EncoderFor<S>: SparseVectorEncoder,
+        EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
+        EncoderFor<S>: VectorEncoder<QueryValueType = f32>,
+        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+            QueryEvaluator<S::Vector<'a>, DotProduct>,
+        ValueFor<S>: ValueType + PartialOrd,
     {
         if posting_list.is_empty() {
             return Vec::new();
@@ -381,17 +389,17 @@ impl<C: ComponentType> PostingList<C> {
         block_offsets
     }
 
-    fn fixed_size_summary<S, E>(
+    fn fixed_size_summary<S>(
         dataset: &S,
         block: &[usize],
         n_components: usize,
-    ) -> Vec<(ComponentFor<E>, f32)>
+    ) -> Vec<(ComponentFor<S>, f32)>
     where
-        S: Dataset<E>,
-        E: VectorEncoder,
-        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
-        ComponentFor<E>: std::hash::Hash,
+        S: Dataset,
+        EncoderFor<S>: VectorEncoder,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        ComponentFor<S>: std::hash::Hash,
+        ValueFor<S>: ValueType,
     {
         let mut hash = std::collections::HashMap::new();
         for &doc_id in block.iter() {
@@ -414,17 +422,17 @@ impl<C: ComponentType> PostingList<C> {
             .collect()
     }
 
-    fn energy_preserving_summary<S, E>(
+    fn energy_preserving_summary<S>(
         dataset: &S,
         block: &[usize],
         fraction: f32,
-    ) -> Vec<(ComponentFor<E>, f32)>
+    ) -> Vec<(ComponentFor<S>, f32)>
     where
-        S: Dataset<E>,
-        E: VectorEncoder,
-        for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-            Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
-        ComponentFor<E>: std::hash::Hash,
+        S: Dataset,
+        EncoderFor<S>: VectorEncoder,
+        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        ComponentFor<S>: std::hash::Hash,
+        ValueFor<S>: ValueType,
     {
         let mut hash = std::collections::HashMap::new();
         for &doc_id in block.iter() {

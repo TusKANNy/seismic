@@ -1,9 +1,12 @@
 use clap::Parser;
 use half::{bf16, f16};
 use num_traits::FromPrimitive;
-use seismic::FixedU8Q;
 use seismic::FixedU16Q;
-use seismic::InvertedIndex;
+use seismic::FixedU8Q;
+use seismic::InvertedIndexBase;
+use seismic::InvertedIndexDotVByte;
+use seismic::PlainInvertedIndex;
+use seismic::ScalarInvertedIndex;
 use seismic::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
     SummarizationStrategy,
@@ -17,8 +20,7 @@ use std::time::Instant;
 
 use vectorium::ComponentType;
 use vectorium::{
-    Dataset, DotProduct, DotVByteFixedU8Quantizer, PackedDataset, PlainSparseDataset,
-    PlainSparseQuantizer, ScalarSparseQuantizer, SpaceUsage, SparseDataset, read_seismic_format,
+    Dataset, DotProduct, SpaceUsage, read_seismic_format,
 };
 
 // clap does not support enums with associated values; keep CLI-only types in the bin.
@@ -166,14 +168,7 @@ fn build_config(args: &Args) -> Configuration {
         .knn(knn_config)
 }
 
-type BaseIndex<C> =
-    InvertedIndex<PlainSparseDataset<C, f32, DotProduct>, PlainSparseQuantizer<C, f32, DotProduct>>;
-
-type TargetQuantizer<C, V> = ScalarSparseQuantizer<C, f32, V, DotProduct>;
-type TargetDataset<C, V> = SparseDataset<TargetQuantizer<C, V>>;
-type TargetIndex<C, V> = InvertedIndex<TargetDataset<C, V>, TargetQuantizer<C, V>>;
-
-fn build_base_index<C>(args: &Args) -> BaseIndex<C>
+fn build_base_index<C>(args: &Args) -> PlainInvertedIndex<C, f32>
 where
     C: ComponentType
         + vectorium::ComponentType
@@ -197,7 +192,7 @@ where
     println!("\nBuilding the index...");
     println!("{:?}", config);
 
-    InvertedIndex::build(dataset, config)
+    PlainInvertedIndex::<C, f32>::build(dataset, config)
 }
 
 fn write_index<T: serde::Serialize>(index: T, output_file: &str, elapsed: Instant) {
@@ -224,22 +219,22 @@ where
     match args.value_type.as_str() {
         "f32" => write_index(base_index, args.output_file.as_ref().unwrap(), time),
         "f16" => write_index(
-            TargetIndex::<C, f16>::convert_dataset_from(base_index),
+            ScalarInvertedIndex::<C, f32, f16>::convert_dataset_from(base_index),
             args.output_file.as_ref().unwrap(),
             time,
         ),
         "bf16" => write_index(
-            TargetIndex::<C, bf16>::convert_dataset_from(base_index),
+            ScalarInvertedIndex::<C, f32, bf16>::convert_dataset_from(base_index),
             args.output_file.as_ref().unwrap(),
             time,
         ),
         "fixedu8" => write_index(
-            TargetIndex::<C, FixedU8Q>::convert_dataset_from(base_index),
+            ScalarInvertedIndex::<C, f32, FixedU8Q>::convert_dataset_from(base_index),
             args.output_file.as_ref().unwrap(),
             time,
         ),
         "fixedu16" => write_index(
-            TargetIndex::<C, FixedU16Q>::convert_dataset_from(base_index),
+            ScalarInvertedIndex::<C, f32, FixedU16Q>::convert_dataset_from(base_index),
             args.output_file.as_ref().unwrap(),
             time,
         ),
@@ -259,9 +254,7 @@ where
 fn build_dotvbyte_u16(args: &Args) {
     let time = Instant::now();
     let base_index = build_base_index::<u16>(args);
-    let converted = base_index
-        .convert_dataset_into::<PackedDataset<DotVByteFixedU8Quantizer>, DotVByteFixedU8Quantizer>(
-        );
+    let converted: InvertedIndexDotVByte = InvertedIndexBase::convert_dataset_from(base_index);
     write_index(converted, args.output_file.as_ref().unwrap(), time);
 }
 

@@ -76,7 +76,7 @@ pub fn main() {
     type Encoder = ScalarSparseQuantizer<u16, f32, f16, DotProduct>;
     type Dataset = SparseDataset<Encoder>;
 
-    let inverted_index: SeismicIndex<Dataset, Encoder> =
+    let inverted_index: SeismicIndex<Dataset> =
         read_from_path(index_path.unwrap().as_str()).unwrap();
 
     //let queries = SparseDataset::<f32>::read_bin_file(&query_path.unwrap()).unwrap();

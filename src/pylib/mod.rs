@@ -18,7 +18,7 @@ use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::collections::HashMap;
 
 use crate::utils::{read_from_path, write_to_path};
-use crate::InvertedIndex;
+use crate::InvertedIndexBase;
 use vectorium::{
     ComponentType, Dataset, Distance, DotProduct, GrowableDataset, PlainSparseDataset,
     ScalarSparseQuantizer, SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D,
@@ -60,7 +60,7 @@ macro_rules! impl_seismic_index {
         /// dataset using `build` or `build_from_dataset`. See these methods for further details.
         #[pyclass(name= $py_name)]
         pub struct $rust_name {
-            index: Index<IndexDataset<$Key>, IndexQuantizer<$Key>>,
+            index: Index<IndexDataset<$Key>>,
         }
 
         #[pymethods]
@@ -192,7 +192,7 @@ macro_rules! impl_seismic_index {
             #[pyo3(signature = (index_path))]
             #[pyo3(text_signature = "(index_path)")]
             pub fn load(index_path: &str) -> PyResult<$rust_name> {
-                let index: Index<IndexDataset<$Key>, IndexQuantizer<$Key>> =
+                let index: Index<IndexDataset<$Key>> =
                     read_from_path(index_path).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to deserialize index from '{}': {}",
@@ -663,7 +663,7 @@ macro_rules! impl_seismic_index_raw {
         ///
         #[pyclass(name= $py_name)]
         pub struct $rust_name {
-            inverted_index: InvertedIndex<IndexDataset<$Key>, IndexQuantizer<$Key>>,
+            inverted_index: InvertedIndexBase<IndexDataset<$Key>>,
         }
 
 
@@ -813,7 +813,7 @@ macro_rules! impl_seismic_index_raw {
             #[pyo3(signature = (index_path))]
             #[pyo3(text_signature = "(index_path)")]
             pub fn load(index_path: &str) -> PyResult<$rust_name> {
-                let inverted_index: InvertedIndex<IndexDataset<$Key>, IndexQuantizer<$Key>> =
+                let inverted_index: InvertedIndexBase<IndexDataset<$Key>> =
                     read_from_path(&index_path).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to deserialize index from '{}': {}",
@@ -1000,7 +1000,7 @@ macro_rules! impl_seismic_index_raw {
                 println!("\nBuilding the index...");
                 println!("{:?}", config);
 
-                let inverted_index = InvertedIndex::build(dataset, config);
+                let inverted_index = InvertedIndexBase::build(dataset, config);
                 Ok($rust_name { inverted_index })
             }
 

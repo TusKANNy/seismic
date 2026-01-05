@@ -130,7 +130,7 @@ pub fn main() {
     type Encoder = ScalarSparseQuantizer<u16, f32, f16, DotProduct>;
     type Dataset = SparseDataset<Encoder>;
 
-    let index = SeismicIndex::<Dataset, Encoder>::from_json(&collection_path, config, None);
+    let index = SeismicIndex::<Dataset>::from_json(&collection_path, config, None);
 
     let elapsed = time.elapsed();
     println!(

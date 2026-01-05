@@ -6,14 +6,16 @@ use std::time::Instant;
 use clap::Parser;
 use num_traits::FromPrimitive;
 use seismic::utils::read_from_path;
-use seismic::InvertedIndex;
+use seismic::InvertedIndexBase;
 use vectorium::{
     ComponentType, Dataset, Distance, DotProduct, DotVByteFixedU8Quantizer, PackedDataset,
-    QueryVectorFor, SpaceUsage, SparseVector1D, Vector1D, VectorEncoder, read_seismic_format,
+    QueryEvaluator, QueryVectorFor, SpaceUsage, SparseVector1D, Vector1D, VectorEncoder,
+    read_seismic_format,
 };
 
-type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
-type QueryComponentFor<E> = <E as VectorEncoder>::QueryComponentType;
+type EncoderFor<S> = <S as Dataset>::Encoder;
+type ComponentFor<S> = <EncoderFor<S> as VectorEncoder>::OutputComponentType;
+type QueryComponentFor<S> = <EncoderFor<S> as VectorEncoder>::QueryComponentType;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -135,16 +137,19 @@ macro_rules! match_component_value {
     };
 }
 
-pub fn run_performance_test_generic<S, E>(args: Args)
+pub fn run_performance_test_generic<S>(args: Args)
 where
-    S: Dataset<E> + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
-    E: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
-    E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-    ComponentFor<E>:
+    S: Dataset + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
+    EncoderFor<S>: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
+    EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+        QueryEvaluator<S::Vector<'a>, DotProduct>,
+    ComponentFor<S>:
         ComponentType + vectorium::ComponentType + FromPrimitive + SpaceUsage
         + serde::Serialize + serde::de::DeserializeOwned,
-    QueryComponentFor<E>: ComponentType,
-    SparseVector1D<ComponentFor<E>, f32, Vec<ComponentFor<E>>, Vec<f32>>: QueryVectorFor<E>,
+    QueryComponentFor<S>: ComponentType,
+    SparseVector1D<ComponentFor<S>, f32, Vec<ComponentFor<S>>, Vec<f32>>:
+        QueryVectorFor<EncoderFor<S>>,
 {
     let index_path = args.index_file;
     let query_cut = args.query_cut;
@@ -153,11 +158,11 @@ where
 
     let nknn = args.n_knn;
 
-    let inverted_index: InvertedIndex<S, E> =
+    let inverted_index: InvertedIndexBase<S> =
         read_from_path(index_path.unwrap().as_str()).unwrap();
 
     let queries =
-        read_seismic_format::<ComponentFor<E>, f32, DotProduct>(&args.query_file.unwrap()).unwrap();
+        read_seismic_format::<ComponentFor<S>, f32, DotProduct>(&args.query_file.unwrap()).unwrap();
 
     let n_queries = cmp::min(args.n_queries, Dataset::len(&queries));
 
@@ -240,9 +245,7 @@ pub fn main() {
         }
 
         println!("Using u16 component type with dotvbyte value type");
-        run_performance_test_generic::<PackedDataset<DotVByteFixedU8Quantizer>, DotVByteFixedU8Quantizer>(
-            args,
-        );
+        run_performance_test_generic::<PackedDataset<DotVByteFixedU8Quantizer>>(args);
         return;
     }
 
@@ -253,10 +256,9 @@ pub fn main() {
                 stringify!($C),
                 stringify!($V)
             );
-            run_performance_test_generic::<
-                vectorium::PlainSparseDataset<$C, $V, vectorium::DotProduct>,
-                vectorium::PlainSparseQuantizer<$C, $V, vectorium::DotProduct>,
-            >(args);
+            run_performance_test_generic::<vectorium::PlainSparseDataset<$C, $V, vectorium::DotProduct>>(
+                args,
+            );
         };
     }
 

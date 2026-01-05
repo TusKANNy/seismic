@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::utils::quantize;
 use vectorium::{
     ComponentType, Dataset, SparseDataset, SparseVectorEncoder, SparseVector1D, SpaceUsage, ValueType,
-    Vector1D, VectorEncoder,
+    Vector1D,
 };
 
 use rustc_hash::FxHashMap;
@@ -281,7 +281,6 @@ impl<C: ComponentType> QuantizedSummary<C> {
 impl<Q, C, V> From<SparseDataset<Q>> for QuantizedSummary<C>
 where
     Q: SparseVectorEncoder<OutputComponentType = C, OutputValueType = V>,
-    for<'a> Q: VectorEncoder<EncodedVector<'a> = SparseVector1D<C, V, &'a [C], &'a [V]>>,
     C: ComponentType + std::hash::Hash,
     V: ValueType + PartialOrd,
 {
@@ -295,7 +294,6 @@ where
 impl<Q, C, V> From<&SparseDataset<Q>> for QuantizedSummary<C>
 where
     Q: SparseVectorEncoder<OutputComponentType = C, OutputValueType = V>,
-    for<'a> Q: VectorEncoder<EncodedVector<'a> = SparseVector1D<C, V, &'a [C], &'a [V]>>,
     C: ComponentType + std::hash::Hash,
     V: ValueType + PartialOrd,
 {

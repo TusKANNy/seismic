@@ -12,13 +12,13 @@ use rand::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};
 
 use vectorium::{
-    ComponentType, Dataset, Distance, QueryEvaluator, SparseVector1D, SparseVectorEncoder,
-    ValueType, Vector1D, VectorEncoder,
+    Dataset, Distance, DotProduct, QueryEvaluator, SparseVector1D, SparseVectorEncoder, ValueType,
+    Vector1D, VectorEncoder,
 };
 
-type ComponentFor<E> = <E as VectorEncoder>::OutputComponentType;
-type ValueFor<E> = <E as VectorEncoder>::OutputValueType;
-type QueryValueFor<E> = <E as VectorEncoder>::QueryValueType;
+type EncoderFor<S> = <S as Dataset>::Encoder;
+type ComponentFor<S> = <EncoderFor<S> as VectorEncoder>::OutputComponentType;
+type ValueFor<S> = <EncoderFor<S> as VectorEncoder>::OutputValueType;
 
 /// Read a bincode-serialized value from `path` using fixed-int, little-endian encoding.
 pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std::error::Error>> {
@@ -138,7 +138,7 @@ where
         .zip(vector.values_as_slice().iter().copied())
 }
 
-fn compute_centroid_assignments_approx_dot_product<S, E, T>(
+fn compute_centroid_assignments_approx_dot_product<S, T>(
     doc_ids: &[usize],
     inverted_index: &[Vec<(usize, T)>],
     dataset: &S,
@@ -147,12 +147,10 @@ fn compute_centroid_assignments_approx_dot_product<S, E, T>(
     doc_cut: usize,
 ) -> Vec<(usize, usize)>
 where
-    S: Dataset<E>,
-    E: SparseVectorEncoder,
-    ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType + PartialOrd,
-    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+    S: Dataset,
+    EncoderFor<S>: SparseVectorEncoder,
+    ValueFor<S>: ValueType + PartialOrd,
+    for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
     T: ValueType,
 {
     let mut scores = vec![0_f32; centroids_doc_ids.len()];
@@ -189,7 +187,7 @@ where
 /// The function uses a simple pruned inverted index to speed up the computation and computes the
 /// true dot product between the document and the centroids.
 /// The parameter `doc_cut` specifies how many components of the document vector to consider while computing the dot product.
-pub(crate) fn do_random_kmeans_on_docids_ii_approx_dot_product<S, E>(
+pub(crate) fn do_random_kmeans_on_docids_ii_approx_dot_product<S>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &S,
@@ -197,12 +195,10 @@ pub(crate) fn do_random_kmeans_on_docids_ii_approx_dot_product<S, E>(
     doc_cut: usize,
 ) -> Vec<(usize, usize)>
 where
-    S: Dataset<E>,
-    E: SparseVectorEncoder,
-    ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType + PartialOrd,
-    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+    S: Dataset,
+    EncoderFor<S>: SparseVectorEncoder,
+    ValueFor<S>: ValueType + PartialOrd,
+    for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
 {
     let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -280,7 +276,7 @@ where
     final_assignments
 }
 
-fn compute_centroid_assignments_dot_product<A, T, S, E>(
+fn compute_centroid_assignments_dot_product<A, T, S>(
     doc_ids: &[usize],
     inverted_index: &[A],
     dataset: &S,
@@ -291,15 +287,14 @@ fn compute_centroid_assignments_dot_product<A, T, S, E>(
 where
     A: AsRef<[(T, usize)]>,
     T: ValueType + PartialOrd,
-    S: Dataset<E>,
-    E: SparseVectorEncoder,
-    E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-    ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType + PartialOrd,
-    QueryValueFor<E>: ValueType,
-    E: VectorEncoder<QueryValueType = f32>,
-    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+    S: Dataset,
+    EncoderFor<S>: SparseVectorEncoder,
+    EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
+    EncoderFor<S>: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
+    ValueFor<S>: ValueType + PartialOrd,
+    for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+        QueryEvaluator<S::Vector<'a>, DotProduct>,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
 
@@ -349,7 +344,7 @@ where
 /// true dot product between the document and the centroids.
 /// The parameter `pruning_factor` controls the size of the pruned inverted index.
 /// The parameter `doc_cut` specifies how many components of the document vector to consider while computing the dot product.
-pub(crate) fn do_random_kmeans_on_docids_ii_dot_product<S, E>(
+pub(crate) fn do_random_kmeans_on_docids_ii_dot_product<S>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &S,
@@ -358,15 +353,14 @@ pub(crate) fn do_random_kmeans_on_docids_ii_dot_product<S, E>(
     doc_cut: usize,
 ) -> Vec<(usize, usize)>
 where
-    S: Dataset<E>,
-    E: SparseVectorEncoder,
-    E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-    ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType + PartialOrd,
-    QueryValueFor<E>: ValueType,
-    E: VectorEncoder<QueryValueType = f32>,
-    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+    S: Dataset,
+    EncoderFor<S>: SparseVectorEncoder,
+    EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
+    EncoderFor<S>: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
+    ValueFor<S>: ValueType + PartialOrd,
+    for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+        QueryEvaluator<S::Vector<'a>, DotProduct>,
 {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -453,22 +447,21 @@ where
     final_assignments
 }
 
-fn compute_centroid_assignments<S, E>(
+fn compute_centroid_assignments<S>(
     doc_ids: &[usize],
     dataset: &S,
     centroids: &[usize],
     to_avoid: &HashSet<usize>,
 ) -> Vec<(usize, usize)>
 where
-    S: Dataset<E>,
-    E: SparseVectorEncoder,
-    E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-    ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType + PartialOrd,
-    QueryValueFor<E>: ValueType,
-    E: VectorEncoder<QueryValueType = f32>,
-    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+    S: Dataset,
+    EncoderFor<S>: SparseVectorEncoder,
+    EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
+    EncoderFor<S>: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
+    ValueFor<S>: ValueType + PartialOrd,
+    for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+        QueryEvaluator<S::Vector<'a>, DotProduct>,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
     let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
@@ -504,22 +497,21 @@ where
 
 /// Run randomized k-means on document ids using exact dot products for assignment.
 /// Returns `(cluster_id, doc_id)` pairs sorted by `cluster_id`.
-pub(crate) fn do_random_kmeans_on_docids<S, E>(
+pub(crate) fn do_random_kmeans_on_docids<S>(
     doc_ids: &[usize],
     n_clusters: usize,
     dataset: &S,
     min_cluster_size: usize,
 ) -> Vec<(usize, usize)>
 where
-    S: Dataset<E>,
-    E: SparseVectorEncoder,
-    E: VectorEncoder<QueryComponentType = ComponentFor<E>>,
-    ComponentFor<E>: ComponentType,
-    ValueFor<E>: ValueType + PartialOrd,
-    QueryValueFor<E>: ValueType,
-    E: VectorEncoder<QueryValueType = f32>,
-    for<'a> <E as VectorEncoder>::EncodedVector<'a>:
-        Vector1D<Component = ComponentFor<E>, Value = ValueFor<E>>,
+    S: Dataset,
+    EncoderFor<S>: SparseVectorEncoder,
+    EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
+    EncoderFor<S>: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
+    ValueFor<S>: ValueType + PartialOrd,
+    for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
+        QueryEvaluator<S::Vector<'a>, DotProduct>,
 {
     let seed = 42; // You can use any u64 value as the seed
     let mut rng = StdRng::seed_from_u64(seed);
