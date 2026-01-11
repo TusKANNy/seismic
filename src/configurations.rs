@@ -1,5 +1,18 @@
 use serde::{Deserialize, Serialize};
 
+/// This struct should contain every configuraion parameter for building the index
+/// that doesn't need to be "managed" at query time.
+/// Examples are the pruning strategy and the clustering strategy.
+/// These can be chosen with a if at building time but there is no need to
+/// make any choice at query time.
+///
+/// However, there are parameters that influence choices at query time.
+/// To avoid branches or dynamic dispatching, this kind of parametrization are
+/// selected with generic types.
+/// An example is the quantization strategy. Based on the chosen
+/// quantization strategy, we need to chose the right function to call while
+/// computing the distance between vectors.
+///
 #[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
 /// Configuration parameters for building the inverted index.
 pub struct Configuration {

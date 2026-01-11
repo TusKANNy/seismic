@@ -127,10 +127,13 @@ pub fn main() {
     //    let inverted_index = InvertedIndexWrapper::new(dataset, config, None, None);
     let collection_path = args.input_file.unwrap();
 
-    type Encoder = ScalarSparseQuantizer<u16, f32, f16, DotProduct>;
-    type Dataset = SparseDataset<Encoder>;
+    type EncoderF32 = ScalarSparseQuantizer<u16, f32, f32, DotProduct>;
+    type DatasetF32 = SparseDataset<EncoderF32>;
+    type EncoderF16 = ScalarSparseQuantizer<u16, f32, f16, DotProduct>;
+    type DatasetF16 = SparseDataset<EncoderF16>;
 
-    let index = SeismicIndex::<Dataset>::from_json(&collection_path, config, None);
+    let index_f32 = SeismicIndex::<DatasetF32>::from_json(&collection_path, config, None);
+    let index: SeismicIndex<DatasetF16> = index_f32.convert_dataset_into();
 
     let elapsed = time.elapsed();
     println!(

@@ -20,9 +20,8 @@ use std::collections::HashMap;
 use crate::utils::{read_from_path, write_to_path};
 use crate::InvertedIndexBase;
 use vectorium::{
-    ComponentType, Dataset, Distance, DotProduct, GrowableDataset, PlainSparseDataset,
-    ScalarSparseQuantizer, SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D,
-    VectorEncoder,
+    ComponentType, Dataset, DotProduct, GrowableDataset, PlainSparseDataset, ScalarSparseQuantizer,
+    SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D, VectorEncoder,
 };
 
 const MAX_TOKEN_LEN: usize = 30;
@@ -41,7 +40,10 @@ where
     for vec in dataset.iter() {
         let components = vec.components_as_slice().to_vec();
         let values = vec.values_as_slice().to_vec();
-        growable.push(SparseVector1D::new(components, values));
+        growable.push(SparseVector1D::new(
+            components.as_slice(),
+            values.as_slice(),
+        ));
     }
     growable.into()
 }
@@ -1053,7 +1055,7 @@ macro_rules! impl_seismic_index_raw {
                     .map(|x| *x as $Key)
                     .collect::<Vec<_>>();
                 let values = query_values.to_vec().unwrap();
-                let query = SparseVector1D::new(components, values);
+                let query = SparseVector1D::new(components.as_slice(), values.as_slice());
                 self.inverted_index
                     .search(
                         &query,

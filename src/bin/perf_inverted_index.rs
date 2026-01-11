@@ -5,17 +5,15 @@ use std::time::Instant;
 
 use clap::Parser;
 use num_traits::FromPrimitive;
-use seismic::utils::read_from_path;
 use seismic::InvertedIndexBase;
+use seismic::utils::read_from_path;
 use vectorium::{
-    ComponentType, Dataset, Distance, DotProduct, DotVByteFixedU8Quantizer, PackedDataset,
-    QueryEvaluator, QueryVectorFor, SpaceUsage, SparseVector1D, Vector1D, VectorEncoder,
-    read_seismic_format,
+    ComponentType, Dataset, Distance, DotProduct, QueryEvaluator, SpaceUsage, SparseData,
+    SparseVectorEncoder, SparseVectorView, VectorEncoder, read_seismic_format,
 };
 
 type EncoderFor<S> = <S as Dataset>::Encoder;
-type ComponentFor<S> = <EncoderFor<S> as VectorEncoder>::OutputComponentType;
-type QueryComponentFor<S> = <EncoderFor<S> as VectorEncoder>::QueryComponentType;
+type ComponentFor<S> = <EncoderFor<S> as SparseVectorEncoder>::OutputComponentType;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -75,7 +73,7 @@ pub struct Args {
     #[arg(default_value = "u16")]
     component_type: String,
 
-    /// Value type: f16, bf16, f32, fixedu8, fixedu16, or dotvbyte.
+    /// Value type: f16, bf16, f32, fixedu8, or fixedu16.
     #[clap(long, value_parser)]
     #[arg(default_value = "f16")]
     value_type: String,
@@ -139,17 +137,15 @@ macro_rules! match_component_value {
 
 pub fn run_performance_test_generic<S>(args: Args)
 where
-    S: Dataset + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
-    EncoderFor<S>: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
-    EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-        QueryEvaluator<S::Vector<'a>, DotProduct>,
+    S: Dataset + SparseData + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
+    EncoderFor<S>: SparseVectorEncoder,
+    EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
+        From<SparseVectorView<'a, ComponentFor<S>, f32>>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>:
+        QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
     ComponentFor<S>:
-        ComponentType + vectorium::ComponentType + FromPrimitive + SpaceUsage
-        + serde::Serialize + serde::de::DeserializeOwned,
-    QueryComponentFor<S>: ComponentType,
-    SparseVector1D<ComponentFor<S>, f32, Vec<ComponentFor<S>>, Vec<f32>>:
-        QueryVectorFor<EncoderFor<S>>,
+        ComponentType + FromPrimitive + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
 {
     let index_path = args.index_file;
     let query_cut = args.query_cut;
@@ -164,13 +160,13 @@ where
     let queries =
         read_seismic_format::<ComponentFor<S>, f32, DotProduct>(&args.query_file.unwrap()).unwrap();
 
-    let n_queries = cmp::min(args.n_queries, Dataset::len(&queries));
+    let n_queries = cmp::min(args.n_queries, queries.len());
 
     println!("Searching for top-{} results", args.k);
     println!("Number of evaluated queries: {n_queries}");
     println!(
         "Avg number of non-zero components: {}",
-        Dataset::nnz(&queries) / Dataset::len(&queries)
+        queries.nnz() / queries.len()
     );
 
     println!("Number of documents: {}", inverted_index.len());
@@ -185,12 +181,12 @@ where
     for _ in 0..n_runs {
         results.clear();
 
-        for (query_id, components_values) in Dataset::iter(&queries).take(n_queries).enumerate() {
-            let q_components: Vec<_> = components_values.components_as_slice().to_vec();
-            let q_values: Vec<_> = components_values.values_as_slice().to_vec();
-            let query = SparseVector1D::new(q_components, q_values);
+        for (query_id, components_values) in queries.iter().take(n_queries).enumerate() {
+            let query_view =
+                SparseVectorView::new(components_values.components(), components_values.values());
+            let query = query_view;
             let cur_results = inverted_index.search(
-                &query,
+                query,
                 args.k,
                 query_cut,
                 heap_factor,
@@ -238,17 +234,6 @@ where
 pub fn main() {
     let args = Args::parse();
 
-    if args.value_type() == "dotvbyte" {
-        if args.component_type() != "u16" {
-            eprintln!("Error: value-type 'dotvbyte' is only supported with component-type 'u16'");
-            std::process::exit(1);
-        }
-
-        println!("Using u16 component type with dotvbyte value type");
-        run_performance_test_generic::<PackedDataset<DotVByteFixedU8Quantizer>>(args);
-        return;
-    }
-
     macro_rules! run_performance_test_macro {
         ($C:ty, $V:ty) => {
             println!(
@@ -256,9 +241,9 @@ pub fn main() {
                 stringify!($C),
                 stringify!($V)
             );
-            run_performance_test_generic::<vectorium::PlainSparseDataset<$C, $V, vectorium::DotProduct>>(
-                args,
-            );
+            run_performance_test_generic::<
+                vectorium::PlainSparseDataset<$C, $V, vectorium::DotProduct>,
+            >(args);
         };
     }
 

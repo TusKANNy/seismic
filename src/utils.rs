@@ -12,13 +12,12 @@ use rand::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};
 
 use vectorium::{
-    Dataset, Distance, DotProduct, QueryEvaluator, SparseVector1D, SparseVectorEncoder, ValueType,
-    Vector1D, VectorEncoder,
+    ComponentType, Dataset, Distance, DotProduct, QueryEvaluator, SparseVectorEncoder,
+    SparseVectorView, ValueType, VectorEncoder,
 };
 
 type EncoderFor<S> = <S as Dataset>::Encoder;
-type ComponentFor<S> = <EncoderFor<S> as VectorEncoder>::OutputComponentType;
-type ValueFor<S> = <EncoderFor<S> as VectorEncoder>::OutputValueType;
+type ComponentFor<S> = <EncoderFor<S> as SparseVectorEncoder>::OutputComponentType;
 
 /// Read a bincode-serialized value from `path` using fixed-int, little-endian encoding.
 pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std::error::Error>> {
@@ -98,7 +97,7 @@ impl<T: Ord> KHeap<T> {
     }
 }
 
-pub(crate) fn quantize<T: ValueType + PartialOrd>(values: &[T]) -> (f32, f32, Vec<u8>) {
+pub(crate) fn quantize<T: ValueType>(values: &[T]) -> (f32, f32, Vec<u8>) {
     assert!(!values.is_empty());
 
     const MAX_QUANT: f32 = u8::MAX as f32;
@@ -123,19 +122,18 @@ pub(crate) fn quantize<T: ValueType + PartialOrd>(values: &[T]) -> (f32, f32, Ve
     (min, quant, quantized_values)
 }
 
-fn iter_components_values<'a, V>(
-    vector: &'a V,
-) -> impl Iterator<Item = (V::Component, V::Value)> + 'a
+fn iter_components_values<'a, C, V>(
+    vector: &'a SparseVectorView<'a, C, V>,
+) -> impl Iterator<Item = (C, V)> + 'a
 where
-    V: Vector1D,
-    V::Component: Copy,
-    V::Value: Copy,
+    C: ComponentType,
+    V: ValueType,
 {
     vector
-        .components_as_slice()
+        .components()
         .iter()
         .copied()
-        .zip(vector.values_as_slice().iter().copied())
+        .zip(vector.values().iter().copied())
 }
 
 fn compute_centroid_assignments_approx_dot_product<S, T>(
@@ -149,8 +147,6 @@ fn compute_centroid_assignments_approx_dot_product<S, T>(
 where
     S: Dataset,
     EncoderFor<S>: SparseVectorEncoder,
-    ValueFor<S>: ValueType + PartialOrd,
-    for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
     T: ValueType,
 {
     let mut scores = vec![0_f32; centroids_doc_ids.len()];
@@ -197,8 +193,6 @@ pub(crate) fn do_random_kmeans_on_docids_ii_approx_dot_product<S>(
 where
     S: Dataset,
     EncoderFor<S>: SparseVectorEncoder,
-    ValueFor<S>: ValueType + PartialOrd,
-    for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
 {
     let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -286,15 +280,15 @@ fn compute_centroid_assignments_dot_product<A, T, S>(
 ) -> Vec<(usize, usize)>
 where
     A: AsRef<[(T, usize)]>,
-    T: ValueType + PartialOrd,
+    T: ValueType,
     S: Dataset,
     EncoderFor<S>: SparseVectorEncoder,
-    EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
-    EncoderFor<S>: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
-    ValueFor<S>: ValueType + PartialOrd,
-    for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-        QueryEvaluator<S::Vector<'a>, DotProduct>,
+    EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>: Send,
+    for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
+        From<SparseVectorView<'a, ComponentFor<S>, f32>>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>:
+        QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
 
@@ -307,28 +301,47 @@ where
         }
 
         let doc_vec = dataset.get(doc_id as u64);
-        let components = doc_vec.components_as_slice();
-        let values = doc_vec.values_as_slice();
-        let query_values: Vec<_> = values.iter().map(|v| v.to_f32().unwrap()).collect();
-        let query = SparseVector1D::new(components, query_values.as_slice());
-        let evaluator = dataset.query_evaluator(&query);
-        let mut visited = to_avoid.clone();
+        let max_centroid_id = {
+            let doc_components: Vec<_> = doc_vec.components().to_vec();
+            let doc_values_f32: Vec<f32> = doc_vec
+                .values()
+                .iter()
+                .map(|v| v.to_f32().unwrap())
+                .collect();
+            let query: <EncoderFor<S> as VectorEncoder>::QueryVector<'_, f32> =
+                SparseVectorView::new(doc_components.as_slice(), doc_values_f32.as_slice()).into();
+            let evaluator = dataset.encoder().query_evaluator(query);
+            let mut visited = to_avoid.clone();
 
-        // Sort query terms by score and evaluate the posting list only for the top ones
-        let (max_centroid_id, _dot) = components
-            .iter()
-            .copied()
-            .zip(values.iter().copied())
-            .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(&b.1).unwrap())
-            .flat_map(|(component_id, _value)| inverted_index[component_id.as_()].as_ref().iter())
-            .filter(|&(_score, centroid_id)| visited.insert(*centroid_id))
-            .map(|&(_score, centroid_id)| {
-                let centroid_vec = dataset.get(centroid_id as u64);
-                let dot = evaluator.compute_distance(centroid_vec).distance();
-                (centroid_id, dot)
-            })
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(cmp::Ordering::Equal))
-            .unwrap_or((centroids[0], 0.0));
+            // Sort query terms by score and evaluate the posting list only for the top ones
+            let components = doc_vec.components();
+            let values = doc_vec.values();
+            let top_components: Vec<_> = components
+                .iter()
+                .copied()
+                .zip(values.iter().copied())
+                .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(&b.1).unwrap())
+                .map(|(component_id, _value)| component_id)
+                .collect();
+
+            let mut max_centroid_id = centroids[0];
+            let mut max_dot = 0.0_f32;
+            for component_id in top_components {
+                for &(_score, centroid_id) in inverted_index[component_id.as_()].as_ref().iter() {
+                    if !visited.insert(centroid_id) {
+                        continue;
+                    }
+                    let centroid_vec = dataset.get(centroid_id as u64);
+                    let dot = evaluator.compute_distance(centroid_vec).distance();
+                    if dot > max_dot {
+                        max_dot = dot;
+                        max_centroid_id = centroid_id;
+                    }
+                }
+            }
+
+            max_centroid_id
+        };
 
         centroid_assignments.push((max_centroid_id, doc_id));
     }
@@ -355,12 +368,12 @@ pub(crate) fn do_random_kmeans_on_docids_ii_dot_product<S>(
 where
     S: Dataset,
     EncoderFor<S>: SparseVectorEncoder,
-    EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
-    EncoderFor<S>: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
-    ValueFor<S>: ValueType + PartialOrd,
-    for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-        QueryEvaluator<S::Vector<'a>, DotProduct>,
+    EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
+        From<SparseVectorView<'a, ComponentFor<S>, f32>>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>: Send,
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>:
+        QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -456,12 +469,11 @@ fn compute_centroid_assignments<S>(
 where
     S: Dataset,
     EncoderFor<S>: SparseVectorEncoder,
-    EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
-    EncoderFor<S>: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
-    ValueFor<S>: ValueType + PartialOrd,
-    for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-        QueryEvaluator<S::Vector<'a>, DotProduct>,
+    EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
+        From<SparseVectorView<'a, ComponentFor<S>, f32>>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>:
+        QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
     let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
@@ -472,22 +484,30 @@ where
             continue;
         }
         let doc_vec = dataset.get(doc_id as u64);
-        let components = doc_vec.components_as_slice();
-        let values = doc_vec.values_as_slice();
-        let query_values: Vec<_> = values.iter().map(|v| v.to_f32().unwrap()).collect();
-        let query = SparseVector1D::new(components, query_values.as_slice());
-        let evaluator = dataset.query_evaluator(&query);
+        let centroid_max = {
+            let doc_components: Vec<_> = doc_vec.components().to_vec();
+            let doc_values_f32: Vec<f32> = doc_vec
+                .values()
+                .iter()
+                .map(|v| v.to_f32().unwrap())
+                .collect();
+            let query: <EncoderFor<S> as VectorEncoder>::QueryVector<'_, f32> =
+                SparseVectorView::new(doc_components.as_slice(), doc_values_f32.as_slice()).into();
+            let evaluator = dataset.encoder().query_evaluator(query);
 
-        let (centroid_max, _dot) = centroids
-            .iter()
-            .map(|&centroid_id| {
+            let mut centroid_max = centroids[0];
+            let mut max_dot = 0.0_f32;
+            for &centroid_id in centroids {
                 let centroid_vec = dataset.get(centroid_id as u64);
                 let dot = evaluator.compute_distance(centroid_vec).distance();
-                (centroid_id, dot)
-            })
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-            // The cluster(s) may be small... and also the only one(s).
-            .unwrap_or((centroids[0], 0.0));
+                if dot > max_dot {
+                    max_dot = dot;
+                    centroid_max = centroid_id;
+                }
+            }
+
+            centroid_max
+        };
 
         centroid_assignments.push((centroid_max, doc_id));
     }
@@ -506,12 +526,11 @@ pub(crate) fn do_random_kmeans_on_docids<S>(
 where
     S: Dataset,
     EncoderFor<S>: SparseVectorEncoder,
-    EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
-    EncoderFor<S>: VectorEncoder<QueryValueType = f32, Distance = DotProduct>,
-    ValueFor<S>: ValueType + PartialOrd,
-    for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-        QueryEvaluator<S::Vector<'a>, DotProduct>,
+    EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
+        From<SparseVectorView<'a, ComponentFor<S>, f32>>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>:
+        QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
     let seed = 42; // You can use any u64 value as the seed
     let mut rng = StdRng::seed_from_u64(seed);

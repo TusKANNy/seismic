@@ -13,17 +13,16 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use num_traits::ToPrimitive;
-use vectorium::dataset::ScoredRangeDotProduct;
+use vectorium::dataset::ScoredRange;
 use vectorium::{
     ComponentType, Dataset, Distance, DotProduct, GrowableDataset, QueryEvaluator, SpaceUsage,
-    SparseDataset, SparseDatasetGrowable, SparseVector1D, SparseVectorEncoder, ValueType, Vector1D,
-    VectorEncoder,
+    SparseDataset, SparseDatasetGrowable, SparseVectorEncoder, SparseVectorView, VectorEncoder,
 };
 
 type EncoderFor<S> = <S as Dataset>::Encoder;
-type ComponentFor<S> = <EncoderFor<S> as VectorEncoder>::OutputComponentType;
-type ValueFor<S> = <EncoderFor<S> as VectorEncoder>::OutputValueType;
-type QueryValueFor<S> = <EncoderFor<S> as VectorEncoder>::QueryValueType;
+type ComponentFor<S> = <EncoderFor<S> as SparseVectorEncoder>::OutputComponentType;
+type ValueFor<S> = <EncoderFor<S> as SparseVectorEncoder>::OutputValueType;
+type ScoredRangeDotProduct = ScoredRange<DotProduct>;
 
 /// Instead of storing doc_ids we store their offsets in the forward_index and the lengths of the vectors
 /// This allows us to save the random accesses that would be needed to access exactly these values from the
@@ -93,22 +92,18 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn search<'a, S, QC, QV>(
+    pub(crate) fn search<'e, 'q, S>(
         &self,
-        evaluator: &<EncoderFor<S> as VectorEncoder>::Evaluator<'a>,
-        query: &SparseVector1D<C, QueryValueFor<S>, QC, QV>,
+        evaluator: &mut <EncoderFor<S> as VectorEncoder>::Evaluator<'e, 'q, f32>,
+        query: &SparseVectorView<'q, C, f32>,
         k: usize,
         heap_factor: f32,
         heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
-        forward_index: &'a S,
+        forward_index: &'e S,
     ) where
         S: Dataset,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-        <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-            QueryEvaluator<S::Vector<'a>, DotProduct>,
-        QC: AsRef<[C]>,
-        QV: AsRef<[QueryValueFor<S>]>,
     {
         let dots = self.summaries.distances(query);
 
@@ -131,22 +126,18 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn sort_and_search<'a, S, QC, QV>(
+    pub(crate) fn sort_and_search<'e, 'q, S>(
         &self,
-        evaluator: &<EncoderFor<S> as VectorEncoder>::Evaluator<'a>,
-        query: &SparseVector1D<C, QueryValueFor<S>, QC, QV>,
+        evaluator: &mut <EncoderFor<S> as VectorEncoder>::Evaluator<'e, 'q, f32>,
+        query: &SparseVectorView<'q, C, f32>,
         k: usize,
         heap_factor: f32,
         heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
-        forward_index: &'a S,
+        forward_index: &'e S,
     ) where
         S: Dataset,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-        <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-            QueryEvaluator<S::Vector<'a>, DotProduct>,
-        QC: AsRef<[C]>,
-        QV: AsRef<[QueryValueFor<S>]>,
     {
         let dots = self.summaries.distances(query);
         let dots: Vec<_> = dots
@@ -174,18 +165,16 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn evaluate_posting_block<'a, S>(
+    fn evaluate_posting_block<'e, 'q, S>(
         &self,
-        evaluator: &<EncoderFor<S> as VectorEncoder>::Evaluator<'a>,
+        evaluator: &<EncoderFor<S> as VectorEncoder>::Evaluator<'e, 'q, f32>,
         packed_posting_block: &[PackedPostingBlock],
         heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
-        forward_index: &'a S,
+        forward_index: &'e S,
     ) where
         S: Dataset,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-        <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-            QueryEvaluator<S::Vector<'a>, DotProduct>,
     {
         let mut iter = packed_posting_block.iter();
         let mut cur_pack = iter.next();
@@ -194,105 +183,18 @@ impl<C: ComponentType> PostingList<C> {
             let next_pack = iter.next();
             if let Some(p) = next_pack {
                 let range = p.unpack();
-                forward_index.prefetch(range.start..(range.start + range.len()));
+                forward_index.prefetch_with_range(range);
             }
 
             let range = pack.unpack();
 
             if visited.insert(range.start) {
-                let vector = forward_index.get_by_range(range.clone());
+                let vector = forward_index.get_with_range(range.clone());
                 let distance = evaluator.compute_distance(vector);
                 heap.push(ScoredRangeDotProduct { distance, range });
             }
 
             cur_pack = next_pack;
-        }
-    }
-
-    pub(crate) fn build<S>(
-        dataset: &S,
-        postings: &[(ValueFor<S>, usize)],
-        config: &Configuration,
-    ) -> Self
-    where
-        S: Dataset,
-        EncoderFor<S>: SparseVectorEncoder,
-        EncoderFor<S>: VectorEncoder<
-                OutputComponentType = C,
-                QueryComponentType = ComponentFor<S>,
-                QueryValueType = f32,
-            >,
-        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
-        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-            QueryEvaluator<S::Vector<'a>, DotProduct>,
-        C: std::hash::Hash,
-        ValueFor<S>: PartialOrd,
-    {
-        let mut posting_list: Vec<_> = postings.iter().map(|(_, docid)| *docid).collect();
-
-        let block_offsets = match config.blocking {
-            BlockingStrategy::FixedSize { block_size } => {
-                Self::fixed_size_blocking(&posting_list, block_size)
-            }
-
-            BlockingStrategy::RandomKmeans {
-                centroid_fraction,
-                min_cluster_size,
-                clustering_algorithm,
-            } => Self::blocking_with_random_kmeans(
-                &mut posting_list,
-                centroid_fraction,
-                min_cluster_size,
-                dataset,
-                clustering_algorithm,
-            ),
-        };
-
-        let quantizer = vectorium::PlainSparseQuantizer::<C, f32, vectorium::DotProduct>::new(
-            dataset.input_dim(),
-            dataset.input_dim(),
-        );
-        let mut summary = <SparseDatasetGrowable<
-            vectorium::PlainSparseQuantizer<C, f32, vectorium::DotProduct>,
-        > as GrowableDataset>::new(quantizer);
-        for (components, values) in
-            block_offsets
-                .array_windows()
-                .map(|&[block_start, block_end]| {
-                    let summary_vec = match config.summarization {
-                        SummarizationStrategy::FixedSize { n_components } => {
-                            Self::fixed_size_summary(
-                                dataset,
-                                &posting_list[block_start..block_end],
-                                n_components,
-                            )
-                        }
-
-                        SummarizationStrategy::EnergyPreserving {
-                            summary_energy: fraction,
-                        } => Self::energy_preserving_summary(
-                            dataset,
-                            &posting_list[block_start..block_end],
-                            fraction,
-                        ),
-                    };
-                    let (components, values): (Vec<C>, Vec<f32>) = summary_vec.into_iter().unzip();
-                    (components, values)
-                })
-        {
-            summary.push(SparseVector1D::new(components, values));
-        }
-
-        let packed_postings: Vec<_> = posting_list
-            .iter()
-            .map(|&doc_id| PackedPostingBlock::pack(dataset.range_from_id(doc_id as u64)))
-            .collect();
-
-        Self {
-            packed_postings: packed_postings.into_boxed_slice(),
-            block_offsets: block_offsets.into_boxed_slice(),
-            summaries: QuantizedSummary::from(SparseDataset::from(summary)),
         }
     }
 
@@ -316,13 +218,13 @@ impl<C: ComponentType> PostingList<C> {
     where
         S: Dataset,
         EncoderFor<S>: SparseVectorEncoder,
-        EncoderFor<S>: VectorEncoder<QueryComponentType = ComponentFor<S>>,
-        EncoderFor<S>: VectorEncoder<QueryValueType = f32>,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
-        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-            QueryEvaluator<S::Vector<'a>, DotProduct>,
-        ValueFor<S>: ValueType + PartialOrd,
+        for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
+            From<SparseVectorView<'a, ComponentFor<S>, f32>>,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>: QueryEvaluator<
+                <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
+                Distance = DotProduct,
+            >,
     {
         if posting_list.is_empty() {
             return Vec::new();
@@ -396,16 +298,14 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Vec<(ComponentFor<S>, f32)>
     where
         S: Dataset,
-        EncoderFor<S>: VectorEncoder,
-        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        EncoderFor<S>: SparseVectorEncoder,
         ComponentFor<S>: std::hash::Hash,
-        ValueFor<S>: ValueType,
     {
         let mut hash = std::collections::HashMap::new();
         for &doc_id in block.iter() {
             let posting = dataset.get(doc_id as u64);
-            let components = posting.components_as_slice();
-            let values = posting.values_as_slice();
+            let components = posting.components();
+            let values = posting.values();
             for (&c, &v) in components.iter().zip(values) {
                 let v = v.to_f32().unwrap();
                 hash.entry(c)
@@ -429,16 +329,14 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Vec<(ComponentFor<S>, f32)>
     where
         S: Dataset,
-        EncoderFor<S>: VectorEncoder,
-        for<'a> S::Vector<'a>: Vector1D<Component = ComponentFor<S>, Value = ValueFor<S>>,
+        EncoderFor<S>: SparseVectorEncoder,
         ComponentFor<S>: std::hash::Hash,
-        ValueFor<S>: ValueType,
     {
         let mut hash = std::collections::HashMap::new();
         for &doc_id in block.iter() {
             let posting = dataset.get(doc_id as u64);
-            let components = posting.components_as_slice();
-            let values = posting.values_as_slice();
+            let components = posting.components();
+            let values = posting.values();
             for (&c, &v) in components.iter().zip(values) {
                 let v = v.to_f32().unwrap();
                 hash.entry(c)
@@ -466,5 +364,93 @@ impl<C: ComponentType> PostingList<C> {
             })
             .sorted_unstable_by_key(|&(id, _)| id)
             .collect()
+    }
+}
+
+impl<C> PostingList<C>
+where
+    C: ComponentType + std::hash::Hash,
+{
+    pub(crate) fn build<S>(
+        dataset: &S,
+        postings: &[(ValueFor<S>, usize)],
+        config: &Configuration,
+    ) -> Self
+    where
+        S: Dataset,
+        EncoderFor<S>: SparseVectorEncoder<OutputComponentType = C>,
+        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+        ValueFor<S>: ToPrimitive,
+        for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
+            From<SparseVectorView<'a, ComponentFor<S>, f32>>,
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>: QueryEvaluator<
+                <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
+                Distance = DotProduct,
+            >,
+    {
+        let mut posting_list: Vec<_> = postings.iter().map(|(_, docid)| *docid).collect();
+
+        let block_offsets = match config.blocking {
+            BlockingStrategy::FixedSize { block_size } => {
+                Self::fixed_size_blocking(&posting_list, block_size)
+            }
+
+            BlockingStrategy::RandomKmeans {
+                centroid_fraction,
+                min_cluster_size,
+                clustering_algorithm,
+            } => Self::blocking_with_random_kmeans(
+                &mut posting_list,
+                centroid_fraction,
+                min_cluster_size,
+                dataset,
+                clustering_algorithm,
+            ),
+        };
+
+        let mut summary = SparseDatasetGrowable::<
+            vectorium::PlainSparseQuantizer<C, f32, vectorium::DotProduct>,
+        >::new(dataset.input_dim());
+        for (components, values) in
+            block_offsets
+                .array_windows()
+                .map(|&[block_start, block_end]| {
+                    let summary_vec = match config.summarization {
+                        SummarizationStrategy::FixedSize { n_components } => {
+                            Self::fixed_size_summary(
+                                dataset,
+                                &posting_list[block_start..block_end],
+                                n_components,
+                            )
+                        }
+
+                        SummarizationStrategy::EnergyPreserving {
+                            summary_energy: fraction,
+                        } => Self::energy_preserving_summary(
+                            dataset,
+                            &posting_list[block_start..block_end],
+                            fraction,
+                        ),
+                    };
+                    let (components, values): (Vec<C>, Vec<f32>) = summary_vec.into_iter().unzip();
+                    (components, values)
+                })
+        {
+            summary.push(SparseVectorView::new(
+                components.as_slice(),
+                values.as_slice(),
+            ));
+        }
+
+        let packed_postings: Vec<_> = posting_list
+            .iter()
+            .map(|&doc_id| PackedPostingBlock::pack(dataset.range_from_id(doc_id as u64)))
+            .collect();
+
+        Self {
+            packed_postings: packed_postings.into_boxed_slice(),
+            block_offsets: block_offsets.into_boxed_slice(),
+            summaries: QuantizedSummary::from(SparseDataset::from(summary)),
+        }
     }
 }

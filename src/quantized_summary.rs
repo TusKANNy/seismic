@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::quantize;
 use vectorium::{
-    ComponentType, Dataset, SparseDataset, SparseVectorEncoder, SparseVector1D, SpaceUsage, ValueType,
-    Vector1D,
+    ComponentType, Dataset, SpaceUsage, SparseDataset, SparseVectorEncoder, SparseVectorView,
+    ValueType,
 };
 
 use rustc_hash::FxHashMap;
@@ -61,17 +61,12 @@ impl<C: ComponentType> QuantizedSummary<C> {
         EliasFano::estimate_space_bits(max_offset + 1 + d, d)
     }
 
-    pub fn distances<V, QC, QV>(
-        &self,
-        query: &SparseVector1D<C, V, QC, QV>,
-    ) -> Vec<f32>
+    pub fn distances<V>(&self, query: &SparseVectorView<'_, C, V>) -> Vec<f32>
     where
         V: ValueType,
-        QC: AsRef<[C]>,
-        QV: AsRef<[V]>,
     {
-        let query_components = query.components_as_slice();
-        let query_values = query.values_as_slice();
+        let query_components = query.components();
+        let query_values = query.values();
 
         let mut accumulator = vec![0_f32; self.n_summaries];
 
@@ -282,7 +277,7 @@ impl<Q, C, V> From<SparseDataset<Q>> for QuantizedSummary<C>
 where
     Q: SparseVectorEncoder<OutputComponentType = C, OutputValueType = V>,
     C: ComponentType + std::hash::Hash,
-    V: ValueType + PartialOrd,
+    V: ValueType,
 {
     /// # Panics
     /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)
@@ -295,7 +290,7 @@ impl<Q, C, V> From<&SparseDataset<Q>> for QuantizedSummary<C>
 where
     Q: SparseVectorEncoder<OutputComponentType = C, OutputValueType = V>,
     C: ComponentType + std::hash::Hash,
-    V: ValueType + PartialOrd,
+    V: ValueType,
 {
     /// # Panics
     /// Panics if the number of summmaries is more than 2^16 (i.e., u16::MAX)
@@ -312,8 +307,8 @@ where
         let mut quants = Vec::with_capacity(inverted_pairs.len());
 
         for (doc_id, vector) in dataset.iter().enumerate() {
-            let components = vector.components_as_slice();
-            let values = vector.values_as_slice();
+            let components = vector.components();
+            let values = vector.values();
             let (minimum, quant, current_codes) = quantize(values);
 
             minimums.push(minimum);
@@ -325,8 +320,7 @@ where
         }
 
         // Sort inverted pairs by component id
-        let mut inverted_pairs: Vec<(C, Vec<(u8, usize)>)> =
-            inverted_pairs.into_iter().collect();
+        let mut inverted_pairs: Vec<(C, Vec<(u8, usize)>)> = inverted_pairs.into_iter().collect();
         inverted_pairs.sort_by_key(|(component, _)| *component);
 
         // Calculate spaces for both strategies to choose the most efficient one
@@ -418,7 +412,7 @@ mod tests {
     use rand_chacha::ChaCha8Rng;
     use vectorium::{
         DotProduct, GrowableDataset, PlainSparseDataset, PlainSparseDatasetGrowable,
-        PlainSparseQuantizer, SparseVector1D,
+        PlainSparseQuantizer, SparseVectorView,
     };
 
     fn generate_random_sparse_dataset<C>(
@@ -449,7 +443,10 @@ mod tests {
                 .map(|x| C::try_from(x).unwrap())
                 .collect();
             let values = vec![value; nnz];
-            dataset.push(SparseVector1D::new(components, values));
+            dataset.push(SparseVectorView::new(
+                components.as_slice(),
+                values.as_slice(),
+            ));
         }
 
         dataset.into()
@@ -482,7 +479,10 @@ mod tests {
                 .map(|x| C::try_from(x).unwrap())
                 .collect();
             let values: Vec<f32> = (0..nnz).map(|_| rng.random::<f32>()).collect();
-            dataset.push(SparseVector1D::new(components, values));
+            dataset.push(SparseVectorView::new(
+                components.as_slice(),
+                values.as_slice(),
+            ));
         }
 
         dataset
@@ -547,9 +547,11 @@ mod tests {
 
         // Also add dataset itselft to the queries
         for vec in dataset.iter() {
-            queries.push(SparseVector1D::new(
-                vec.components_as_slice().to_vec(),
-                vec.values_as_slice().to_vec(),
+            let components = vec.components().to_vec();
+            let values = vec.values().to_vec();
+            queries.push(SparseVectorView::new(
+                components.as_slice(),
+                values.as_slice(),
             ));
         }
 
@@ -558,18 +560,18 @@ mod tests {
 
         // For each query, compare distances
         for (query_id, vec) in queries.iter().enumerate() {
-            let query_components = vec.components_as_slice();
-            let query_values = vec.values_as_slice();
+            let query_components = vec.components();
+            let query_values = vec.values();
             // Get distances using DistancesIter
-            let query = SparseVector1D::new(query_components, query_values);
+            let query = SparseVectorView::new(query_components, query_values);
             let distances: Vec<f32> = summary.distances(&query);
             assert_eq!(distances.len(), dataset.len());
 
             // Compute distances explicitly
             let mut expected_distances = Vec::with_capacity(dataset.len());
             for vec in dataset.iter() {
-                let vec_components = vec.components_as_slice();
-                let vec_values = vec.values_as_slice();
+                let vec_components = vec.components();
+                let vec_values = vec.values();
                 let distance = compute_inner_product(
                     query_components,
                     query_values,

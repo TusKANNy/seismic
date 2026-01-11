@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use vectorium::{DotProduct, DotVByteFixedU8Quantizer, PackedDataset, PlainSparseDataset};
+use vectorium::{DotProduct, PlainSparseDataset};
 pub use vectorium::{
     ScalarSparseDataset, ScalarSparseQuantizer, SparseDataset, SparseDatasetGrowable,
 };
@@ -15,8 +15,6 @@ pub type PlainInvertedIndex<C, V> =
     inverted_index::InvertedIndexBase<PlainSparseDataset<C, V, DotProduct>>;
 pub type ScalarInvertedIndex<C, W, V> =
     inverted_index::InvertedIndexBase<ScalarSparseDataset<C, W, V, DotProduct>>;
-pub type InvertedIndexDotVByte =
-    inverted_index::InvertedIndexBase<PackedDataset<DotVByteFixedU8Quantizer>>;
 
 pub mod inverted_index_wrapper;
 pub use inverted_index_wrapper::SeismicDataset;
@@ -26,6 +24,8 @@ pub mod quantized_summary;
 pub use quantized_summary::QuantizedSummary;
 
 pub mod json_utils;
+// Vectorium now provides `SparseVectorView` / `SparseVectorOwned` with typed accessors.
+// Seismic uses those directly.
 pub mod utils;
 
 /// Type aliases for quantized fixed-point types (re-exported from vectorium).
