@@ -154,7 +154,7 @@ where
     ) -> Vec<ScoredVectorDotProduct>
     where
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-        <EncoderFor<S> as VectorEncoder>::QueryVector<'q, f32>:
+        <EncoderFor<S> as VectorEncoder>::QueryVector<'q>:
             From<SparseVectorView<'q, ComponentFor<S>, f32>>,
     {
         let query_components = query.components();
@@ -166,7 +166,7 @@ where
             "Query components must be sorted in ascending order."
         );
 
-        let query_for_eval: <EncoderFor<S> as VectorEncoder>::QueryVector<'q, f32> = query.into();
+        let query_for_eval: <EncoderFor<S> as VectorEncoder>::QueryVector<'q> = query.into();
         let mut evaluator = self.forward_index.encoder().query_evaluator(query_for_eval);
 
         let mut heap = KHeap::new(k);
@@ -435,7 +435,7 @@ impl Knn {
         S: SparseData + Sync,
         EncoderFor<S>: SparseVectorEncoder,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-        for<'q> <EncoderFor<S> as VectorEncoder>::QueryVector<'q, f32>:
+        for<'q> <EncoderFor<S> as VectorEncoder>::QueryVector<'q>:
             From<SparseVectorView<'q, ComponentFor<S>, f32>>,
     {
         const KNN_QUERY_CUT: usize = 10;
@@ -477,7 +477,7 @@ impl Knn {
             .map(|result| result.vector as u64)
             .collect();
 
-        let bitfield = BitField::from(neighbours);
+        let bitfield = <BitField as From<Vec<u64>>>::from(neighbours);
 
         Self {
             n_vecs,
@@ -516,7 +516,7 @@ impl Knn {
                 neighbours.push(neighbor);
             }
         }
-        let bitfield = BitField::from(neighbours);
+        let bitfield = <BitField as From<BitFieldGrowable>>::from(neighbours);
 
         Knn {
             n_vecs: knn.n_vecs,
@@ -535,7 +535,7 @@ impl Knn {
     #[inline]
     pub(crate) fn refine<'a, S>(
         &self,
-        evaluator: &mut <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>,
+        evaluator: &mut <EncoderFor<S> as VectorEncoder>::Evaluator<'a>,
         heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
         forward_index: &'a S,
@@ -579,7 +579,7 @@ where
     S: Dataset + SparseData + Sync,
     EncoderFor<S>: SparseVectorEncoder,
     EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>:
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
     ComponentFor<S>: Hash,
     ValueFor<S>: vectorium::FromF32,
@@ -587,7 +587,7 @@ where
     /// `n_postings`: minimum number of postings to select for each component
     pub fn build(dataset: S, config: Configuration) -> Self
     where
-        for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
+        for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
     {
         print!("Distributing and pruning postings: ");
@@ -676,9 +676,9 @@ where
         T: Dataset + SparseData + Sync,
         EncoderFor<T>: SparseVectorEncoder<OutputComponentType = ComponentFor<S>>,
         EncoderFor<T>: VectorEncoder<Distance = DotProduct>,
-        for<'a> <EncoderFor<T> as VectorEncoder>::QueryVector<'a, f32>:
+        for<'a> <EncoderFor<T> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<T>, f32>>,
-        for<'a> <EncoderFor<T> as VectorEncoder>::Evaluator<'a, 'a, f32>: QueryEvaluator<
+        for<'a> <EncoderFor<T> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
                 <EncoderFor<T> as VectorEncoder>::EncodedVector<'a>,
                 Distance = DotProduct,
             >,

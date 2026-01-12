@@ -3,6 +3,7 @@ use half::{bf16, f16};
 use num_traits::FromPrimitive;
 use seismic::FixedU8Q;
 use seismic::FixedU16Q;
+use seismic::InvertedIndexDotVByte;
 use seismic::PlainInvertedIndex;
 use seismic::ScalarInvertedIndex;
 use seismic::configurations::{
@@ -17,7 +18,10 @@ use std::hash::Hash;
 use std::time::Instant;
 
 use vectorium::ComponentType;
-use vectorium::{Dataset, DotProduct, SpaceUsage, read_seismic_format};
+use vectorium::{
+    Dataset, DotProduct, DotVByteFixedU8Encoder, PackedSparseDataset, SpaceUsage,
+    read_seismic_format,
+};
 
 // clap does not support enums with associated values; keep CLI-only types in the bin.
 #[derive(clap::ValueEnum, Default, Debug, Clone)]
@@ -113,7 +117,7 @@ pub struct Args {
     #[arg(default_value = "u16")]
     component_type: String,
 
-    /// Value type: f16, bf16, f32, fixedu16, or fixedu8
+    /// Value type: f16, bf16, f32, fixedu16, fixedu8, or dotvbyte
     #[clap(long, value_parser)]
     #[arg(default_value = "f16")]
     value_type: String,
@@ -234,15 +238,33 @@ where
             args.output_file.as_ref().unwrap(),
             time,
         ),
+        "dotvbyte" => {
+            eprintln!("Error: value-type 'dotvbyte' is only supported with component-type 'u16'");
+            std::process::exit(1);
+        }
         _ => {
-            eprintln!("Error: value-type must be 'f16', 'bf16', 'f32', 'fixedu16', or 'fixedu8'");
+            eprintln!(
+                "Error: value-type must be 'f16', 'bf16', 'f32', 'fixedu16', 'fixedu8', or 'dotvbyte'"
+            );
             std::process::exit(1);
         }
     }
 }
 
+fn build_dotvbyte_u16(args: &Args) {
+    let time = Instant::now();
+    let base_index = build_base_index::<u16>(args);
+    let converted: InvertedIndexDotVByte =
+        InvertedIndexDotVByte::convert_dataset_from(base_index);
+    write_index(converted, args.output_file.as_ref().unwrap(), time);
+}
+
 fn main() {
     let args = Args::parse();
+    if args.component_type.as_str() == "u16" && args.value_type.as_str() == "dotvbyte" {
+        build_dotvbyte_u16(&args);
+        return;
+    }
     match args.component_type.as_str() {
         "u16" => build_for_component::<u16>(&args),
         "u32" => build_for_component::<u32>(&args),

@@ -17,7 +17,6 @@ use vectorium::{
 };
 
 type EncoderFor<S> = <S as Dataset>::Encoder;
-type ComponentFor<S> = <EncoderFor<S> as SparseVectorEncoder>::OutputComponentType;
 
 /// Read a bincode-serialized value from `path` using fixed-int, little-endian encoding.
 pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std::error::Error>> {
@@ -285,9 +284,7 @@ where
     EncoderFor<S>: SparseVectorEncoder,
     EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     for<'a> <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>: Send,
-    for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
-        From<SparseVectorView<'a, ComponentFor<S>, f32>>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>:
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
@@ -302,15 +299,7 @@ where
 
         let doc_vec = dataset.get(doc_id as u64);
         let max_centroid_id = {
-            let doc_components: Vec<_> = doc_vec.components().to_vec();
-            let doc_values_f32: Vec<f32> = doc_vec
-                .values()
-                .iter()
-                .map(|v| v.to_f32().unwrap())
-                .collect();
-            let query: <EncoderFor<S> as VectorEncoder>::QueryVector<'_, f32> =
-                SparseVectorView::new(doc_components.as_slice(), doc_values_f32.as_slice()).into();
-            let evaluator = dataset.encoder().query_evaluator(query);
+            let evaluator = dataset.encoder().vector_evaluator(doc_vec);
             let mut visited = to_avoid.clone();
 
             // Sort query terms by score and evaluate the posting list only for the top ones
@@ -369,10 +358,8 @@ where
     S: Dataset,
     EncoderFor<S>: SparseVectorEncoder,
     EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
-        From<SparseVectorView<'a, ComponentFor<S>, f32>>,
     for<'a> <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>: Send,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>:
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
     let seed = 42;
@@ -470,9 +457,7 @@ where
     S: Dataset,
     EncoderFor<S>: SparseVectorEncoder,
     EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
-        From<SparseVectorView<'a, ComponentFor<S>, f32>>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>:
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
@@ -485,15 +470,7 @@ where
         }
         let doc_vec = dataset.get(doc_id as u64);
         let centroid_max = {
-            let doc_components: Vec<_> = doc_vec.components().to_vec();
-            let doc_values_f32: Vec<f32> = doc_vec
-                .values()
-                .iter()
-                .map(|v| v.to_f32().unwrap())
-                .collect();
-            let query: <EncoderFor<S> as VectorEncoder>::QueryVector<'_, f32> =
-                SparseVectorView::new(doc_components.as_slice(), doc_values_f32.as_slice()).into();
-            let evaluator = dataset.encoder().query_evaluator(query);
+            let evaluator = dataset.encoder().vector_evaluator(doc_vec);
 
             let mut centroid_max = centroids[0];
             let mut max_dot = 0.0_f32;
@@ -527,9 +504,7 @@ where
     S: Dataset,
     EncoderFor<S>: SparseVectorEncoder,
     EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
-        From<SparseVectorView<'a, ComponentFor<S>, f32>>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>:
+    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
     let seed = 42; // You can use any u64 value as the seed

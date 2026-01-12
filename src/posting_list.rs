@@ -94,7 +94,7 @@ impl<C: ComponentType> PostingList<C> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn search<'e, 'q, S>(
         &self,
-        evaluator: &mut <EncoderFor<S> as VectorEncoder>::Evaluator<'e, 'q, f32>,
+        evaluator: &mut <EncoderFor<S> as VectorEncoder>::Evaluator<'e>,
         query: &SparseVectorView<'q, C, f32>,
         k: usize,
         heap_factor: f32,
@@ -128,7 +128,7 @@ impl<C: ComponentType> PostingList<C> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn sort_and_search<'e, 'q, S>(
         &self,
-        evaluator: &mut <EncoderFor<S> as VectorEncoder>::Evaluator<'e, 'q, f32>,
+        evaluator: &mut <EncoderFor<S> as VectorEncoder>::Evaluator<'e>,
         query: &SparseVectorView<'q, C, f32>,
         k: usize,
         heap_factor: f32,
@@ -165,9 +165,9 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn evaluate_posting_block<'e, 'q, S>(
+    fn evaluate_posting_block<'e, S>(
         &self,
-        evaluator: &<EncoderFor<S> as VectorEncoder>::Evaluator<'e, 'q, f32>,
+        evaluator: &<EncoderFor<S> as VectorEncoder>::Evaluator<'e>,
         packed_posting_block: &[PackedPostingBlock],
         heap: &mut KHeap<ScoredRangeDotProduct>,
         visited: &mut HashSet<usize>,
@@ -219,9 +219,7 @@ impl<C: ComponentType> PostingList<C> {
         S: Dataset,
         EncoderFor<S>: SparseVectorEncoder,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-        for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
-            From<SparseVectorView<'a, ComponentFor<S>, f32>>,
-        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>: QueryEvaluator<
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
                 <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
                 Distance = DotProduct,
             >,
@@ -381,9 +379,7 @@ where
         EncoderFor<S>: SparseVectorEncoder<OutputComponentType = C>,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
         ValueFor<S>: ToPrimitive,
-        for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
-            From<SparseVectorView<'a, ComponentFor<S>, f32>>,
-        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>: QueryEvaluator<
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
                 <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
                 Distance = DotProduct,
             >,

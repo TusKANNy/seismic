@@ -81,9 +81,9 @@ where
     where
         ComponentFor<S>: std::hash::Hash,
         ValueFor<S>: vectorium::FromF32,
-        for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
+        for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
-        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>: QueryEvaluator<
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
                 <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
                 Distance = DotProduct,
             >,
@@ -141,9 +141,9 @@ where
     ) -> Vec<ScoredVectorDotProduct>
     where
         ComponentFor<S>: FromPrimitive,
-        for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
+        for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
-        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>: QueryEvaluator<
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
                 <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
                 Distance = DotProduct,
             >,
@@ -183,9 +183,9 @@ where
     ) -> Vec<(String, f32, String)>
     where
         ComponentFor<S>: FromPrimitive,
-        for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a, f32>:
+        for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
-        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a, 'a, f32>: QueryEvaluator<
+        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
                 <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
                 Distance = DotProduct,
             >,
