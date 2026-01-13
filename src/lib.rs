@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use vectorium::{DotProduct, PlainSparseDataset, PackedSparseDataset, DotVByteFixedU8Encoder};
+use vectorium::{DotProduct, PlainSparseDataset};
 pub use vectorium::{
     ScalarSparseDataset, ScalarSparseQuantizer, SparseDataset, SparseDatasetGrowable,
 };
@@ -11,12 +11,13 @@ pub(crate) mod posting_list;
 pub mod inverted_index;
 pub use inverted_index::InvertedIndexBase;
 
+pub mod index_traits;
+pub use index_traits::{IndexBuildDataset, IndexSearchDataset};
+
 pub type PlainInvertedIndex<C, V> =
     inverted_index::InvertedIndexBase<PlainSparseDataset<C, V, DotProduct>>;
 pub type ScalarInvertedIndex<C, W, V> =
     inverted_index::InvertedIndexBase<ScalarSparseDataset<C, W, V, DotProduct>>;
-pub type InvertedIndexDotVByte =
-    inverted_index::InvertedIndexBase<PackedSparseDataset<DotVByteFixedU8Encoder>>;
 
 pub mod inverted_index_wrapper;
 pub use inverted_index_wrapper::SeismicDataset;

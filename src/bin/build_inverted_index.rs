@@ -3,9 +3,8 @@ use half::{bf16, f16};
 use num_traits::FromPrimitive;
 use seismic::FixedU8Q;
 use seismic::FixedU16Q;
-use seismic::InvertedIndexDotVByte;
-use seismic::PlainInvertedIndex;
 use seismic::ScalarInvertedIndex;
+use seismic::PlainInvertedIndex;
 use seismic::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
     SummarizationStrategy,
@@ -17,11 +16,8 @@ use serde::de::DeserializeOwned;
 use std::hash::Hash;
 use std::time::Instant;
 
-use vectorium::ComponentType;
-use vectorium::{
-    Dataset, DotProduct, DotVByteFixedU8Encoder, PackedSparseDataset, SpaceUsage,
-    read_seismic_format,
-};
+use vectorium::{ComponentType, Dataset, DotProduct, PackedSparseDataset, SpaceUsage, read_seismic_format};
+use vectorium::encoders::dotvbyte_fixedu8::DotVByteFixedU8Encoder;
 
 // clap does not support enums with associated values; keep CLI-only types in the bin.
 #[derive(clap::ValueEnum, Default, Debug, Clone)]
@@ -46,25 +42,27 @@ enum ClusteringAlgorithmClap {
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
-    /// The path of the input file
+    /// Source collection file (`documents.bin` style); see docs/RustUsage.md#using-the-rust-code.
+    /// Fraction of summary energy preserved; see docs/RustUsage.md#using-the-rust-code (Executing Queries section).
     #[clap(short, long, value_parser)]
     input_file: Option<String>,
 
-    /// The path of the output file. The extension will encode the values of the building parameters.
+    /// Output index base path; the binary appends `.index.seismic`. See docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     output_file: Option<String>,
 
-    /// The number of postings to be selected in each posting list.
+    /// Number of postings to retain per list; tuning hints appear in docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 6000)]
     n_postings: usize,
 
-    /// Block size in the fixed size blocking.
+    /// Block size used for fixed-size blocking; see docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 10)]
     block_size: usize,
 
-    /// Regulates the number of centroids built for each posting list. The number of centroids is at most the specified fraction of the posting list length.
+    /// Fraction of each posting list used to define k-means centroids; see docs/RustUsage.md#using-the-rust-code.
+    /// Choose the pruning strategy for posting lists; see docs/RustUsage.md#using-the-rust-code.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.1)]
     centroid_fraction: f32,
@@ -73,7 +71,7 @@ pub struct Args {
     #[arg(default_value_t = 0.5)]
     summary_energy: f32,
 
-    /// Selects the clustering algorithm used to cluster postings in each posting list
+    /// Selects the clustering algorithm used to cluster postings in each posting list; see docs/RustUsage.md#using-the-rust-code.
     #[clap(long, value_parser)]
     clustering_algorithm: ClusteringAlgorithmClap,
 
@@ -238,33 +236,37 @@ where
             args.output_file.as_ref().unwrap(),
             time,
         ),
-        "dotvbyte" => {
-            eprintln!("Error: value-type 'dotvbyte' is only supported with component-type 'u16'");
-            std::process::exit(1);
-        }
         _ => {
             eprintln!(
-                "Error: value-type must be 'f16', 'bf16', 'f32', 'fixedu16', 'fixedu8', or 'dotvbyte'"
+                "Error: value-type must be 'f16', 'bf16', 'f32', 'fixedu16', or 'fixedu8'"
             );
             std::process::exit(1);
         }
     }
 }
 
-fn build_dotvbyte_u16(args: &Args) {
+fn build_dotvbyte(args: &Args) {
+    if args.component_type != "u16" {
+        eprintln!("Error: dotvbyte requires component-type 'u16'.");
+        std::process::exit(1);
+    }
+
     let time = Instant::now();
     let base_index = build_base_index::<u16>(args);
-    let converted: InvertedIndexDotVByte =
-        InvertedIndexDotVByte::convert_dataset_from(base_index);
-    write_index(converted, args.output_file.as_ref().unwrap(), time);
+    let packed_index = base_index
+        .convert_dataset_into_from::<PackedSparseDataset<DotVByteFixedU8Encoder>>();
+
+    write_index(packed_index, args.output_file.as_ref().unwrap(), time);
 }
 
 fn main() {
     let args = Args::parse();
-    if args.component_type.as_str() == "u16" && args.value_type.as_str() == "dotvbyte" {
-        build_dotvbyte_u16(&args);
+
+    if args.value_type == "dotvbyte" {
+        build_dotvbyte(&args);
         return;
     }
+
     match args.component_type.as_str() {
         "u16" => build_for_component::<u16>(&args),
         "u32" => build_for_component::<u32>(&args),

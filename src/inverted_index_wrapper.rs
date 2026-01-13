@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fs::File,
+    hash::Hash,
     io::{self, BufRead, BufReader},
     time::Instant,
 };
@@ -13,9 +14,9 @@ use vectorium::dataset::ConvertFrom;
 use vectorium::dataset::ScoredVector;
 use vectorium::{
     Dataset, Distance, DotProduct, GrowableDataset, QueryEvaluator, ScalarSparseQuantizer,
-    SpaceUsage, SparseData, SparseDataset, SparseDatasetGrowable, SparseVectorEncoder,
-    SparseVectorView, VectorEncoder,
+    SpaceUsage, SparseData, SparseDataset, SparseDatasetGrowable, SparseVectorView, VectorEncoder,
 };
+use vectorium::vector_encoder::{SparseDataEncoder, SparseVectorEncoder};
 
 use indicatif::ProgressIterator;
 use itertools::Itertools;
@@ -27,18 +28,23 @@ use serde_json::Deserializer;
 use flate2::read::GzDecoder;
 use tar::Archive;
 
-use crate::{InvertedIndexBase, configurations::Configuration, inverted_index::Knn};
+use crate::{
+    InvertedIndexBase,
+    configurations::Configuration,
+    index_traits::IndexSearchDataset,
+    inverted_index::Knn,
+};
 
 type EncoderFor<S> = <S as Dataset>::Encoder;
-type ComponentFor<S> = <EncoderFor<S> as SparseVectorEncoder>::OutputComponentType;
-type ValueFor<S> = <EncoderFor<S> as SparseVectorEncoder>::OutputValueType;
+type ComponentFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputComponentType;
+type ValueFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputValueType;
 type ScoredVectorDotProduct = ScoredVector<DotProduct>;
 
 #[derive(Default, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SeismicIndex<S>
 where
     S: SparseData,
-    EncoderFor<S>: SparseVectorEncoder,
+    EncoderFor<S>: SparseDataEncoder,
 {
     #[serde(bound(
         serialize = "S: Serialize, ComponentFor<S>: Serialize",
@@ -52,7 +58,7 @@ where
 impl<S> SpaceUsage for SeismicIndex<S>
 where
     S: Dataset + SparseData + SpaceUsage,
-    EncoderFor<S>: SparseVectorEncoder,
+    EncoderFor<S>: SparseDataEncoder,
     ComponentFor<S>: SpaceUsage,
 {
     fn space_usage_bytes(&self) -> usize {
@@ -140,6 +146,8 @@ where
         first_sorted: bool,
     ) -> Vec<ScoredVectorDotProduct>
     where
+        S: IndexSearchDataset,
+        ComponentFor<S>: Hash,
         ComponentFor<S>: FromPrimitive,
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
@@ -182,6 +190,8 @@ where
         first_sorted: bool,
     ) -> Vec<(String, f32, String)>
     where
+        S: IndexSearchDataset,
+        ComponentFor<S>: Hash,
         ComponentFor<S>: FromPrimitive,
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
@@ -238,7 +248,7 @@ where
     pub fn convert_dataset_into<T>(self) -> SeismicIndex<T>
     where
         T: Dataset + SparseData + ConvertFrom<S> + SpaceUsage,
-        EncoderFor<T>: SparseVectorEncoder<OutputComponentType = ComponentFor<S>>,
+        EncoderFor<T>: SparseDataEncoder<OutputComponentType = ComponentFor<S>>,
         ComponentFor<T>: SpaceUsage,
     {
         SeismicIndex {
@@ -501,7 +511,13 @@ where
 {
     pub fn new() -> Self {
         let sparse_dataset =
-            vectorium::PlainSparseDatasetGrowable::<C, f16, vectorium::DotProduct>::new(0);
+            {
+                let quantizer =
+                    vectorium::PlainSparseQuantizer::<C, f16, vectorium::DotProduct>::new(0, 0);
+                vectorium::PlainSparseDatasetGrowable::<C, f16, vectorium::DotProduct>::new(
+                    quantizer,
+                )
+            };
         let document_mapping = Vec::<String>::new();
         let token_to_id_map = HashMap::new();
         Self {
@@ -534,8 +550,11 @@ where
             return;
         }
 
-        let mut rebuilt =
-            vectorium::PlainSparseDatasetGrowable::<C, f16, vectorium::DotProduct>::new(dim);
+        let mut rebuilt = {
+            let quantizer =
+                vectorium::PlainSparseQuantizer::<C, f16, vectorium::DotProduct>::new(dim, dim);
+            vectorium::PlainSparseDatasetGrowable::<C, f16, vectorium::DotProduct>::new(quantizer)
+        };
 
         for vec in self.sparse_dataset.iter() {
             let components = vec.components().to_vec();

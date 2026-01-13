@@ -7,14 +7,16 @@ use clap::Parser;
 use num_traits::FromPrimitive;
 use seismic::InvertedIndexBase;
 use seismic::utils::read_from_path;
+use std::hash::Hash;
 use vectorium::{
     ComponentType, Dataset, Distance, DotProduct, PackedSparseDataset, QueryEvaluator, SpaceUsage,
-    SparseData, SparseVectorEncoder, SparseVectorView, VectorEncoder, DotVByteFixedU8Encoder,
-    read_seismic_format,
+    SparseData, SparseVectorView, VectorEncoder, read_seismic_format,
 };
+use vectorium::vector_encoder::SparseDataEncoder;
+use vectorium::encoders::dotvbyte_fixedu8::DotVByteFixedU8Encoder;
 
 type EncoderFor<S> = <S as Dataset>::Encoder;
-type ComponentFor<S> = <EncoderFor<S> as SparseVectorEncoder>::OutputComponentType;
+type ComponentFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputComponentType;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -74,7 +76,7 @@ pub struct Args {
     #[arg(default_value = "u16")]
     component_type: String,
 
-    /// Value type: f16, bf16, f32, fixedu8, fixedu16, or dotvbyte.
+    /// Value type: f16, bf16, f32, fixedu8, or fixedu16.
     #[clap(long, value_parser)]
     #[arg(default_value = "f16")]
     value_type: String,
@@ -128,7 +130,7 @@ macro_rules! match_component_value {
             }
         _ => {
             eprintln!(
-                "Error: component-type must be either 'u16' or 'u32', value-type must be 'f16', 'bf16', 'f32', 'fixedu16', 'fixedu8', or 'dotvbyte'"
+                "Error: component-type must be either 'u16' or 'u32', value-type must be 'f16', 'bf16', 'f32', 'fixedu16', or 'fixedu8'"
             );
             std::process::exit(1);
         }
@@ -139,14 +141,14 @@ macro_rules! match_component_value {
 pub fn run_performance_test_generic<S>(args: Args)
 where
     S: Dataset + SparseData + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
-    EncoderFor<S>: SparseVectorEncoder,
-    EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+    EncoderFor<S>: SparseDataEncoder + VectorEncoder<Distance = DotProduct>,
     for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
         From<SparseVectorView<'a, ComponentFor<S>, f32>>,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
     ComponentFor<S>:
         ComponentType + FromPrimitive + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
+    ComponentFor<S>: Hash,
 {
     let index_path = args.index_file;
     let query_cut = args.query_cut;
@@ -237,11 +239,10 @@ pub fn main() {
 
     if args.value_type() == "dotvbyte" {
         if args.component_type() != "u16" {
-            eprintln!("Error: value-type 'dotvbyte' is only supported with component-type 'u16'");
+            eprintln!("Error: dotvbyte is only supported with component-type 'u16'.");
             std::process::exit(1);
         }
 
-        println!("Using u16 component type with dotvbyte value type");
         run_performance_test_generic::<PackedSparseDataset<DotVByteFixedU8Encoder>>(args);
         return;
     }

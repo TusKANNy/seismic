@@ -1,3 +1,4 @@
+use crate::index_traits::{IndexBuildDataset, IndexSearchDataset};
 use crate::posting_list::{PackedPostingBlock, PostingList};
 use crate::utils::{KHeap, read_from_path, write_to_path};
 
@@ -5,9 +6,10 @@ use toolkit::BitField;
 use toolkit::bitfield::BitFieldGrowable;
 
 use vectorium::dataset::{ConvertFrom, ConvertInto};
+use vectorium::vector_encoder::{SparseDataEncoder, SparseVectorEncoder};
 use vectorium::{
-    Dataset, Distance, DotProduct, QueryEvaluator, ScoredRangeDotProduct, ScoredVectorDotProduct,
-    SpaceUsage, SparseData, SparseVectorEncoder, SparseVectorView, VectorEncoder,
+    Dataset, Distance, DotProduct, QueryEvaluator, ScoredRange, ScoredVectorDotProduct, SpaceUsage,
+    SparseData, SparseVectorView, VectorEncoder,
 };
 
 use indicatif::ParallelProgressIterator;
@@ -27,8 +29,9 @@ use std::time::Instant;
 use std::io::Result as IoResult;
 
 type EncoderFor<S> = <S as Dataset>::Encoder;
-type ComponentFor<S> = <EncoderFor<S> as SparseVectorEncoder>::OutputComponentType;
-type ValueFor<S> = <EncoderFor<S> as SparseVectorEncoder>::OutputValueType;
+type ComponentFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputComponentType;
+type ValueFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputValueType;
+type ScoredRangeDistance<S> = ScoredRange<<EncoderFor<S> as VectorEncoder>::Distance>;
 
 pub use crate::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
@@ -39,7 +42,7 @@ pub use crate::configurations::{
 pub struct InvertedIndexBase<S>
 where
     S: SparseData,
-    EncoderFor<S>: SparseVectorEncoder,
+    EncoderFor<S>: SparseDataEncoder,
 {
     forward_index: S,
     #[serde(bound(
@@ -54,7 +57,7 @@ where
 impl<S> SpaceUsage for InvertedIndexBase<S>
 where
     S: SparseData + SpaceUsage,
-    EncoderFor<S>: SparseVectorEncoder,
+    EncoderFor<S>: SparseDataEncoder,
     ComponentFor<S>: SpaceUsage,
 {
     fn space_usage_bytes(&self) -> usize {
@@ -77,7 +80,7 @@ where
 impl<S> InvertedIndexBase<S>
 where
     S: SparseData,
-    EncoderFor<S>: SparseVectorEncoder,
+    EncoderFor<S>: SparseDataEncoder,
 {
     pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
         assert!(
@@ -153,6 +156,8 @@ where
         first_sorted: bool,
     ) -> Vec<ScoredVectorDotProduct>
     where
+        S: IndexSearchDataset,
+        EncoderFor<S>: SparseDataEncoder,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
         <EncoderFor<S> as VectorEncoder>::QueryVector<'q>:
             From<SparseVectorView<'q, ComponentFor<S>, f32>>,
@@ -227,7 +232,7 @@ where
     where
         S: Dataset + SparseData + ConvertFrom<T>,
         T: Dataset + SparseData,
-        EncoderFor<T>: SparseVectorEncoder<OutputComponentType = ComponentFor<S>>,
+        EncoderFor<T>: SparseDataEncoder<OutputComponentType = ComponentFor<S>>,
     {
         let InvertedIndexBase {
             forward_index,
@@ -267,9 +272,49 @@ where
     pub fn convert_dataset_into<T>(self) -> InvertedIndexBase<T>
     where
         T: Dataset + SparseData + ConvertFrom<S>,
-        EncoderFor<T>: SparseVectorEncoder<OutputComponentType = ComponentFor<S>>,
+        EncoderFor<T>: SparseDataEncoder<OutputComponentType = ComponentFor<S>>,
     {
         InvertedIndexBase::<T>::convert_dataset_from(self)
+    }
+
+    /// Convert the dataset by relying on `T: From<S>` instead of `ConvertFrom`.
+    pub fn convert_dataset_into_from<T>(self) -> InvertedIndexBase<T>
+    where
+        T: Dataset + SparseData + From<S>,
+        EncoderFor<T>: SparseDataEncoder<OutputComponentType = ComponentFor<S>>,
+    {
+        let InvertedIndexBase {
+            forward_index,
+            mut posting_lists,
+            config,
+            knn,
+        } = self;
+        let old_packs: Vec<_> = (0..forward_index.len())
+            .map(|i| PackedPostingBlock::pack(forward_index.range_from_id(i as u64)))
+            .collect();
+        let new_dataset = T::from(forward_index);
+        let new_packs: Vec<_> = (0..new_dataset.len())
+            .map(|i| PackedPostingBlock::pack(new_dataset.range_from_id(i as u64)))
+            .collect();
+        assert_eq!(
+            old_packs.len(),
+            new_packs.len(),
+            "Converted dataset length mismatch."
+        );
+        let packs_map: HashMap<_, _> = old_packs.into_iter().zip(new_packs).collect();
+
+        for posting in posting_lists.iter_mut() {
+            for pack in posting.packed_postings.iter_mut() {
+                *pack = packs_map[pack];
+            }
+        }
+
+        InvertedIndexBase::<T> {
+            forward_index: new_dataset,
+            posting_lists,
+            config,
+            knn,
+        }
     }
 
     // Add a precomputed knn graph to the index, limiting the number of neighbours to limit if it is not None
@@ -281,6 +326,8 @@ where
     // Implementation of the pruning strategy that selects the top-`n_postings` from each posting list
     fn fixed_pruning(dataset: &S, n_postings: usize) -> Vec<Vec<(ValueFor<S>, usize)>>
     where
+        S: IndexBuildDataset,
+        EncoderFor<S>: SparseVectorEncoder,
         ValueFor<S>: vectorium::FromF32,
     {
         let mut inverted_pairs: Vec<KHeap<ScoredVectorDotProduct>> =
@@ -342,7 +389,11 @@ where
         dataset: &S,
         n_postings: usize,
         max_fraction: f32,
-    ) -> Vec<Vec<(ValueFor<S>, usize)>> {
+    ) -> Vec<Vec<(ValueFor<S>, usize)>>
+    where
+        S: IndexBuildDataset,
+        EncoderFor<S>: SparseVectorEncoder,
+    {
         let mut new_inverted_pairs = vec![Vec::new(); dataset.input_dim()];
 
         let tot_postings = dataset.input_dim() * n_postings; // overall number of postings to select
@@ -432,9 +483,10 @@ impl SpaceUsage for Knn {
 impl Knn {
     pub fn new<S>(index: &InvertedIndexBase<S>, dim: usize) -> Self
     where
-        S: SparseData + Sync,
+        S: IndexBuildDataset + IndexSearchDataset,
         EncoderFor<S>: SparseVectorEncoder,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+        ComponentFor<S>: Hash,
         for<'q> <EncoderFor<S> as VectorEncoder>::QueryVector<'q>:
             From<SparseVectorView<'q, ComponentFor<S>, f32>>,
     {
@@ -536,19 +588,24 @@ impl Knn {
     pub(crate) fn refine<'a, S>(
         &self,
         evaluator: &mut <EncoderFor<S> as VectorEncoder>::Evaluator<'a>,
-        heap: &mut KHeap<ScoredRangeDotProduct>,
+        heap: &mut KHeap<ScoredRangeDistance<S>>,
         visited: &mut HashSet<usize>,
         forward_index: &'a S,
         in_n_knn: usize,
     ) where
-        S: Dataset,
+        S: IndexSearchDataset,
+        EncoderFor<S>: SparseDataEncoder,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+        for<'b> <EncoderFor<S> as VectorEncoder>::Evaluator<'b>: QueryEvaluator<
+                <EncoderFor<S> as VectorEncoder>::EncodedVector<'b>,
+                Distance = DotProduct,
+            >,
     {
         let n_knn = cmp::min(self.dim, in_n_knn);
 
         let neighbours: Vec<_> = heap.clone().into_sorted_vec();
 
-        for ScoredRangeDotProduct {
+        for ScoredRangeDistance::<S> {
             distance: _distance,
             range,
         } in neighbours.into_iter()
@@ -567,7 +624,7 @@ impl Knn {
                 if visited.insert(range.start) {
                     let vector = forward_index.get_with_range(range.clone());
                     let distance = evaluator.compute_distance(vector);
-                    heap.push(ScoredRangeDotProduct { distance, range });
+                    heap.push(ScoredRange { distance, range });
                 }
             }
         }
@@ -576,19 +633,19 @@ impl Knn {
 
 impl<S> InvertedIndexBase<S>
 where
-    S: Dataset + SparseData + Sync,
+    S: IndexBuildDataset,
     EncoderFor<S>: SparseVectorEncoder,
     EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
-    ComponentFor<S>: Hash,
-    ValueFor<S>: vectorium::FromF32,
 {
     /// `n_postings`: minimum number of postings to select for each component
     pub fn build(dataset: S, config: Configuration) -> Self
     where
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
+        ComponentFor<S>: Hash,
+        ValueFor<S>: vectorium::FromF32,
     {
         print!("Distributing and pruning postings: ");
         let time = Instant::now();
