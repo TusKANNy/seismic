@@ -106,11 +106,6 @@ impl<C: ComponentType> PostingList<C> {
         forward_index: &'e S,
     ) where
         S: IndexSearchDataset,
-        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
-                <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
-                Distance = DotProduct,
-            >,
     {
         let dots = self.summaries.distances(query);
 
@@ -144,11 +139,6 @@ impl<C: ComponentType> PostingList<C> {
         forward_index: &'e S,
     ) where
         S: IndexSearchDataset,
-        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
-                <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
-                Distance = DotProduct,
-            >,
     {
         let dots = self.summaries.distances(query);
         let dots: Vec<_> = dots
@@ -185,7 +175,6 @@ impl<C: ComponentType> PostingList<C> {
         forward_index: &'e S,
     ) where
         S: IndexSearchDataset,
-        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     {
         let mut iter = packed_posting_block.iter();
         let mut cur_pack = iter.next();
@@ -228,10 +217,6 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Vec<usize>
     where
         S: IndexBuildDataset,
-        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
-                <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
-                Distance = DotProduct,
-            >,
     {
         if posting_list.is_empty() {
             return Vec::new();
@@ -382,10 +367,6 @@ where
     where
         S: IndexBuildDataset,
         EncoderFor<S>: SparseVectorEncoder<OutputComponentType = C>,
-        for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
-                <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
-                Distance = DotProduct,
-            >,
     {
         let mut posting_list: Vec<_> = postings.iter().map(|(_, docid)| *docid).collect();
 
