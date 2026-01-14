@@ -352,9 +352,6 @@ pub(crate) fn do_random_kmeans_on_docids_ii_dot_product<S>(
 ) -> Vec<(usize, usize)>
 where
     S: IndexBuildDataset,
-    for<'a> <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>: Send,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-        QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -449,8 +446,6 @@ fn compute_centroid_assignments<S>(
 ) -> Vec<(usize, usize)>
 where
     S: IndexBuildDataset,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-        QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
     let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
@@ -494,8 +489,6 @@ pub(crate) fn do_random_kmeans_on_docids<S>(
 ) -> Vec<(usize, usize)>
 where
     S: IndexBuildDataset,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-        QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
     let seed = 42; // You can use any u64 value as the seed
     let mut rng = StdRng::seed_from_u64(seed);

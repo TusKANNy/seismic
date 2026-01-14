@@ -228,7 +228,6 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Vec<usize>
     where
         S: IndexBuildDataset,
-        ComponentFor<S>: Hash,
         for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
                 <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
                 Distance = DotProduct,
@@ -306,7 +305,6 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Vec<(ComponentFor<S>, f32)>
     where
         S: IndexBuildDataset,
-        ComponentFor<S>: Hash,
     {
         let mut hash = std::collections::HashMap::new();
         for &doc_id in block.iter() {
@@ -336,7 +334,6 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Vec<(ComponentFor<S>, f32)>
     where
         S: IndexBuildDataset,
-        ComponentFor<S>: Hash,
     {
         let mut hash = std::collections::HashMap::new();
         for &doc_id in block.iter() {

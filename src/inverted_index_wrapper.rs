@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     fs::File,
-    hash::Hash,
     io::{self, BufRead, BufReader},
     time::Instant,
 };
@@ -12,11 +11,11 @@ use num_traits::{FromPrimitive, ToPrimitive};
 use vectorium::ComponentType;
 use vectorium::dataset::ConvertFrom;
 use vectorium::dataset::ScoredVector;
+use vectorium::vector_encoder::{SparseDataEncoder, SparseVectorEncoder};
 use vectorium::{
     Dataset, Distance, DotProduct, GrowableDataset, QueryEvaluator, ScalarSparseQuantizer,
     SpaceUsage, SparseData, SparseDataset, SparseDatasetGrowable, SparseVectorView, VectorEncoder,
 };
-use vectorium::vector_encoder::{SparseDataEncoder, SparseVectorEncoder};
 
 use indicatif::ProgressIterator;
 use itertools::Itertools;
@@ -84,7 +83,6 @@ where
         token_to_id_map: HashMap<String, usize>,
     ) -> Self
     where
-        ComponentFor<S>: std::hash::Hash,
         ValueFor<S>: vectorium::FromF32,
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
@@ -146,7 +144,6 @@ where
     ) -> Vec<ScoredVectorDotProduct>
     where
         S: IndexSearchDataset,
-        ComponentFor<S>: Hash,
         ComponentFor<S>: FromPrimitive,
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
@@ -190,7 +187,6 @@ where
     ) -> Vec<(String, f32, String)>
     where
         S: IndexSearchDataset,
-        ComponentFor<S>: Hash,
         ComponentFor<S>: FromPrimitive,
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
@@ -509,14 +505,11 @@ where
     <C as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
 {
     pub fn new() -> Self {
-        let sparse_dataset =
-            {
-                let quantizer =
-                    vectorium::PlainSparseQuantizer::<C, f16, vectorium::DotProduct>::new(0, 0);
-                vectorium::PlainSparseDatasetGrowable::<C, f16, vectorium::DotProduct>::new(
-                    quantizer,
-                )
-            };
+        let sparse_dataset = {
+            let quantizer =
+                vectorium::PlainSparseQuantizer::<C, f16, vectorium::DotProduct>::new(0, 0);
+            vectorium::PlainSparseDatasetGrowable::<C, f16, vectorium::DotProduct>::new(quantizer)
+        };
         let document_mapping = Vec::<String>::new();
         let token_to_id_map = HashMap::new();
         Self {

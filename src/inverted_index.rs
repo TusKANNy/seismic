@@ -20,7 +20,6 @@ use rayon::prelude::*;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::cmp;
-use std::hash::Hash;
 
 use mem_dbg::{MemSize, SizeFlags};
 use std::collections::{HashMap, HashSet};
@@ -481,7 +480,6 @@ impl Knn {
     pub fn new<S>(index: &InvertedIndexBase<S>, dim: usize) -> Self
     where
         S: IndexBuildDataset + IndexSearchDataset,
-        ComponentFor<S>: Hash,
         for<'q> <EncoderFor<S> as VectorEncoder>::QueryVector<'q>:
             From<SparseVectorView<'q, ComponentFor<S>, f32>>,
     {
@@ -636,7 +634,6 @@ where
     where
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
-        ComponentFor<S>: Hash,
         ValueFor<S>: vectorium::FromF32,
     {
         print!("Distributing and pruning postings: ");
@@ -731,7 +728,6 @@ where
                 <EncoderFor<T> as VectorEncoder>::EncodedVector<'a>,
                 Distance = DotProduct,
             >,
-        ComponentFor<T>: Hash,
         ValueFor<T>: vectorium::FromF32,
     {
         let inverted_index = InvertedIndexBase::<T>::build(dataset, config);
