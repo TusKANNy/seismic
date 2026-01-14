@@ -18,7 +18,7 @@ use num_traits::ToPrimitive;
 use vectorium::dataset::ScoredRange;
 use vectorium::vector_encoder::SparseDataEncoder;
 use vectorium::{
-    ComponentType, Dataset, Distance, DotProduct, GrowableDataset, QueryEvaluator, SpaceUsage,
+    ComponentType, Dataset, Distance, GrowableDataset, QueryEvaluator, SpaceUsage,
     SparseDataset, SparseDatasetGrowable, SparseVectorEncoder, SparseVectorView, VectorEncoder,
 };
 

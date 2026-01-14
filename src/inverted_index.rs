@@ -519,7 +519,7 @@ impl Knn {
         let neighbours: Vec<u64> = docs_search_results
             .into_iter()
             .flatten()
-            .map(|result| result.vector as u64)
+            .map(|result| result.vector)
             .collect();
 
         let bitfield = <BitField as From<Vec<u64>>>::from(neighbours);

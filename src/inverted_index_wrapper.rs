@@ -282,8 +282,8 @@ where
         for vec in dataset.sparse_dataset.iter() {
             let components = vec.components().to_vec();
             let values_f32: Vec<f32> = vec.values().iter().map(|v| v.to_f32().unwrap()).collect();
-            let input_vec: <ScalarSparseQuantizer<C, f32, V, DotProduct> as VectorEncoder>::InputVector<'_> =
-                SparseVectorView::new(components.as_slice(), values_f32.as_slice()).into();
+                let input_vec: <ScalarSparseQuantizer<C, f32, V, DotProduct> as VectorEncoder>::InputVector<'_> =
+                    SparseVectorView::new(components.as_slice(), values_f32.as_slice());
             converted.push(input_vec);
         }
 

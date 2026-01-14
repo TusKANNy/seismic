@@ -15,10 +15,10 @@ use std::time::Instant;
 #[derive(clap::ValueEnum, Default, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
 enum ClusteringAlgorithmClap {
-    RandomKmeans,
-    RandomKmeansInvertedIndex,
+    Plain,
+    InvertedIndex,
     #[default]
-    RandomKmeansInvertedIndexApprox,
+    InvertedIndexApprox,
 }
 
 // TODO:
@@ -93,18 +93,18 @@ pub fn main() {
     let knn_config = KnnConfiguration::new(args.knn, args.knn_path);
 
     let my_clustering_algorithm = match args.clustering_algorithm {
-        ClusteringAlgorithmClap::RandomKmeansInvertedIndexApprox => {
+        ClusteringAlgorithmClap::InvertedIndexApprox => {
             ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
                 doc_cut: args.kmeans_doc_cut,
             }
         }
-        ClusteringAlgorithmClap::RandomKmeansInvertedIndex => {
+        ClusteringAlgorithmClap::InvertedIndex => {
             ClusteringAlgorithm::RandomKmeansInvertedIndex {
                 pruning_factor: args.kmeans_pruning_factor,
                 doc_cut: args.kmeans_doc_cut,
             }
         }
-        ClusteringAlgorithmClap::RandomKmeans => ClusteringAlgorithm::RandomKmeans {},
+        ClusteringAlgorithmClap::Plain => ClusteringAlgorithm::RandomKmeans {},
     };
 
     let config = Configuration::default()
