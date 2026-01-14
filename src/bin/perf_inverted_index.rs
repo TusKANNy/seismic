@@ -8,12 +8,12 @@ use num_traits::FromPrimitive;
 use seismic::InvertedIndexBase;
 use seismic::utils::read_from_path;
 use std::hash::Hash;
+use vectorium::encoders::dotvbyte_fixedu8::DotVByteFixedU8Encoder;
+use vectorium::vector_encoder::SparseDataEncoder;
 use vectorium::{
     ComponentType, Dataset, Distance, DotProduct, PackedSparseDataset, QueryEvaluator, SpaceUsage,
     SparseData, SparseVectorView, VectorEncoder, read_seismic_format,
 };
-use vectorium::vector_encoder::SparseDataEncoder;
-use vectorium::encoders::dotvbyte_fixedu8::DotVByteFixedU8Encoder;
 
 type EncoderFor<S> = <S as Dataset>::Encoder;
 type ComponentFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputComponentType;
@@ -21,62 +21,63 @@ type ComponentFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputComponentType
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
-    /// The path of the index.
+    /// Path to the serialized index file (see docs/RustUsage.md#using-the-rust-code).
     #[clap(short, long, value_parser)]
     index_file: Option<String>,
 
-    /// The query file.
+    /// Query file containing ground-truth vectors (docs/RustUsage.md#using-the-rust-code).
     #[clap(short, long, value_parser)]
     query_file: Option<String>,
 
-    /// The output file to write the results.
+    /// Output file that receives the ranked results (see docs/RustUsage.md#using-the-rust-code).
     #[clap(short, long, value_parser)]
     output_path: Option<String>,
 
-    /// The number of queries to evaluate.
+    /// Number of queries to evaluate; see docs/RustUsage.md#using-the-rust-code for recommended scaling.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 10000)]
     n_queries: usize,
 
-    /// The number of top-k results to retrieve.
+    /// Number of top-k results to retrieve; tuning hints appear in docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 10)]
     k: usize,
 
-    /// The number of runs to perform.
+    /// Number of runs to average; see docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 1)]
     n_runs: usize,
 
-    /// This parameter introduces an efficiency and accuracy trade-off. The search algorithm only considers the top `query_cut` components of the query.
+    /// This parameter introduces an efficiency/accuracy trade-off: only the top `query_cut` components are considered (see docs/RustUsage.md#using-the-rust-code).
     #[clap(long, value_parser)]
     #[arg(default_value_t = 10)]
     query_cut: usize,
 
-    /// This parameter introduces an efficiency and accuracy trade-off. The search algorithm skips any block which estimated dot product is greater than `heap_factor` times the smallest dot product of the top-k results in the current heap.
+    /// Controls block skipping based on estimated dot products (see docs/RustUsage.md#using-the-rust-code for the accuracy impact).
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.7)]
     heap_factor: f32,
 
-    /// The algorithm can score some vectors which are neighbours of the top results discovered in the previous phase. This parameter specifies how many neighbours of the top results the algorithm will score to score in the search algorithm. The knn must be computed and stored at building time.
+    /// Number of neighbors of top results to rescore; see docs/RustUsage.md#using-the-rust-code for the intended accuracy trade-off.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0)]
     n_knn: usize,
 
-    /// This parameter specifies whether the list of the first component mus be first sorted by estimated dot products. This introduces an efficiency and accuracy trade-off.
+    /// Whether to sort the first component by estimated dot products before search (see docs/RustUsage.md#using-the-rust-code).
     #[clap(short, long, action)]
     #[arg(default_value_t = false)]
     first_sorted: bool,
 
+    /// Optional query energy filter (see docs/RustUsage.md#using-the-rust-code).
     #[clap(long, value_parser)]
     query_energy: Option<f32>,
 
-    /// Component type: u16 (for component IDs up to 65535) or u32 (for larger component IDs)
+    /// Component type (`u16` or `u32`); see docs/RustUsage.md#using-the-rust-code for guidance.
     #[clap(long, value_parser)]
     #[arg(default_value = "u16")]
     component_type: String,
 
-    /// Value type: f16, bf16, f32, fixedu8, or fixedu16.
+    /// Value type (`f16`, `bf16`, `f32`, `fixedu8`, or `fixedu16`); see docs/RustUsage.md#using-the-rust-code for recommendations.
     #[clap(long, value_parser)]
     #[arg(default_value = "f16")]
     value_type: String,
@@ -140,7 +141,7 @@ macro_rules! match_component_value {
 
 pub fn run_performance_test_generic<S>(args: Args)
 where
-    S: Dataset + SparseData + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
+    S: SparseData + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
     EncoderFor<S>: SparseDataEncoder + VectorEncoder<Distance = DotProduct>,
     for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
         From<SparseVectorView<'a, ComponentFor<S>, f32>>,

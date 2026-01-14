@@ -16,7 +16,6 @@ use vectorium::{
     ComponentType, Dataset, Distance, DotProduct, QueryEvaluator, SparseVectorView, ValueType,
     VectorEncoder,
 };
-use vectorium::vector_encoder::{SparseDataEncoder, SparseVectorEncoder};
 type EncoderFor<S> = <S as Dataset>::Encoder;
 
 /// Read a bincode-serialized value from `path` using fixed-int, little-endian encoding.
@@ -146,7 +145,6 @@ fn compute_centroid_assignments_approx_dot_product<S, T>(
 ) -> Vec<(usize, usize)>
 where
     S: IndexBuildDataset,
-    EncoderFor<S>: SparseVectorEncoder,
     T: ValueType,
 {
     let mut scores = vec![0_f32; centroids_doc_ids.len()];
@@ -192,7 +190,6 @@ pub(crate) fn do_random_kmeans_on_docids_ii_approx_dot_product<S>(
 ) -> Vec<(usize, usize)>
 where
     S: IndexBuildDataset,
-    EncoderFor<S>: SparseVectorEncoder,
 {
     let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -283,7 +280,6 @@ where
     T: ValueType,
     S: IndexBuildDataset,
     EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-    EncoderFor<S>: SparseVectorEncoder,
     for<'a> <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>: Send,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
@@ -357,9 +353,7 @@ pub(crate) fn do_random_kmeans_on_docids_ii_dot_product<S>(
 ) -> Vec<(usize, usize)>
 where
     S: IndexBuildDataset,
-    EncoderFor<S>: SparseDataEncoder,
     EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
-    EncoderFor<S>: SparseVectorEncoder,
     for<'a> <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>: Send,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
@@ -457,7 +451,6 @@ fn compute_centroid_assignments<S>(
 ) -> Vec<(usize, usize)>
 where
     S: IndexBuildDataset,
-    EncoderFor<S>: SparseDataEncoder,
     EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
@@ -504,7 +497,6 @@ pub(crate) fn do_random_kmeans_on_docids<S>(
 ) -> Vec<(usize, usize)>
 where
     S: IndexBuildDataset,
-    EncoderFor<S>: SparseDataEncoder,
     EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,

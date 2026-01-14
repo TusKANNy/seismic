@@ -31,7 +31,7 @@ use tar::Archive;
 use crate::{
     InvertedIndexBase,
     configurations::Configuration,
-    index_traits::IndexSearchDataset,
+    index_traits::{IndexBuildDataset, IndexSearchDataset},
     inverted_index::Knn,
 };
 
@@ -69,7 +69,7 @@ where
 
 impl<S> SeismicIndex<S>
 where
-    S: Dataset + SparseData + Sync,
+    S: Dataset + SparseData + Sync + IndexBuildDataset,
     EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     EncoderFor<S>: SparseVectorEncoder<InputValueType = f32>,
     S: From<SparseDataset<EncoderFor<S>>>,

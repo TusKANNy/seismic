@@ -43,7 +43,6 @@ enum ClusteringAlgorithmClap {
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
     /// Source collection file (`documents.bin` style); see docs/RustUsage.md#using-the-rust-code.
-    /// Fraction of summary energy preserved; see docs/RustUsage.md#using-the-rust-code (Executing Queries section).
     #[clap(short, long, value_parser)]
     input_file: Option<String>,
 
@@ -62,11 +61,11 @@ pub struct Args {
     block_size: usize,
 
     /// Fraction of each posting list used to define k-means centroids; see docs/RustUsage.md#using-the-rust-code.
-    /// Choose the pruning strategy for posting lists; see docs/RustUsage.md#using-the-rust-code.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.1)]
     centroid_fraction: f32,
 
+    /// Summary energy fraction preserved; see docs/RustUsage.md#using-the-rust-code (Executing Queries section).
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 0.5)]
     summary_energy: f32,
@@ -75,47 +74,50 @@ pub struct Args {
     #[clap(long, value_parser)]
     clustering_algorithm: ClusteringAlgorithmClap,
 
+    /// Choose the pruning strategy for posting lists; see docs/RustUsage.md#using-the-rust-code.
     #[clap(long, value_parser)]
     pruning_strategy: PruningStrategyClap,
 
+    /// Pruning factor used by the random k-means blocking (see docs/RustUsage.md#using-the-rust-code).
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.005)]
     kmeans_pruning_factor: f32,
 
+    /// Number of top components retained while clustering with random k-means (see docs/RustUsage.md#using-the-rust-code).
     #[clap(long, value_parser)]
     #[arg(default_value_t = 15)]
     kmeans_doc_cut: usize,
 
+    /// Minimum cluster size allowed for random k-means blocking (see docs/RustUsage.md#using-the-rust-code).
     #[clap(long, value_parser)]
     #[arg(default_value_t = 2)]
     min_cluster_size: usize,
 
-    /// Regulates the fraction of L1 mass preserved by the COI pruning strategy.
+    /// Regulates the fraction of L1 mass preserved by the COI pruning strategy; see docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 0.15)]
     alpha: f32,
 
-    /// Regulates the largest lenght of a posting list as a factor of n_postings parameter.
+    /// Regulates the largest length of a posting list as a factor of `n_postings`; see docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 1.5)]
     max_fraction: f32,
 
-    /// Says how many neighbors to include for each vector of the dataset.
-    /// These neighbors are used to improve the accuracy of the reported results.
+    /// Number of neighbors stored per vector; see docs/RustUsage.md#using-the-rust-code for the accuracy impact.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0)]
     knn: usize,
 
-    /// Path to the file of precomputed nearest neighbors.
+    /// Path to a precomputed nearest-neighbor file (see docs/RustUsage.md#using-the-rust-code).
     #[clap(long, value_parser)]
     knn_path: Option<String>,
 
-    /// Component type: u16 (for component IDs up to 65535) or u32 (for larger component IDs)
+    /// Component type (`u16` or `u32`); see docs/RustUsage.md#using-the-rust-code for sizing guidance.
     #[clap(long, value_parser)]
     #[arg(default_value = "u16")]
     component_type: String,
 
-    /// Value type: f16, bf16, f32, fixedu16, fixedu8, or dotvbyte
+    /// Value type: f16, bf16, f32, fixedu16, fixedu8, or dotvbyte; see docs/RustUsage.md#using-the-rust-code for quantization choices.
     #[clap(long, value_parser)]
     #[arg(default_value = "f16")]
     value_type: String,

@@ -157,7 +157,6 @@ where
     ) -> Vec<ScoredVectorDotProduct>
     where
         S: IndexSearchDataset,
-        EncoderFor<S>: SparseDataEncoder,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
         <EncoderFor<S> as VectorEncoder>::QueryVector<'q>:
             From<SparseVectorView<'q, ComponentFor<S>, f32>>,
@@ -327,7 +326,6 @@ where
     fn fixed_pruning(dataset: &S, n_postings: usize) -> Vec<Vec<(ValueFor<S>, usize)>>
     where
         S: IndexBuildDataset,
-        EncoderFor<S>: SparseVectorEncoder,
         ValueFor<S>: vectorium::FromF32,
     {
         let mut inverted_pairs: Vec<KHeap<ScoredVectorDotProduct>> =
@@ -392,7 +390,6 @@ where
     ) -> Vec<Vec<(ValueFor<S>, usize)>>
     where
         S: IndexBuildDataset,
-        EncoderFor<S>: SparseVectorEncoder,
     {
         let mut new_inverted_pairs = vec![Vec::new(); dataset.input_dim()];
 
@@ -484,7 +481,6 @@ impl Knn {
     pub fn new<S>(index: &InvertedIndexBase<S>, dim: usize) -> Self
     where
         S: IndexBuildDataset + IndexSearchDataset,
-        EncoderFor<S>: SparseVectorEncoder,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
         ComponentFor<S>: Hash,
         for<'q> <EncoderFor<S> as VectorEncoder>::QueryVector<'q>:
@@ -594,7 +590,6 @@ impl Knn {
         in_n_knn: usize,
     ) where
         S: IndexSearchDataset,
-        EncoderFor<S>: SparseDataEncoder,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
         for<'b> <EncoderFor<S> as VectorEncoder>::Evaluator<'b>: QueryEvaluator<
                 <EncoderFor<S> as VectorEncoder>::EncodedVector<'b>,
@@ -634,7 +629,6 @@ impl Knn {
 impl<S> InvertedIndexBase<S>
 where
     S: IndexBuildDataset,
-    EncoderFor<S>: SparseVectorEncoder,
     EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
@@ -731,6 +725,7 @@ where
     where
         S: ConvertFrom<T>,
         T: Dataset + SparseData + Sync,
+        T: IndexBuildDataset,
         EncoderFor<T>: SparseVectorEncoder<OutputComponentType = ComponentFor<S>>,
         EncoderFor<T>: VectorEncoder<Distance = DotProduct>,
         for<'a> <EncoderFor<T> as VectorEncoder>::QueryVector<'a>:

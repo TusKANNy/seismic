@@ -5,22 +5,22 @@ use crate::QuantizedSummary;
 use crate::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, SummarizationStrategy,
 };
+use crate::index_traits::{IndexBuildDataset, IndexSearchDataset};
 use crate::utils::{
     KHeap, do_random_kmeans_on_docids, do_random_kmeans_on_docids_ii_approx_dot_product,
     do_random_kmeans_on_docids_ii_dot_product,
 };
-use crate::index_traits::{IndexBuildDataset, IndexSearchDataset};
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use num_traits::ToPrimitive;
 use vectorium::dataset::ScoredRange;
+use vectorium::vector_encoder::SparseDataEncoder;
 use vectorium::{
     ComponentType, Dataset, Distance, DotProduct, GrowableDataset, QueryEvaluator, SpaceUsage,
     SparseDataset, SparseDatasetGrowable, SparseVectorEncoder, SparseVectorView, VectorEncoder,
 };
-use vectorium::vector_encoder::SparseDataEncoder;
 
 type EncoderFor<S> = <S as Dataset>::Encoder;
 type ComponentFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputComponentType;
@@ -106,12 +106,11 @@ impl<C: ComponentType> PostingList<C> {
         forward_index: &'e S,
     ) where
         S: IndexSearchDataset,
-        EncoderFor<S>: SparseDataEncoder,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
         for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
-            <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
-            Distance = DotProduct,
-        >,
+                <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
+                Distance = DotProduct,
+            >,
     {
         let dots = self.summaries.distances(query);
 
@@ -145,12 +144,11 @@ impl<C: ComponentType> PostingList<C> {
         forward_index: &'e S,
     ) where
         S: IndexSearchDataset,
-        EncoderFor<S>: SparseDataEncoder,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
         for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
-            <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
-            Distance = DotProduct,
-        >,
+                <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
+                Distance = DotProduct,
+            >,
     {
         let dots = self.summaries.distances(query);
         let dots: Vec<_> = dots
@@ -187,7 +185,6 @@ impl<C: ComponentType> PostingList<C> {
         forward_index: &'e S,
     ) where
         S: IndexSearchDataset,
-        EncoderFor<S>: SparseDataEncoder,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     {
         let mut iter = packed_posting_block.iter();
@@ -231,7 +228,6 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Vec<usize>
     where
         S: IndexBuildDataset,
-        EncoderFor<S>: SparseVectorEncoder,
         ComponentFor<S>: Hash,
         EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
         for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
@@ -311,7 +307,6 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Vec<(ComponentFor<S>, f32)>
     where
         S: IndexBuildDataset,
-        EncoderFor<S>: SparseVectorEncoder,
         ComponentFor<S>: Hash,
     {
         let mut hash = std::collections::HashMap::new();
@@ -342,7 +337,6 @@ impl<C: ComponentType> PostingList<C> {
     ) -> Vec<(ComponentFor<S>, f32)>
     where
         S: IndexBuildDataset,
-        EncoderFor<S>: SparseVectorEncoder,
         ComponentFor<S>: Hash,
     {
         let mut hash = std::collections::HashMap::new();
@@ -391,8 +385,8 @@ where
     ) -> Self
     where
         S: IndexBuildDataset,
-        EncoderFor<S>: SparseVectorEncoder<OutputComponentType = C>,
-        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
+        EncoderFor<S>:
+            SparseVectorEncoder<OutputComponentType = C> + VectorEncoder<Distance = DotProduct>,
         for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
                 <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
                 Distance = DotProduct,
@@ -418,11 +412,10 @@ where
             ),
         };
 
-        let quantizer =
-            vectorium::PlainSparseQuantizer::<C, f32, vectorium::DotProduct>::new(
-                dataset.input_dim(),
-                dataset.input_dim(),
-            );
+        let quantizer = vectorium::PlainSparseQuantizer::<C, f32, vectorium::DotProduct>::new(
+            dataset.input_dim(),
+            dataset.input_dim(),
+        );
         let mut summary = SparseDatasetGrowable::new(quantizer);
         for (components, values) in
             block_offsets
