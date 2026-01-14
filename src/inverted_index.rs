@@ -481,7 +481,6 @@ impl Knn {
     pub fn new<S>(index: &InvertedIndexBase<S>, dim: usize) -> Self
     where
         S: IndexBuildDataset + IndexSearchDataset,
-        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
         ComponentFor<S>: Hash,
         for<'q> <EncoderFor<S> as VectorEncoder>::QueryVector<'q>:
             From<SparseVectorView<'q, ComponentFor<S>, f32>>,
@@ -629,7 +628,6 @@ impl Knn {
 impl<S> InvertedIndexBase<S>
 where
     S: IndexBuildDataset,
-    EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
@@ -727,7 +725,6 @@ where
         T: Dataset + SparseData + Sync,
         T: IndexBuildDataset,
         EncoderFor<T>: SparseVectorEncoder<OutputComponentType = ComponentFor<S>>,
-        EncoderFor<T>: VectorEncoder<Distance = DotProduct>,
         for<'a> <EncoderFor<T> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<T>, f32>>,
         for<'a> <EncoderFor<T> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<

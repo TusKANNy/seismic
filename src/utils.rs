@@ -279,7 +279,6 @@ where
     A: AsRef<[(T, usize)]>,
     T: ValueType,
     S: IndexBuildDataset,
-    EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     for<'a> <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>: Send,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
@@ -353,7 +352,6 @@ pub(crate) fn do_random_kmeans_on_docids_ii_dot_product<S>(
 ) -> Vec<(usize, usize)>
 where
     S: IndexBuildDataset,
-    EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     for<'a> <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>: Send,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
@@ -451,7 +449,6 @@ fn compute_centroid_assignments<S>(
 ) -> Vec<(usize, usize)>
 where
     S: IndexBuildDataset,
-    EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {
@@ -497,7 +494,6 @@ pub(crate) fn do_random_kmeans_on_docids<S>(
 ) -> Vec<(usize, usize)>
 where
     S: IndexBuildDataset,
-    EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
 {

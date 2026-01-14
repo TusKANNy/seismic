@@ -229,7 +229,6 @@ impl<C: ComponentType> PostingList<C> {
     where
         S: IndexBuildDataset,
         ComponentFor<S>: Hash,
-        EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
         for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
                 <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
                 Distance = DotProduct,
@@ -385,8 +384,7 @@ where
     ) -> Self
     where
         S: IndexBuildDataset,
-        EncoderFor<S>:
-            SparseVectorEncoder<OutputComponentType = C> + VectorEncoder<Distance = DotProduct>,
+        EncoderFor<S>: SparseVectorEncoder<OutputComponentType = C>,
         for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>: QueryEvaluator<
                 <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>,
                 Distance = DotProduct,

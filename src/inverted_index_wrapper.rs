@@ -70,7 +70,6 @@ where
 impl<S> SeismicIndex<S>
 where
     S: Dataset + SparseData + Sync + IndexBuildDataset,
-    EncoderFor<S>: VectorEncoder<Distance = DotProduct>,
     EncoderFor<S>: SparseVectorEncoder<InputValueType = f32>,
     S: From<SparseDataset<EncoderFor<S>>>,
 {
