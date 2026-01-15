@@ -12,10 +12,10 @@ metric = "RR@10"
 delete = true
 
 [folder]
-data = ""
-index = ""
-qrels_path = ""
-experiment = ""
+data = "~/knn_datasets/sparse_datasets/msmarco_v2_passage/cocondenser/data"
+index = "~/knn_indexes/sparse_datasets/msmarco_v2_passage/cocondenser/"
+qrels_path = "~/knn_datasets/sparse_datasets/msmarco_v2_passage/qrels.dev1.tsv"
+experiment = "."
 
 [filename]
 dataset = "documents.bin"
