@@ -5,8 +5,8 @@ use crate::utils::{
 use crate::{
     ComponentType, QuantizedSummary, SpaceUsage, SparseDataset, SparseDatasetMut, ValueType,
 };
-use toolkit::BitFieldBoxed;
-use toolkit::bitfield::BitFieldVec;
+use toolkit::BitField;
+use toolkit::bitfield::BitFieldGrowable;
 
 use indicatif::ParallelProgressIterator;
 
@@ -995,7 +995,7 @@ impl KnnConfiguration {
 pub struct Knn {
     n_vecs: usize,
     dim: usize,
-    neighbours: BitFieldBoxed,
+    neighbours: BitField,
 }
 
 impl SpaceUsage for Knn {
@@ -1049,7 +1049,7 @@ impl Knn {
             .map(|(_distance, doc_id)| doc_id as u64)
             .collect();
 
-        let bitfield = BitFieldBoxed::from(neighbours);
+        let bitfield = BitField::from(neighbours);
 
         Self {
             n_vecs,
@@ -1078,7 +1078,7 @@ impl Knn {
             println!("We only take {:} neighbors per element!", nknn);
         }
 
-        let mut neighbours = BitFieldVec::with_capacity(knn.n_vecs, knn.neighbours.field_width());
+        let mut neighbours = BitFieldGrowable::with_capacity(knn.n_vecs, knn.neighbours.field_width());
 
         for id in 0..knn.n_vecs {
             let base_pos = id * knn.dim;
@@ -1091,7 +1091,7 @@ impl Knn {
         Knn {
             n_vecs: knn.n_vecs,
             dim: nknn,
-            neighbours: neighbours.convert_into(),
+            neighbours: neighbours.into(),
         }
     }
 
