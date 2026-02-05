@@ -17,8 +17,8 @@ use rayon::iter::{ParallelBridge, ParallelIterator};
 
 use std::collections::HashMap;
 
-use crate::utils::{read_from_path, write_to_path};
 use crate::InvertedIndexBase;
+use crate::utils::{read_from_path, write_to_path};
 use vectorium::{
     ComponentType, Dataset, DatasetGrowable, DotProduct, PlainSparseDataset, ScalarSparseQuantizer,
     SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D, VectorEncoder,
@@ -30,22 +30,15 @@ const SEISMIC_STRING: &str = "U30";
 type IndexQuantizer<C> = ScalarSparseQuantizer<C, f32, f16, DotProduct>;
 type IndexDataset<C> = SparseDataset<IndexQuantizer<C>>;
 
-fn quantize_f32_dataset_to_f16<C>(dataset: PlainSparseDataset<C, f32, DotProduct>) -> IndexDataset<C>
+fn quantize_f32_dataset_to_f16<C>(
+    dataset: PlainSparseDataset<C, f32, DotProduct>,
+) -> IndexDataset<C>
 where
     C: ComponentType,
+    IndexDataset<C>: vectorium::dataset::ConvertFrom<PlainSparseDataset<C, f32, DotProduct>>,
 {
-    let dim = Dataset::input_dim(&dataset);
-    let quantizer = IndexQuantizer::<C>::new(dim, dim);
-    let mut growable = SparseDatasetGrowable::<IndexQuantizer<C>>::new(quantizer);
-    for vec in dataset.iter() {
-        let components = vec.components_as_slice().to_vec();
-        let values = vec.values_as_slice().to_vec();
-        growable.push(SparseVector1D::new(
-            components.as_slice(),
-            values.as_slice(),
-        ));
-    }
-    growable.into()
+    use vectorium::dataset::ConvertFrom;
+    IndexDataset::<C>::convert_from(dataset)
 }
 
 #[pyfunction]
