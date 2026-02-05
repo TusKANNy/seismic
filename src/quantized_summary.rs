@@ -411,7 +411,7 @@ mod tests {
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
     use vectorium::{
-        DotProduct, GrowableDataset, PlainSparseDataset, PlainSparseDatasetGrowable,
+        DatasetGrowable, DotProduct, PlainSparseDataset, PlainSparseDatasetGrowable,
         PlainSparseQuantizer, SparseVectorView,
     };
 

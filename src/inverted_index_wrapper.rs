@@ -13,7 +13,7 @@ use vectorium::dataset::ConvertFrom;
 use vectorium::dataset::ScoredVector;
 use vectorium::vector_encoder::{SparseDataEncoder, SparseVectorEncoder};
 use vectorium::{
-    Dataset, Distance, DotProduct, GrowableDataset, QueryEvaluator, ScalarSparseQuantizer,
+    Dataset, DatasetGrowable, Distance, DotProduct, QueryEvaluator, ScalarSparseQuantizer,
     SpaceUsage, SparseData, SparseDataset, SparseDatasetGrowable, SparseVectorView, VectorEncoder,
 };
 

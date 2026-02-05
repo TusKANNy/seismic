@@ -30,7 +30,6 @@ use std::io::Result as IoResult;
 type EncoderFor<S> = <S as Dataset>::Encoder;
 type ComponentFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputComponentType;
 type ValueFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputValueType;
-type ScoredRangeDistance<S> = ScoredRange<<EncoderFor<S> as VectorEncoder>::Distance>;
 
 pub use crate::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
@@ -586,7 +585,7 @@ impl Knn {
     pub(crate) fn refine<'a, S>(
         &self,
         evaluator: &mut <EncoderFor<S> as VectorEncoder>::Evaluator<'a>,
-        heap: &mut KHeap<ScoredRangeDistance<S>>,
+        heap: &mut KHeap<ScoredRange<DotProduct>>,
         visited: &mut HashSet<usize>,
         forward_index: &'a S,
         in_n_knn: usize,
@@ -602,7 +601,7 @@ impl Knn {
 
         let neighbours: Vec<_> = heap.clone().into_sorted_vec();
 
-        for ScoredRangeDistance::<S> {
+        for ScoredRange::<DotProduct> {
             distance: _distance,
             range,
         } in neighbours.into_iter()
@@ -744,7 +743,7 @@ where
 mod tests {
     use super::*;
     use vectorium::{
-        DotProduct, GrowableDataset, PlainSparseDataset, PlainSparseDatasetGrowable,
+        DatasetGrowable, DotProduct, PlainSparseDataset, PlainSparseDatasetGrowable,
         PlainSparseQuantizer, SparseVectorView,
     };
 

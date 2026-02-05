@@ -18,14 +18,13 @@ use num_traits::ToPrimitive;
 use vectorium::dataset::ScoredRange;
 use vectorium::vector_encoder::SparseDataEncoder;
 use vectorium::{
-    ComponentType, Dataset, Distance, GrowableDataset, QueryEvaluator, SpaceUsage,
+    ComponentType, Dataset, DatasetGrowable, Distance, DotProduct, QueryEvaluator, SpaceUsage,
     SparseDataset, SparseDatasetGrowable, SparseVectorEncoder, SparseVectorView, VectorEncoder,
 };
 
 type EncoderFor<S> = <S as Dataset>::Encoder;
 type ComponentFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputComponentType;
 type ValueFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputValueType;
-type ScoredRangeDistance<S> = ScoredRange<<EncoderFor<S> as VectorEncoder>::Distance>;
 
 /// Instead of storing doc_ids we store their offsets in the forward_index and the lengths of the vectors
 /// This allows us to save the random accesses that would be needed to access exactly these values from the
@@ -101,7 +100,7 @@ impl<C: ComponentType> PostingList<C> {
         query: &SparseVectorView<'q, C, f32>,
         k: usize,
         heap_factor: f32,
-        heap: &mut KHeap<ScoredRangeDistance<S>>,
+        heap: &mut KHeap<ScoredRange<DotProduct>>,
         visited: &mut HashSet<usize>,
         forward_index: &'e S,
     ) where
@@ -134,7 +133,7 @@ impl<C: ComponentType> PostingList<C> {
         query: &SparseVectorView<'q, C, f32>,
         k: usize,
         heap_factor: f32,
-        heap: &mut KHeap<ScoredRangeDistance<S>>,
+        heap: &mut KHeap<ScoredRange<DotProduct>>,
         visited: &mut HashSet<usize>,
         forward_index: &'e S,
     ) where
@@ -170,7 +169,7 @@ impl<C: ComponentType> PostingList<C> {
         &self,
         evaluator: &<EncoderFor<S> as VectorEncoder>::Evaluator<'e>,
         packed_posting_block: &[PackedPostingBlock],
-        heap: &mut KHeap<ScoredRangeDistance<S>>,
+        heap: &mut KHeap<ScoredRange<DotProduct>>,
         visited: &mut HashSet<usize>,
         forward_index: &'e S,
     ) where

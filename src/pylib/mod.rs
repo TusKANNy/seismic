@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use crate::utils::{read_from_path, write_to_path};
 use crate::InvertedIndexBase;
 use vectorium::{
-    ComponentType, Dataset, DotProduct, GrowableDataset, PlainSparseDataset, ScalarSparseQuantizer,
+    ComponentType, Dataset, DatasetGrowable, DotProduct, PlainSparseDataset, ScalarSparseQuantizer,
     SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D, VectorEncoder,
 };
 
