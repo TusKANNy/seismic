@@ -67,9 +67,9 @@ impl SpaceUsage for PackedPostingBlock {
 
 #[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct PostingList<C: ComponentType> {
-    pub(crate) packed_postings: Box<[PackedPostingBlock]>,
-    pub(crate) block_offsets: Box<[usize]>,
-    pub(crate) summaries: QuantizedSummary<C>,
+    packed_postings: Box<[PackedPostingBlock]>,
+    block_offsets: Box<[usize]>,
+    summaries: QuantizedSummary<C>,
 }
 
 impl<C: ComponentType + SpaceUsage> SpaceUsage for PostingList<C> {
@@ -81,9 +81,28 @@ impl<C: ComponentType + SpaceUsage> SpaceUsage for PostingList<C> {
 }
 
 impl<C: ComponentType> PostingList<C> {
+    #[inline]
+    pub(crate) fn packed_postings(&self) -> &Box<[PackedPostingBlock]> {
+        &self.packed_postings
+    }
+
+    #[inline]
+    pub(crate) fn packed_postings_mut(&mut self) -> &mut [PackedPostingBlock] {
+        &mut self.packed_postings
+    }
+
+    #[inline]
+    pub(crate) fn block_offsets(&self) -> &Box<[usize]> {
+        &self.block_offsets
+    }
+
+    #[inline]
+    pub(crate) fn summaries(&self) -> &QuantizedSummary<C> {
+        &self.summaries
+    }
     pub(crate) fn get_all_doc_ranges(&self) -> Vec<std::ops::Range<usize>> {
-        let mut ranges = Vec::with_capacity(self.packed_postings.len());
-        for pack in self.packed_postings.iter() {
+        let mut ranges = Vec::with_capacity(self.packed_postings().len());
+        for pack in self.packed_postings().iter() {
             ranges.push(pack.unpack());
         }
 
@@ -103,15 +122,16 @@ impl<C: ComponentType> PostingList<C> {
     ) where
         S: SeismicSearchDataset,
     {
-        let dots = self.summaries.distances(query);
+        let dots = self.summaries().distances(query);
 
         for (block_id, dot) in dots.into_iter().enumerate() {
             if heap.len() == k && dot < heap_factor * heap.peek().distance.distance() {
                 continue;
             }
 
-            let packed_posting_block = &self.packed_postings
-                [self.block_offsets[block_id]..self.block_offsets[block_id + 1]];
+            let block_offsets = self.block_offsets();
+            let packed_posting_block = &self.packed_postings()
+                [block_offsets[block_id]..block_offsets[block_id + 1]];
 
             self.evaluate_posting_block(
                 evaluator,
@@ -136,7 +156,7 @@ impl<C: ComponentType> PostingList<C> {
     ) where
         S: SeismicSearchDataset,
     {
-        let dots = self.summaries.distances(query);
+        let dots = self.summaries().distances(query);
         let dots: Vec<_> = dots
             .into_iter()
             .enumerate()
@@ -148,8 +168,9 @@ impl<C: ComponentType> PostingList<C> {
                 continue;
             }
 
-            let packed_posting_block = &self.packed_postings
-                [self.block_offsets[block_id]..self.block_offsets[block_id + 1]];
+            let block_offsets = self.block_offsets();
+            let packed_posting_block = &self.packed_postings()
+                [block_offsets[block_id]..block_offsets[block_id + 1]];
 
             self.evaluate_posting_block(
                 evaluator,

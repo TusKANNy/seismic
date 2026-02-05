@@ -107,9 +107,9 @@ where
         let mut total_summaries = 0;
 
         for posting_list in self.posting_lists.iter() {
-            total_packed_postings += SpaceUsage::space_usage_bytes(&posting_list.packed_postings);
-            total_block_offsets += SpaceUsage::space_usage_bytes(&posting_list.block_offsets);
-            total_summaries += posting_list.summaries.space_usage_bytes();
+            total_packed_postings += SpaceUsage::space_usage_bytes(posting_list.packed_postings());
+            total_block_offsets += SpaceUsage::space_usage_bytes(posting_list.block_offsets());
+            total_summaries += posting_list.summaries().space_usage_bytes();
         }
 
         let postings_total = total_packed_postings + total_block_offsets + total_summaries;
@@ -250,7 +250,7 @@ where
         let packs_map: HashMap<_, _> = old_packs.into_iter().zip(new_packs).collect();
 
         for posting in posting_lists.iter_mut() {
-            for pack in posting.packed_postings.iter_mut() {
+            for pack in posting.packed_postings_mut().iter_mut() {
                 *pack = packs_map[pack];
             }
         }
