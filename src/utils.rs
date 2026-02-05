@@ -1,5 +1,4 @@
 use std::{
-    cmp,
     collections::{BinaryHeap, HashSet},
     fs::File,
     io::{BufReader, BufWriter},
@@ -104,11 +103,10 @@ pub(crate) fn quantize<T: ValueType>(values: &[T]) -> (f32, f32, Vec<u8>) {
     // Compute min and max values in the vector
     let (min, max) = values
         .iter()
-        .minmax_by(|a, b| a.partial_cmp(b).unwrap())
+        .map(|v| v.to_f32().unwrap())
+        .minmax_by(|a, b| a.total_cmp(b))
         .into_option()
         .unwrap();
-
-    let (min, max) = (min.to_f32().unwrap(), max.to_f32().unwrap());
 
     // Quantization splits the range [min, max] into n_classes blocks of equal size (max-min)/n_clasess.
     // (Exponential quantization could be possible as well.)
@@ -154,8 +152,11 @@ where
         .map(|&doc_id| {
             scores.iter_mut().for_each(|v| *v = 0_f32);
             let posting = dataset.get(doc_id as u64);
-            let iter = iter_components_values(&posting)
-                .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(&b.1).unwrap());
+            let iter = iter_components_values(&posting).k_largest_by(doc_cut, |a, b| {
+                a.1.to_f32()
+                    .unwrap()
+                    .total_cmp(&b.1.to_f32().unwrap())
+            });
             for (component_id, value) in iter {
                 for &(centroid_id, score) in inverted_index[component_id.as_()].iter() {
                     scores[centroid_id] += score.to_f32().unwrap() * value.to_f32().unwrap();
@@ -166,7 +167,11 @@ where
                 .iter()
                 .zip(scores.iter())
                 .filter(|(centroid_doc_id, _)| !to_avoid.contains(centroid_doc_id))
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(cmp::Ordering::Equal))
+                .max_by(|a, b| {
+                    a.1.to_f32()
+                        .unwrap()
+                        .total_cmp(&b.1.to_f32().unwrap())
+                })
                 .unwrap_or((&centroids_doc_ids[0], &0.0));
 
             (max_centroid_doc_id, doc_id)
@@ -305,7 +310,11 @@ where
                 .iter()
                 .copied()
                 .zip(values.iter().copied())
-                .k_largest_by(doc_cut, |a, b| a.1.partial_cmp(&b.1).unwrap())
+                .k_largest_by(doc_cut, |a, b| {
+                    a.1.to_f32()
+                        .unwrap()
+                        .total_cmp(&b.1.to_f32().unwrap())
+                })
                 .map(|(component_id, _value)| component_id)
                 .collect();
 
@@ -372,14 +381,18 @@ where
         }
     }
 
-    let inverted_index = inverted_index
-        .into_iter()
-        .map(|list| {
-            list.into_iter()
-                .k_largest_by(pruned_list_size, |a, b| a.0.partial_cmp(&b.0).unwrap())
-                .collect_vec()
-        })
-        .collect_vec();
+        let inverted_index = inverted_index
+            .into_iter()
+            .map(|list| {
+                list.into_iter()
+                    .k_largest_by(pruned_list_size, |a, b| {
+                        a.0.to_f32()
+                            .unwrap()
+                            .total_cmp(&b.0.to_f32().unwrap())
+                    })
+                    .collect_vec()
+            })
+            .collect_vec();
 
     let mut centroid_assignments = compute_centroid_assignments_dot_product(
         doc_ids,

@@ -34,7 +34,7 @@ type ScoredRangeDistance<S> = ScoredRange<<EncoderFor<S> as VectorEncoder>::Dist
 /// We use the forward index to convert the offsets of the top-k back to the id of the corresponding documents.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash, Ord, PartialOrd)]
 pub(crate) struct PackedPostingBlock {
-    pub n: u64,
+    n: u64,
 }
 
 impl PackedPostingBlock {
@@ -144,7 +144,7 @@ impl<C: ComponentType> PostingList<C> {
         let dots: Vec<_> = dots
             .into_iter()
             .enumerate()
-            .sorted_unstable_by(|&(_, a), &(_, b)| b.partial_cmp(&a).unwrap())
+            .sorted_unstable_by(|&(_, a), &(_, b)| b.total_cmp(&a))
             .collect();
 
         for (block_id, dot) in dots {
@@ -305,9 +305,7 @@ impl<C: ComponentType> PostingList<C> {
         }
 
         hash.into_iter()
-            .k_largest_by(n_components, |a, b| {
-                a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-            })
+            .k_largest_by(n_components, |a, b| a.1.total_cmp(&b.1))
             .sorted_unstable_by_key(|&(id, _)| id)
             .collect()
     }
@@ -335,8 +333,7 @@ impl<C: ComponentType> PostingList<C> {
 
         let mut components_values: Vec<_> = hash.into_iter().collect();
 
-        components_values
-            .sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        components_values.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
         let total_sum: f32 = components_values
             .iter()
             .map(|(_, x)| x.to_f32().unwrap())

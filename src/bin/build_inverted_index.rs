@@ -33,10 +33,10 @@ enum PruningStrategyClap {
 #[derive(clap::ValueEnum, Default, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
 enum ClusteringAlgorithmClap {
-    Plain,
-    InvertedIndex,
+    RandomKmeans,
+    RandomKmeansInvertedIndex,
     #[default]
-    InvertedIndexApprox,
+    RandomKmeansInvertedIndexApprox,
 }
 
 #[derive(Parser, Debug)]
@@ -127,18 +127,18 @@ fn build_config(args: &Args) -> Configuration {
     let knn_config = KnnConfiguration::new(args.knn, args.knn_path.clone());
 
     let clustering = match args.clustering_algorithm {
-        ClusteringAlgorithmClap::InvertedIndexApprox => {
+        ClusteringAlgorithmClap::RandomKmeansInvertedIndexApprox => {
             ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
                 doc_cut: args.kmeans_doc_cut,
             }
         }
-        ClusteringAlgorithmClap::InvertedIndex => {
+        ClusteringAlgorithmClap::RandomKmeansInvertedIndex => {
             ClusteringAlgorithm::RandomKmeansInvertedIndex {
                 pruning_factor: args.kmeans_pruning_factor,
                 doc_cut: args.kmeans_doc_cut,
             }
         }
-        ClusteringAlgorithmClap::Plain => ClusteringAlgorithm::RandomKmeans {},
+        ClusteringAlgorithmClap::RandomKmeans => ClusteringAlgorithm::RandomKmeans {},
     };
 
     let pruning = match args.pruning_strategy {

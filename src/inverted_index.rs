@@ -179,7 +179,7 @@ where
         let mut iter = query_components
             .iter()
             .zip(query_values)
-            .k_largest_by(query_cut, |a, b| a.1.partial_cmp(b.1).unwrap());
+            .k_largest_by(query_cut, |a, b| a.1.total_cmp(b.1));
         if first_sorted && let Some((&component_id, _value)) = iter.next() {
             let component_idx: usize = component_id.as_();
             self.posting_lists[component_idx].sort_and_search(
@@ -371,7 +371,9 @@ where
             if posting_list.is_empty() {
                 return;
             }
-            posting_list.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+            posting_list.sort_unstable_by(|a, b| {
+                b.0.partial_cmp(&a.0).unwrap_or(cmp::Ordering::Equal)
+            });
 
             let cur_n_postings =
                 max_n_postings.min((posting_list.len() as f32 * alpha) as usize + 1);
@@ -408,7 +410,10 @@ where
                     .collect::<Vec<_>>()
             })
             .k_largest_by(tot_postings, |(_, (_, score_a)), (_, (_, score_b))| {
-                score_a.partial_cmp(score_b).unwrap()
+                score_a
+                    .to_f32()
+                    .unwrap()
+                    .total_cmp(&score_b.to_f32().unwrap())
             });
 
         for (doc, (component, value)) in largest_entries {
