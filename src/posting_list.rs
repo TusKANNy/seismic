@@ -130,8 +130,8 @@ impl<C: ComponentType> PostingList<C> {
             }
 
             let block_offsets = self.block_offsets();
-            let packed_posting_block = &self.packed_postings()
-                [block_offsets[block_id]..block_offsets[block_id + 1]];
+            let packed_posting_block =
+                &self.packed_postings()[block_offsets[block_id]..block_offsets[block_id + 1]];
 
             self.evaluate_posting_block(
                 evaluator,
@@ -169,8 +169,8 @@ impl<C: ComponentType> PostingList<C> {
             }
 
             let block_offsets = self.block_offsets();
-            let packed_posting_block = &self.packed_postings()
-                [block_offsets[block_id]..block_offsets[block_id + 1]];
+            let packed_posting_block =
+                &self.packed_postings()[block_offsets[block_id]..block_offsets[block_id + 1]];
 
             self.evaluate_posting_block(
                 evaluator,
