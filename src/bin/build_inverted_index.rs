@@ -256,7 +256,7 @@ fn build_dotvbyte(args: &Args) {
     let time = Instant::now();
     let base_index = build_base_index::<u16>(args);
     let packed_index = base_index
-        .convert_dataset_into_from::<PackedSparseDataset<DotVByteFixedU8Encoder>>();
+        .convert_dataset_into::<PackedSparseDataset<DotVByteFixedU8Encoder>>();
 
     write_index(packed_index, args.output_file.as_ref().unwrap(), time);
 }

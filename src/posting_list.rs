@@ -5,7 +5,9 @@ use crate::QuantizedSummary;
 use crate::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, SummarizationStrategy,
 };
-use crate::index_traits::{IndexBuildDataset, IndexSearchDataset};
+use crate::index_traits::{
+    ComponentFor, EncoderFor, SeismicBuildDataset, SeismicSearchDataset, ValueFor,
+};
 use crate::utils::{
     KHeap, do_random_kmeans_on_docids, do_random_kmeans_on_docids_ii_approx_dot_product,
     do_random_kmeans_on_docids_ii_dot_product,
@@ -16,15 +18,10 @@ use serde::{Deserialize, Serialize};
 
 use num_traits::ToPrimitive;
 use vectorium::dataset::ScoredRange;
-use vectorium::vector_encoder::SparseDataEncoder;
 use vectorium::{
-    ComponentType, Dataset, DatasetGrowable, Distance, DotProduct, QueryEvaluator, SpaceUsage,
+    ComponentType, DatasetGrowable, Distance, DotProduct, QueryEvaluator, SpaceUsage,
     SparseDataset, SparseDatasetGrowable, SparseVectorEncoder, SparseVectorView, VectorEncoder,
 };
-
-type EncoderFor<S> = <S as Dataset>::Encoder;
-type ComponentFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputComponentType;
-type ValueFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputValueType;
 
 /// Instead of storing doc_ids we store their offsets in the forward_index and the lengths of the vectors
 /// This allows us to save the random accesses that would be needed to access exactly these values from the
@@ -104,7 +101,7 @@ impl<C: ComponentType> PostingList<C> {
         visited: &mut HashSet<usize>,
         forward_index: &'e S,
     ) where
-        S: IndexSearchDataset,
+        S: SeismicSearchDataset,
     {
         let dots = self.summaries.distances(query);
 
@@ -137,7 +134,7 @@ impl<C: ComponentType> PostingList<C> {
         visited: &mut HashSet<usize>,
         forward_index: &'e S,
     ) where
-        S: IndexSearchDataset,
+        S: SeismicSearchDataset,
     {
         let dots = self.summaries.distances(query);
         let dots: Vec<_> = dots
@@ -173,7 +170,7 @@ impl<C: ComponentType> PostingList<C> {
         visited: &mut HashSet<usize>,
         forward_index: &'e S,
     ) where
-        S: IndexSearchDataset,
+        S: SeismicSearchDataset,
     {
         let mut iter = packed_posting_block.iter();
         let mut cur_pack = iter.next();
@@ -215,7 +212,7 @@ impl<C: ComponentType> PostingList<C> {
         clustering_algorithm: ClusteringAlgorithm,
     ) -> Vec<usize>
     where
-        S: IndexBuildDataset,
+        S: SeismicBuildDataset,
     {
         if posting_list.is_empty() {
             return Vec::new();
@@ -288,7 +285,7 @@ impl<C: ComponentType> PostingList<C> {
         n_components: usize,
     ) -> Vec<(ComponentFor<S>, f32)>
     where
-        S: IndexBuildDataset,
+        S: SeismicBuildDataset,
     {
         let mut hash = std::collections::HashMap::new();
         for &doc_id in block.iter() {
@@ -315,7 +312,7 @@ impl<C: ComponentType> PostingList<C> {
         fraction: f32,
     ) -> Vec<(ComponentFor<S>, f32)>
     where
-        S: IndexBuildDataset,
+        S: SeismicBuildDataset,
     {
         let mut hash = std::collections::HashMap::new();
         for &doc_id in block.iter() {
@@ -361,7 +358,7 @@ where
         config: &Configuration,
     ) -> Self
     where
-        S: IndexBuildDataset,
+        S: SeismicBuildDataset,
         EncoderFor<S>: SparseVectorEncoder<OutputComponentType = C>,
     {
         let mut posting_list: Vec<_> = postings.iter().map(|(_, docid)| *docid).collect();

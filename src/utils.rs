@@ -3,19 +3,16 @@ use std::{
     fs::File,
     io::{BufReader, BufWriter},
 };
-//use std::time::Instant;
 
 use itertools::Itertools;
 use num_traits::{AsPrimitive, ToPrimitive};
 use rand::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::index_traits::IndexBuildDataset;
+use crate::index_traits::{EncoderFor, SeismicBuildDataset};
 use vectorium::{
-    ComponentType, Dataset, Distance, DotProduct, QueryEvaluator, SparseVectorView, ValueType,
-    VectorEncoder,
+    ComponentType, Distance, DotProduct, QueryEvaluator, SparseVectorView, ValueType, VectorEncoder,
 };
-type EncoderFor<S> = <S as Dataset>::Encoder;
 
 /// Read a bincode-serialized value from `path` using fixed-int, little-endian encoding.
 pub fn read_from_path<D: DeserializeOwned>(path: &str) -> Result<D, Box<dyn std::error::Error>> {
@@ -142,7 +139,7 @@ fn compute_centroid_assignments_approx_dot_product<S, T>(
     doc_cut: usize,
 ) -> Vec<(usize, usize)>
 where
-    S: IndexBuildDataset,
+    S: SeismicBuildDataset,
     T: ValueType,
 {
     let mut scores = vec![0_f32; centroids_doc_ids.len()];
@@ -153,9 +150,7 @@ where
             scores.iter_mut().for_each(|v| *v = 0_f32);
             let posting = dataset.get(doc_id as u64);
             let iter = iter_components_values(&posting).k_largest_by(doc_cut, |a, b| {
-                a.1.to_f32()
-                    .unwrap()
-                    .total_cmp(&b.1.to_f32().unwrap())
+                a.1.to_f32().unwrap().total_cmp(&b.1.to_f32().unwrap())
             });
             for (component_id, value) in iter {
                 for &(centroid_id, score) in inverted_index[component_id.as_()].iter() {
@@ -167,11 +162,7 @@ where
                 .iter()
                 .zip(scores.iter())
                 .filter(|(centroid_doc_id, _)| !to_avoid.contains(centroid_doc_id))
-                .max_by(|a, b| {
-                    a.1.to_f32()
-                        .unwrap()
-                        .total_cmp(&b.1.to_f32().unwrap())
-                })
+                .max_by(|a, b| a.1.to_f32().unwrap().total_cmp(&b.1.to_f32().unwrap()))
                 .unwrap_or((&centroids_doc_ids[0], &0.0));
 
             (max_centroid_doc_id, doc_id)
@@ -194,7 +185,7 @@ pub(crate) fn do_random_kmeans_on_docids_ii_approx_dot_product<S>(
     doc_cut: usize,
 ) -> Vec<(usize, usize)>
 where
-    S: IndexBuildDataset,
+    S: SeismicBuildDataset,
 {
     let seed = 1142;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -283,7 +274,7 @@ fn compute_centroid_assignments_dot_product<A, T, S>(
 where
     A: AsRef<[(T, usize)]>,
     T: ValueType,
-    S: IndexBuildDataset,
+    S: SeismicBuildDataset,
     for<'a> <EncoderFor<S> as VectorEncoder>::EncodedVector<'a>: Send,
     for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
         QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
@@ -311,9 +302,7 @@ where
                 .copied()
                 .zip(values.iter().copied())
                 .k_largest_by(doc_cut, |a, b| {
-                    a.1.to_f32()
-                        .unwrap()
-                        .total_cmp(&b.1.to_f32().unwrap())
+                    a.1.to_f32().unwrap().total_cmp(&b.1.to_f32().unwrap())
                 })
                 .map(|(component_id, _value)| component_id)
                 .collect();
@@ -360,7 +349,7 @@ pub(crate) fn do_random_kmeans_on_docids_ii_dot_product<S>(
     doc_cut: usize,
 ) -> Vec<(usize, usize)>
 where
-    S: IndexBuildDataset,
+    S: SeismicBuildDataset,
 {
     let seed = 42;
     let mut rng = StdRng::seed_from_u64(seed);
@@ -381,18 +370,16 @@ where
         }
     }
 
-        let inverted_index = inverted_index
-            .into_iter()
-            .map(|list| {
-                list.into_iter()
-                    .k_largest_by(pruned_list_size, |a, b| {
-                        a.0.to_f32()
-                            .unwrap()
-                            .total_cmp(&b.0.to_f32().unwrap())
-                    })
-                    .collect_vec()
-            })
-            .collect_vec();
+    let inverted_index = inverted_index
+        .into_iter()
+        .map(|list| {
+            list.into_iter()
+                .k_largest_by(pruned_list_size, |a, b| {
+                    a.0.to_f32().unwrap().total_cmp(&b.0.to_f32().unwrap())
+                })
+                .collect_vec()
+        })
+        .collect_vec();
 
     let mut centroid_assignments = compute_centroid_assignments_dot_product(
         doc_ids,
@@ -458,7 +445,7 @@ fn compute_centroid_assignments<S>(
     to_avoid: &HashSet<usize>,
 ) -> Vec<(usize, usize)>
 where
-    S: IndexBuildDataset,
+    S: SeismicBuildDataset,
 {
     let mut centroid_assignments = Vec::with_capacity(doc_ids.len());
     let centroid_set: HashSet<usize> = centroids.iter().copied().collect();
@@ -501,7 +488,7 @@ pub(crate) fn do_random_kmeans_on_docids<S>(
     min_cluster_size: usize,
 ) -> Vec<(usize, usize)>
 where
-    S: IndexBuildDataset,
+    S: SeismicBuildDataset,
 {
     let seed = 42; // You can use any u64 value as the seed
     let mut rng = StdRng::seed_from_u64(seed);

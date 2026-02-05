@@ -12,7 +12,7 @@ pub mod inverted_index;
 pub use inverted_index::InvertedIndexBase;
 
 pub mod index_traits;
-pub use index_traits::{IndexBuildDataset, IndexSearchDataset};
+pub use index_traits::{SeismicBuildDataset, SeismicSearchDataset};
 
 pub type PlainInvertedIndex<C, V> =
     inverted_index::InvertedIndexBase<PlainSparseDataset<C, V, DotProduct>>;

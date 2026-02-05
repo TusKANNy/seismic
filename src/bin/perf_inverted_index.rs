@@ -1,22 +1,21 @@
 use std::cmp;
 use std::fs::File;
+use std::hash::Hash;
 use std::io::Write;
 use std::time::Instant;
 
 use clap::Parser;
 use num_traits::FromPrimitive;
-use seismic::InvertedIndexBase;
-use seismic::utils::read_from_path;
-use std::hash::Hash;
-use vectorium::encoders::dotvbyte_fixedu8::DotVByteFixedU8Encoder;
-use vectorium::vector_encoder::SparseDataEncoder;
-use vectorium::{
-    ComponentType, Dataset, Distance, DotProduct, PackedSparseDataset, QueryEvaluator, SpaceUsage,
-    SparseData, SparseVectorView, VectorEncoder, read_seismic_format,
-};
 
-type EncoderFor<S> = <S as Dataset>::Encoder;
-type ComponentFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputComponentType;
+use seismic::InvertedIndexBase;
+use seismic::index_traits::{ComponentFor, EncoderFor};
+use seismic::utils::read_from_path;
+
+use vectorium::encoders::dotvbyte_fixedu8::DotVByteFixedU8Encoder;
+use vectorium::{
+    ComponentType, Dataset, Distance, DotProduct, PackedSparseDataset, SpaceUsage,
+    SparseVectorView, VectorEncoder, read_seismic_format,
+};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -141,15 +140,15 @@ macro_rules! match_component_value {
 
 pub fn run_performance_test_generic<S>(args: Args)
 where
-    S: SparseData + Sync + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
-    EncoderFor<S>: SparseDataEncoder + VectorEncoder<Distance = DotProduct>,
+    S: seismic::SeismicSearchDataset + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
     for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
         From<SparseVectorView<'a, ComponentFor<S>, f32>>,
-    for<'a> <EncoderFor<S> as VectorEncoder>::Evaluator<'a>:
-        QueryEvaluator<<EncoderFor<S> as VectorEncoder>::EncodedVector<'a>, Distance = DotProduct>,
-    ComponentFor<S>:
-        ComponentType + FromPrimitive + SpaceUsage + serde::Serialize + serde::de::DeserializeOwned,
-    ComponentFor<S>: Hash,
+    ComponentFor<S>: ComponentType
+        + FromPrimitive
+        + SpaceUsage
+        + Hash
+        + serde::Serialize
+        + serde::de::DeserializeOwned,
 {
     let index_path = args.index_file;
     let query_cut = args.query_cut;

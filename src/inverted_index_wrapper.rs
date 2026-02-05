@@ -30,13 +30,10 @@ use tar::Archive;
 use crate::{
     InvertedIndexBase,
     configurations::Configuration,
-    index_traits::{IndexBuildDataset, IndexSearchDataset},
+    index_traits::{ComponentFor, EncoderFor, SeismicBuildDataset, SeismicSearchDataset, ValueFor},
     inverted_index::Knn,
 };
 
-type EncoderFor<S> = <S as Dataset>::Encoder;
-type ComponentFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputComponentType;
-type ValueFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputValueType;
 type ScoredVectorDotProduct = ScoredVector<DotProduct>;
 
 #[derive(Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -68,7 +65,7 @@ where
 
 impl<S> SeismicIndex<S>
 where
-    S: Dataset + SparseData + Sync + IndexBuildDataset,
+    S: SeismicBuildDataset + SeismicSearchDataset,
     EncoderFor<S>: SparseVectorEncoder<InputValueType = f32>,
     S: From<SparseDataset<EncoderFor<S>>>,
 {
@@ -143,7 +140,7 @@ where
         first_sorted: bool,
     ) -> Vec<ScoredVectorDotProduct>
     where
-        S: IndexSearchDataset,
+        S: SeismicSearchDataset,
         ComponentFor<S>: FromPrimitive,
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
@@ -186,7 +183,7 @@ where
         first_sorted: bool,
     ) -> Vec<(String, f32, String)>
     where
-        S: IndexSearchDataset,
+        S: SeismicSearchDataset,
         ComponentFor<S>: FromPrimitive,
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
@@ -282,7 +279,7 @@ where
         for vec in dataset.sparse_dataset.iter() {
             let components = vec.components().to_vec();
             let values_f32: Vec<f32> = vec.values().iter().map(|v| v.to_f32().unwrap()).collect();
-                let input_vec: <ScalarSparseQuantizer<C, f32, V, DotProduct> as VectorEncoder>::InputVector<'_> =
+            let input_vec: <ScalarSparseQuantizer<C, f32, V, DotProduct> as VectorEncoder>::InputVector<'_> =
                     SparseVectorView::new(components.as_slice(), values_f32.as_slice());
             converted.push(input_vec);
         }
