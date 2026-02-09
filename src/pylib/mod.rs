@@ -18,10 +18,9 @@ use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::collections::HashMap;
 
 use crate::InvertedIndexBase;
-use crate::utils::{read_from_path, write_to_path};
 use vectorium::{
     ComponentType, Dataset, DatasetGrowable, DotProduct, PlainSparseDataset, ScalarSparseQuantizer,
-    SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D, VectorEncoder,
+    SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D, VectorEncoder, IndexSerializer,
 };
 
 const MAX_TOKEN_LEN: usize = 30;
@@ -187,13 +186,7 @@ macro_rules! impl_seismic_index {
             #[pyo3(signature = (index_path))]
             #[pyo3(text_signature = "(index_path)")]
             pub fn load(index_path: &str) -> PyResult<$rust_name> {
-                let index: Index<IndexDataset<$Key>> =
-                    read_from_path(index_path).map_err(|e| {
-                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                        "Failed to deserialize index from '{}': {}",
-                        index_path, e
-                    ))
-                })?;
+                let index: Index<IndexDataset<$Key>> = Index::load_index(index_path);
 
                 Ok($rust_name { index })
             }
@@ -218,7 +211,7 @@ macro_rules! impl_seismic_index {
                 let full_path = format!("{}.index.seismic", path);
                 println!("Saving ... {}", full_path);
 
-                write_to_path(&self.index, full_path.as_str()).map_err(|e| {
+                self.index.save_index(full_path.as_str()).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to write index to '{}': {}",
                         full_path, e
@@ -809,12 +802,7 @@ macro_rules! impl_seismic_index_raw {
             #[pyo3(text_signature = "(index_path)")]
             pub fn load(index_path: &str) -> PyResult<$rust_name> {
                 let inverted_index: InvertedIndexBase<IndexDataset<$Key>> =
-                    read_from_path(&index_path).map_err(|e| {
-                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                        "Failed to deserialize index from '{}': {}",
-                        index_path, e
-                    ))
-                })?;
+                    InvertedIndexBase::load_index(&index_path);
 
                 Ok($rust_name { inverted_index })
             }
@@ -838,7 +826,7 @@ macro_rules! impl_seismic_index_raw {
             pub fn save(&self, path: &str) -> PyResult<()> {
                 let full_path = format!("{}.index.seismic", path);
                 println!("Saving ... {}", full_path);
-                write_to_path(&self.inverted_index,path).map_err(|e| {
+                self.inverted_index.save_index(path).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to write index to '{}': {}",
                         full_path, e

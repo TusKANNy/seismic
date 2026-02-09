@@ -2,7 +2,7 @@ use crate::index_traits::{
     ComponentFor, EncoderFor, SeismicBuildDataset, SeismicSearchDataset, ValueFor,
 };
 use crate::posting_list::{PackedPostingBlock, PostingList};
-use crate::utils::{KHeap, read_from_path, write_to_path};
+use crate::utils::KHeap;
 
 use toolkit::{BitFieldBoxed, BitFieldVec};
 
@@ -436,6 +436,8 @@ pub struct Knn {
     neighbours: BitFieldBoxed,
 }
 
+impl IndexSerializer for Knn {}
+
 impl SpaceUsage for Knn {
     fn space_usage_bytes(&self) -> usize {
         self.neighbours.mem_size(SizeFlags::empty())
@@ -501,7 +503,7 @@ impl Knn {
 
     pub fn new_from_serialized(path: &str, limit: Option<usize>) -> Self {
         println!("Reading KNN from file: {:}", path);
-        let knn: Knn = read_from_path(path).unwrap();
+        let knn: Knn = Knn::load_index(path);
 
         println!("Number of vectors: {:}", knn.n_vecs);
         println!("Number of neighbors in the file: {:}", knn.dim);
@@ -541,7 +543,8 @@ impl Knn {
     pub fn serialize(&self, output_file: &str) -> IoResult<()> {
         let path = output_file.to_string() + ".knn.seismic";
         println!("Saving ... {}", path.as_str());
-        write_to_path(self, path.as_str()).unwrap();
+        self.save_index(path.as_str())
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
         Ok(())
     }
 
