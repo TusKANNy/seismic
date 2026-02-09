@@ -6,8 +6,7 @@ use std::time::Instant;
 use half::f16;
 use seismic::SeismicIndex;
 use seismic::json_utils::read_queries;
-use seismic::utils::read_from_path;
-use vectorium::{DotProduct, ScalarSparseQuantizer, SpaceUsage, SparseDataset};
+use vectorium::{DotProduct, IndexSerializer, ScalarSparseQuantizer, SpaceUsage, SparseDataset};
 
 use clap::Parser;
 
@@ -77,7 +76,7 @@ pub fn main() {
     type Dataset = SparseDataset<Encoder>;
 
     let inverted_index: SeismicIndex<Dataset> =
-        read_from_path(index_path.unwrap().as_str()).unwrap();
+        SeismicIndex::load_index(index_path.unwrap().as_str());
 
     //let queries = SparseDataset::<f32>::read_bin_file(&query_path.unwrap()).unwrap();
     let queries = read_queries(&query_path.unwrap());

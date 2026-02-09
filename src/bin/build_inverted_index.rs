@@ -9,14 +9,16 @@ use seismic::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
     SummarizationStrategy,
 };
-use seismic::utils::write_to_path;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use std::hash::Hash;
 use std::time::Instant;
 
-use vectorium::{ComponentType, Dataset, DotProduct, PackedSparseDataset, SpaceUsage, read_seismic_format};
+use vectorium::{
+    ComponentType, Dataset, DotProduct, IndexSerializer, PackedSparseDataset, SpaceUsage,
+    read_seismic_format,
+};
 use vectorium::encoders::dotvbyte_fixedu8::DotVByteFixedU8Encoder;
 
 // clap does not support enums with associated values; keep CLI-only types in the bin.
@@ -195,11 +197,15 @@ where
     PlainInvertedIndex::<C, f32>::build(dataset, config)
 }
 
-fn write_index<T: serde::Serialize>(index: T, output_file: &str, elapsed: Instant) {
+fn write_index<T>(index: T, output_file: &str, elapsed: Instant)
+where
+    T: IndexSerializer + serde::Serialize,
+{
     let path = output_file.to_string() + ".index.seismic";
     println!("Saving ... {}", path);
-    let r = write_to_path(index, path.as_str());
-    println!("{:?}", r);
+    if let Err(err) = index.save_index(path.as_str()) {
+        eprintln!("Failed to save index to {}: {}", path, err);
+    }
     println!("Time to build {} secs", elapsed.elapsed().as_secs());
 }
 

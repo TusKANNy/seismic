@@ -16,6 +16,7 @@ use vectorium::{
     Dataset, DatasetGrowable, Distance, DotProduct, QueryEvaluator, ScalarSparseQuantizer,
     SpaceUsage, SparseData, SparseDataset, SparseDatasetGrowable, SparseVectorView, VectorEncoder,
 };
+use vectorium::IndexSerializer;
 
 use indicatif::ProgressIterator;
 use itertools::Itertools;
@@ -49,6 +50,13 @@ where
     inverted_index: InvertedIndexBase<S>,
     document_mapping: Option<Box<[String]>>,
     token_to_id_map: HashMap<String, usize>,
+}
+
+impl<S> IndexSerializer for SeismicIndex<S>
+where
+    S: SparseData,
+    EncoderFor<S>: SparseDataEncoder,
+{
 }
 
 impl<S> SpaceUsage for SeismicIndex<S>

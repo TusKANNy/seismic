@@ -4,8 +4,7 @@ use crate::index_traits::{
 use crate::posting_list::{PackedPostingBlock, PostingList};
 use crate::utils::{KHeap, read_from_path, write_to_path};
 
-use toolkit::BitField;
-use toolkit::bitfield::BitFieldGrowable;
+use toolkit::{BitFieldBoxed, BitFieldVec};
 
 use vectorium::dataset::{ConvertFrom, ConvertInto};
 use vectorium::vector_encoder::{SparseDataEncoder, SparseVectorEncoder};
@@ -13,6 +12,7 @@ use vectorium::{
     Dataset, Distance, DotProduct, QueryEvaluator, ScoredRange, ScoredVectorDotProduct, SpaceUsage,
     SparseData, SparseVectorView, VectorEncoder,
 };
+use vectorium::IndexSerializer;
 
 use indicatif::ParallelProgressIterator;
 
@@ -48,6 +48,13 @@ where
     posting_lists: Box<[PostingList<ComponentFor<S>>]>,
     config: Configuration,
     knn: Option<Knn>,
+}
+
+impl<S> IndexSerializer for InvertedIndexBase<S>
+where
+    S: SparseData,
+    EncoderFor<S>: SparseDataEncoder,
+{
 }
 
 impl<S> SpaceUsage for InvertedIndexBase<S>
@@ -426,7 +433,7 @@ where
 pub struct Knn {
     n_vecs: usize,
     dim: usize,
-    neighbours: BitField,
+    neighbours: BitFieldBoxed,
 }
 
 impl SpaceUsage for Knn {
@@ -483,7 +490,7 @@ impl Knn {
             .map(|result| result.vector)
             .collect();
 
-        let bitfield = <BitField as From<Vec<u64>>>::from(neighbours);
+        let bitfield = BitFieldBoxed::from(neighbours);
 
         Self {
             n_vecs,
@@ -513,7 +520,7 @@ impl Knn {
         }
 
         let mut neighbours =
-            BitFieldGrowable::with_capacity(knn.n_vecs, knn.neighbours.field_width());
+            BitFieldVec::with_capacity(knn.n_vecs, knn.neighbours.field_width());
 
         for id in 0..knn.n_vecs {
             let base_pos = id * knn.dim;
@@ -522,7 +529,7 @@ impl Knn {
                 neighbours.push(neighbor);
             }
         }
-        let bitfield = <BitField as From<BitFieldGrowable>>::from(neighbours);
+        let bitfield = neighbours.convert_into::<Box<[u64]>>();
 
         Knn {
             n_vecs: knn.n_vecs,

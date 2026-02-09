@@ -2,9 +2,8 @@ use seismic::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
     SummarizationStrategy,
 };
-use seismic::utils::write_to_path;
 use seismic::SeismicIndex;
-use vectorium::{DotProduct, ScalarSparseQuantizer, SparseDataset};
+use vectorium::{DotProduct, IndexSerializer, ScalarSparseQuantizer, SparseDataset};
 
 use half::f16;
 
@@ -143,9 +142,9 @@ pub fn main() {
 
     let path = args.output_file.unwrap() + ".index.seismic";
     println!("Saving ... {}", path);
-    let r = write_to_path(index, path.as_str());
-
-    println!("{:?}", r);
+    if let Err(err) = index.save_index(path.as_str()) {
+        eprintln!("Failed to save index to {}: {}", path, err);
+    }
 
     let elapsed = time.elapsed();
     println!("Time to build {} secs", elapsed.as_secs());

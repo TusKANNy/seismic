@@ -9,7 +9,7 @@ use num_traits::FromPrimitive;
 
 use seismic::InvertedIndexBase;
 use seismic::index_traits::{ComponentFor, EncoderFor};
-use seismic::utils::read_from_path;
+use vectorium::IndexSerializer;
 
 use vectorium::encoders::dotvbyte_fixedu8::DotVByteFixedU8Encoder;
 use vectorium::{
@@ -158,7 +158,7 @@ where
     let nknn = args.n_knn;
 
     let inverted_index: InvertedIndexBase<S> =
-        read_from_path(index_path.unwrap().as_str()).unwrap();
+        InvertedIndexBase::load_index(index_path.unwrap().as_str());
 
     let queries =
         read_seismic_format::<ComponentFor<S>, f32, DotProduct>(&args.query_file.unwrap()).unwrap();
