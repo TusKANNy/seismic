@@ -76,7 +76,8 @@ pub fn main() {
     type Dataset = SparseDataset<Encoder>;
 
     let inverted_index: SeismicIndex<Dataset> =
-        SeismicIndex::load_index(index_path.unwrap().as_str());
+        SeismicIndex::load_index(index_path.unwrap().as_str())
+            .unwrap_or_else(|err| panic!("Failed to load index: {err:?}"));
 
     //let queries = SparseDataset::<f32>::read_bin_file(&query_path.unwrap()).unwrap();
     let queries = read_queries(&query_path.unwrap());

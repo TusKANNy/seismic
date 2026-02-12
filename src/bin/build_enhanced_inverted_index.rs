@@ -143,7 +143,7 @@ pub fn main() {
     let path = args.output_file.unwrap() + ".index.seismic";
     println!("Saving ... {}", path);
     if let Err(err) = index.save_index(path.as_str()) {
-        eprintln!("Failed to save index to {}: {}", path, err);
+        eprintln!("Failed to save index to {}: {:?}", path, err);
     }
 
     let elapsed = time.elapsed();

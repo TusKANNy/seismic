@@ -204,7 +204,7 @@ where
     let path = output_file.to_string() + ".index.seismic";
     println!("Saving ... {}", path);
     if let Err(err) = index.save_index(path.as_str()) {
-        eprintln!("Failed to save index to {}: {}", path, err);
+        eprintln!("Failed to save index to {}: {:?}", path, err);
     }
     println!("Time to build {} secs", elapsed.elapsed().as_secs());
 }

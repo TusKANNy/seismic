@@ -4,7 +4,7 @@ use crate::index_traits::{
 use crate::posting_list::{PackedPostingBlock, PostingList};
 use crate::utils::KHeap;
 
-use toolkit::{BitFieldBoxed, BitFieldVec};
+use toolkit::{BitField, BitFieldGrowable};
 
 use vectorium::dataset::{ConvertFrom, ConvertInto};
 use vectorium::vector_encoder::{SparseDataEncoder, SparseVectorEncoder};
@@ -433,7 +433,7 @@ where
 pub struct Knn {
     n_vecs: usize,
     dim: usize,
-    neighbours: BitFieldBoxed,
+    neighbours: BitField,
 }
 
 impl IndexSerializer for Knn {}
@@ -492,7 +492,7 @@ impl Knn {
             .map(|result| result.vector)
             .collect();
 
-        let bitfield = BitFieldBoxed::from(neighbours);
+        let bitfield = BitField::from(neighbours);
 
         Self {
             n_vecs,
@@ -503,7 +503,8 @@ impl Knn {
 
     pub fn new_from_serialized(path: &str, limit: Option<usize>) -> Self {
         println!("Reading KNN from file: {:}", path);
-        let knn: Knn = Knn::load_index(path);
+        let knn: Knn = Knn::load_index(path)
+            .unwrap_or_else(|err| panic!("Failed to load KNN index from {path}: {err:?}"));
 
         println!("Number of vectors: {:}", knn.n_vecs);
         println!("Number of neighbors in the file: {:}", knn.dim);
@@ -522,7 +523,7 @@ impl Knn {
         }
 
         let mut neighbours =
-            BitFieldVec::with_capacity(knn.n_vecs, knn.neighbours.field_width());
+            BitFieldGrowable::with_capacity(knn.n_vecs, knn.neighbours.field_width());
 
         for id in 0..knn.n_vecs {
             let base_pos = id * knn.dim;
@@ -531,7 +532,7 @@ impl Knn {
                 neighbours.push(neighbor);
             }
         }
-        let bitfield = neighbours.convert_into::<Box<[u64]>>();
+        let bitfield = BitField::from(neighbours);
 
         Knn {
             n_vecs: knn.n_vecs,
@@ -544,7 +545,9 @@ impl Knn {
         let path = output_file.to_string() + ".knn.seismic";
         println!("Saving ... {}", path.as_str());
         self.save_index(path.as_str())
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+            .map_err(|err| {
+                std::io::Error::new(std::io::ErrorKind::Other, format!("{err:?}"))
+            })?;
         Ok(())
     }
 

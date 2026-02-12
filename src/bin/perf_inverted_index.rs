@@ -158,7 +158,8 @@ where
     let nknn = args.n_knn;
 
     let inverted_index: InvertedIndexBase<S> =
-        InvertedIndexBase::load_index(index_path.unwrap().as_str());
+        InvertedIndexBase::load_index(index_path.unwrap().as_str())
+            .unwrap_or_else(|err| panic!("Failed to load index: {err:?}"));
 
     let queries =
         read_seismic_format::<ComponentFor<S>, f32, DotProduct>(&args.query_file.unwrap()).unwrap();
