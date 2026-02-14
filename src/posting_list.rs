@@ -193,16 +193,15 @@ impl<C: ComponentType> PostingList<C> {
     ) where
         S: SeismicSearchDataset,
     {
-        let mut iter = packed_posting_block.iter();
-        let mut cur_pack = iter.next();
-
-        while let Some(pack) = cur_pack {
-            let next_pack = iter.next();
-            if let Some(p) = next_pack {
-                let range = p.unpack();
-                forward_index.prefetch_with_range(range);
+        for pack in packed_posting_block.iter() {
+            let range = pack.unpack();
+            if visited.contains(&range.start) {
+                continue;
             }
+            forward_index.prefetch_with_range(range);
+        }
 
+        for pack in packed_posting_block.iter() {
             let range = pack.unpack();
 
             if visited.insert(range.start) {
@@ -210,8 +209,6 @@ impl<C: ComponentType> PostingList<C> {
                 let distance = evaluator.compute_distance(vector);
                 heap.push(ScoredRange { distance, range });
             }
-
-            cur_pack = next_pack;
         }
     }
 
