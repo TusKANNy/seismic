@@ -13,50 +13,50 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
-struct Args {
-    /// The path of the index.
+pub struct Args {
+    /// Path to the serialized index file (see docs/RustUsage.md#using-the-rust-code).
     #[clap(short, long, value_parser)]
     index_file: Option<String>,
 
-    /// The query file.
+    /// Query file in `.jsonl` format (see docs/RustUsage.md#using-the-rust-code).
     #[clap(short, long, value_parser)]
     query_file: Option<String>,
 
-    /// The output file to write the results.
+    /// Output file that receives the ranked results (see docs/RustUsage.md#using-the-rust-code).
     #[clap(short, long, value_parser)]
     output_path: Option<String>,
 
-    /// The number of queries to evaluate.
-    #[clap(short, long, value_parser)]
+    /// Number of queries to evaluate; see docs/RustUsage.md#using-the-rust-code for recommended scaling.
+    #[clap(long, value_parser)]
     #[arg(default_value_t = 10000)]
     n_queries: usize,
 
-    /// The number of top-k results to retrieve.
+    /// Number of top-k results to retrieve; tuning hints appear in docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 10)]
     k: usize,
 
-    /// The number of runs to perform.
+    /// Number of runs to average; see docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 1)]
     n_runs: usize,
 
-    /// A parameter that trade-off efficiency and accuracy. The search algorithm will only consider the top `query_cut` components of the query.
+    /// This parameter introduces an efficiency/accuracy trade-off: only the top `query_cut` components are considered (see docs/RustUsage.md#using-the-rust-code).
     #[clap(long, value_parser)]
     #[arg(default_value_t = 10)]
     query_cut: usize,
 
-    /// A parameter that trade-off efficiency and accuracy. The search algorithm will skip a block which estimated dot product is greater than `heap_factor` times the smallest dot product of the top-k results in the current heap.
+    /// Controls block skipping based on estimated dot products (see docs/RustUsage.md#using-the-rust-code for the accuracy impact).
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.7)]
     heap_factor: f32,
 
-    /// A parameter that specifies how many neighbours of the top results to score in the search algorithm.
+    /// Number of neighbors of top results to rescore; see docs/RustUsage.md#using-the-rust-code for the intended accuracy trade-off.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0)]
     n_knn: usize,
 
-    /// This parameter specifies whether the list of the first component mus be first sorted by estimated dot products. This introduces an efficiency and accuracy trade-off.
+    /// Whether to sort the first component by estimated dot products before search (see docs/RustUsage.md#using-the-rust-code).
     #[clap(short, long, action)]
     #[arg(default_value_t = false)]
     first_sorted: bool,
@@ -80,17 +80,12 @@ pub fn main() {
         SeismicIndex::load_index(index_path.unwrap().as_str())
             .unwrap_or_else(|err| panic!("Failed to load index: {err:?}"));
 
-    //let queries = SparseDataset::<f32>::read_bin_file(&query_path.unwrap()).unwrap();
     let queries = read_queries(&query_path.unwrap());
 
     let n_queries = cmp::min(args.n_queries, queries.len());
 
     println!("Searching for top-{} results", args.k);
     println!("Number of evaluated queries: {n_queries}");
-    // println!(
-    //     "Avg number of non-zero components: {}",
-    //     queries.nnz() / queries.len()
-    // );
 
     println!("Number of documents: {}", inverted_index.len());
     println!(
@@ -103,10 +98,6 @@ pub fn main() {
     for _ in 0..n_runs {
         results.clear();
         for (query_id, q_components, q_values) in queries.iter().take(n_queries) {
-            // let query_id = query_json.id();
-            // let q_components = query_json.coordinates();
-            // let q_values = query_json.values();
-
             let cur_results = inverted_index.search(
                 query_id,
                 q_components,
@@ -133,6 +124,7 @@ pub fn main() {
         "Time {} microsecs per query",
         elapsed.as_micros() / (n_runs * n_queries) as u128
     );
+
     let space_usage = inverted_index.space_usage_bytes();
     eprintln!(
         "{}\t{}",
@@ -140,13 +132,13 @@ pub fn main() {
         space_usage
     );
 
-    //inverted_index.print_space_usage_byte();
+    inverted_index.print_space_usage_byte();
+
     // Writes results to a file in a parsable format
     let output_path = args.output_path.unwrap();
     let mut output_file = File::create(output_path).unwrap();
 
     for current_result in results.iter() {
-        // Writes results to a file in a parsable format
         for (idx, result) in current_result.iter().enumerate() {
             writeln!(
                 &mut output_file,

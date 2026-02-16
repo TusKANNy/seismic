@@ -13,6 +13,16 @@ use std::time::Instant;
 // clap does not support enums with associated values; keep CLI-only types in the bin.
 #[derive(clap::ValueEnum, Default, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
+enum PruningStrategyClap {
+    FixedSize,
+    #[default]
+    GlobalThreshold,
+    CoiThreshold,
+}
+
+// clap does not support enums with associated values; keep CLI-only types in the bin.
+#[derive(clap::ValueEnum, Default, Debug, Clone)]
+#[clap(rename_all = "kebab-case")]
 enum ClusteringAlgorithmClap {
     RandomKmeans,
     RandomKmeansInvertedIndex,
@@ -20,78 +30,84 @@ enum ClusteringAlgorithmClap {
     RandomKmeansInvertedIndexApprox,
 }
 
-// TODO:
-// - add control to the Rayon's number of threads
-
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
-struct Args {
-    /// The path of the input file
+pub struct Args {
+    /// Source collection file (`.jsonl` or `.tar.gz`); see docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     input_file: Option<String>,
 
-    /// The path of the output file. The extension will encode the values of the building parameters.
+    /// Output index base path; the binary appends `.index.seismic`. See docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     output_file: Option<String>,
 
-    /// The number of postings to be selected in each posting list.
+    /// Number of postings to retain per list; tuning hints appear in docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 6000)]
     n_postings: usize,
 
-    /// Block size in the fixed size blocking.
+    /// Block size used for fixed-size blocking; see docs/RustUsage.md#using-the-rust-code.
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 10)]
     block_size: usize,
 
-    /// Regulates the number of centroids built for each posting list. The number of centroids is at most the fraction of the posting list length.
+    /// Fraction of each posting list used to define k-means centroids; see docs/RustUsage.md#using-the-rust-code.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.1)]
     centroid_fraction: f32,
 
+    /// Summary energy fraction preserved; see docs/RustUsage.md#using-the-rust-code (Executing Queries section).
     #[clap(short, long, value_parser)]
     #[arg(default_value_t = 0.5)]
     summary_energy: f32,
 
+    /// Selects the clustering algorithm used to cluster postings in each posting list; see docs/RustUsage.md#using-the-rust-code.
     #[clap(long, value_parser)]
-    // #[arg(default_value_t = ClusteringAlgorithmClap::default())]
     clustering_algorithm: ClusteringAlgorithmClap,
 
+    /// Choose the pruning strategy for posting lists; see docs/RustUsage.md#using-the-rust-code.
+    #[clap(long, value_parser)]
+    pruning_strategy: PruningStrategyClap,
+
+    /// Pruning factor used by the random k-means blocking (see docs/RustUsage.md#using-the-rust-code).
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0.005)]
     kmeans_pruning_factor: f32,
 
+    /// Number of top components retained while clustering with random k-means (see docs/RustUsage.md#using-the-rust-code).
     #[clap(long, value_parser)]
     #[arg(default_value_t = 15)]
     kmeans_doc_cut: usize,
 
-    #[clap(short, long, value_parser)]
+    /// Minimum cluster size allowed for random k-means blocking (see docs/RustUsage.md#using-the-rust-code).
+    #[clap(long, value_parser)]
     #[arg(default_value_t = 2)]
     min_cluster_size: usize,
 
-    /// Says how many neighbors to include for each vector of the dataset.
-    /// These neighbors are used to improve the accuracy of the reported results.
+    /// Regulates the fraction of L1 mass preserved by the COI pruning strategy; see docs/RustUsage.md#using-the-rust-code.
+    #[clap(short, long, value_parser)]
+    #[arg(default_value_t = 0.15)]
+    alpha: f32,
+
+    /// Regulates the largest length of a posting list as a factor of `n_postings`; see docs/RustUsage.md#using-the-rust-code.
+    #[clap(short, long, value_parser)]
+    #[arg(default_value_t = 1.5)]
+    max_fraction: f32,
+
+    /// Number of neighbors stored per vector; see docs/RustUsage.md#using-the-rust-code for the accuracy impact.
     #[clap(long, value_parser)]
     #[arg(default_value_t = 0)]
     knn: usize,
 
-    /// Path to the file of precomputed nearest neighbors.
+    /// Path to a precomputed nearest-neighbor file (see docs/RustUsage.md#using-the-rust-code).
     #[clap(long, value_parser)]
     knn_path: Option<String>,
-
-    /// Number of documents per chunk in the batched indexing mode.
-    #[clap(long, value_parser)]
-    batched_indexing: Option<usize>,
 }
 
-pub fn main() {
-    let args = Args::parse();
+fn build_config(args: &Args) -> Configuration {
+    let knn_config = KnnConfiguration::new(args.knn, args.knn_path.clone());
 
-    let time = Instant::now();
-
-    let knn_config = KnnConfiguration::new(args.knn, args.knn_path);
-
-    let my_clustering_algorithm = match args.clustering_algorithm {
+    let clustering = match args.clustering_algorithm {
         ClusteringAlgorithmClap::RandomKmeansInvertedIndexApprox => {
             ClusteringAlgorithm::RandomKmeansInvertedIndexApprox {
                 doc_cut: args.kmeans_doc_cut,
@@ -106,24 +122,42 @@ pub fn main() {
         ClusteringAlgorithmClap::RandomKmeans => ClusteringAlgorithm::RandomKmeans {},
     };
 
-    let config = Configuration::default()
-        .pruning_strategy(PruningStrategy::GlobalThreshold {
+    let pruning = match args.pruning_strategy {
+        PruningStrategyClap::FixedSize => PruningStrategy::FixedSize {
             n_postings: args.n_postings,
-            max_fraction: 1.5,
-        })
+        },
+        PruningStrategyClap::GlobalThreshold => PruningStrategy::GlobalThreshold {
+            n_postings: args.n_postings,
+            max_fraction: args.max_fraction,
+        },
+        PruningStrategyClap::CoiThreshold => PruningStrategy::CoiThreshold {
+            alpha: args.alpha,
+            n_postings: args.n_postings,
+        },
+    };
+
+    Configuration::default()
+        .pruning_strategy(pruning)
         .blocking_strategy(BlockingStrategy::RandomKmeans {
             centroid_fraction: args.centroid_fraction,
             min_cluster_size: args.min_cluster_size,
-            clustering_algorithm: my_clustering_algorithm,
+            clustering_algorithm: clustering,
         })
         .summarization_strategy(SummarizationStrategy::EnergyPreserving {
             summary_energy: args.summary_energy,
         })
-        .knn(knn_config);
+        .knn(knn_config)
+}
+
+pub fn main() {
+    let args = Args::parse();
+
+    let time = Instant::now();
+
+    let config = build_config(&args);
     println!("\nBuilding the index...");
     println!("{:?}", config);
 
-    //    let inverted_index = InvertedIndexWrapper::new(dataset, config, None, None);
     let collection_path = args.input_file.unwrap();
 
     type EncoderF32 = ScalarSparseQuantizer<u16, f32, f32, DotProduct>;
