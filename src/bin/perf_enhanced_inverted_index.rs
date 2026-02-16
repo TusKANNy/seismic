@@ -107,6 +107,7 @@ pub fn main() {
                 heap_factor,
                 nknn,
                 args.first_sorted,
+                false,
             );
 
             if cur_results.len() < args.k {

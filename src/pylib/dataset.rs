@@ -11,7 +11,7 @@ macro_rules! impl_seismic_dataset {
         #[derive(Clone)]
         #[pyclass(name = $py_name)]
         pub struct $rust_name {
-            dataset: Dataset<$Key>,
+            dataset: crate::SeismicDataset<$Key>,
         }
 
         #[pymethods]
@@ -29,7 +29,7 @@ macro_rules! impl_seismic_dataset {
             #[new]
             fn new() -> Self {
                 $rust_name {
-                    dataset: Dataset::new(),
+                    dataset: crate::SeismicDataset::new(),
                 }
             }
 
@@ -96,20 +96,21 @@ macro_rules! impl_seismic_dataset {
             ///     k (int): Number of results to return.
             ///
             /// Returns:
-            ///     list[tuple[str, float, str]]: A list of (query_id, distance, document_id) tuples.
+            ///     list[tuple[str, float, str, str | None]]: A list of (query_id, distance, document_id, content) tuples.
             ///
             /// Example:
             ///     >>> string_type = seismic.get_seismic_string()
             ///     >>> results = dataset.search("q1", np.array(["token1", "token2"], dtype=string_type), np.array([0.5, 0.3], dtype=np.float32), k=5)
-            #[pyo3(signature = (query_id, query_components, query_values, k))]
-            #[pyo3(text_signature = "(self, query_id, query_components, query_values, k)")]
+            #[pyo3(signature = (query_id, query_components, query_values, k, return_content=false))]
+            #[pyo3(text_signature = "(self, query_id, query_components, query_values, k, return_content=False)")]
             pub fn search<'py>(
                 &self,
                 query_id: String,
                 query_components: PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>,
                 query_values: PyReadonlyArrayDyn<'py, f32>,
                 k: usize,
-            ) -> Vec<(String, f32, String)> {
+                return_content: bool,
+            ) -> Vec<(String, f32, String, Option<String>)> {
                 self.dataset.search(
                     &query_id,
                     &query_components
@@ -120,6 +121,7 @@ macro_rules! impl_seismic_dataset {
                         .collect::<Vec<_>>(),
                     &query_values.to_vec().unwrap(),
                     k,
+                    return_content,
                 )
                 .into_iter()
                 .map(|r| r.to_tuple())
@@ -140,7 +142,7 @@ macro_rules! impl_seismic_dataset {
             ///     num_threads (int, optional): Number of threads to use for parallel execution (default: 0 = Rayon default).
             ///
             /// Returns:
-            ///     list[list[tuple[str, float, str]]]: A list of result lists, one per query. Each result is a (query_id, distance, document_id) tuple.
+            ///     list[list[tuple[str, float, str, str | None]]]: A list of result lists, one per query. Each result is a (query_id, distance, document_id, content) tuple.
             ///
             /// Example:
             ///     >>> results = dataset.batch_search(query_ids, query_components, query_values, k=10)
@@ -149,10 +151,11 @@ macro_rules! impl_seismic_dataset {
                 query_components,
                 query_values,
                 k,
+                return_content=false,
                 num_threads=0
             ))]
             #[pyo3(
-                text_signature = "(self, queries_ids, query_components, query_values, k, num_threads=0)"
+                text_signature = "(self, queries_ids, query_components, query_values, k, return_content=False, num_threads=0)"
             )]
             pub fn batch_search<'py>(
                 &self,
@@ -160,8 +163,9 @@ macro_rules! impl_seismic_dataset {
                 query_components: Bound<'py, PyList>,
                 query_values: Bound<'_, PyList>,
                 k: usize,
+                return_content: bool,
                 num_threads: usize,
-            ) -> Vec<Vec<(String, f32, String)>> {
+            ) -> Vec<Vec<(String, f32, String, Option<String>)>> {
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(num_threads)
                     .build()
@@ -206,6 +210,7 @@ macro_rules! impl_seismic_dataset {
                             components,
                             values,
                             k,
+                            return_content,
                         )
                         .into_iter()
                         .map(|r| r.to_tuple())

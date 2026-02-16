@@ -4,11 +4,8 @@ use crate::configurations::{
 };
 use crate::inverted_index::Knn;
 
-use crate::SearchResult;
-use crate::SeismicDataset as Dataset;
 use crate::SeismicIndex as Index;
 use half::f16;
-use half::slice::HalfFloatSliceExt;
 
 use indicatif::ParallelProgressIterator;
 use numpy::{PyArrayMethods, PyFixedUnicode, PyReadonlyArrayDyn};
@@ -20,8 +17,8 @@ use std::collections::HashMap;
 
 use crate::InvertedIndexBase;
 use vectorium::{
-    ComponentType, Dataset, DatasetGrowable, DotProduct, PlainSparseDataset, ScalarSparseQuantizer,
-    SparseDataset, SparseDatasetGrowable, SparseVector1D, Vector1D, VectorEncoder, IndexSerializer,
+    ComponentType, Dataset, Distance, DotProduct, IndexSerializer, PlainSparseDataset,
+    ScalarSparseQuantizer, SparseDataset, SparseVectorView,
 };
 
 const MAX_TOKEN_LEN: usize = 30;
@@ -162,8 +159,8 @@ macro_rules! impl_seismic_index {
             pub fn get(&self, id: usize) -> PyResult<(Vec<$Key>, Vec<f32>)> {
                 let entry = self.index.dataset().get(id as u64);
                 Ok((
-                    entry.components_as_slice().to_vec(),
-                    entry.values_as_slice().to_f32_vec(),
+                    entry.components().to_vec(),
+                    entry.values().iter().map(|v| v.to_f32()).collect(),
                 ))
             }
 
@@ -187,7 +184,8 @@ macro_rules! impl_seismic_index {
             #[pyo3(signature = (index_path))]
             #[pyo3(text_signature = "(index_path)")]
             pub fn load(index_path: &str) -> PyResult<$rust_name> {
-                let index: Index<IndexDataset<$Key>> = Index::load_index(index_path);
+                let index: Index<IndexDataset<$Key>> = Index::load_index(index_path)
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to load index: {:?}", e)))?;
 
                 Ok($rust_name { index })
             }
@@ -214,7 +212,7 @@ macro_rules! impl_seismic_index {
 
                 self.index.save_index(full_path.as_str()).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                        "Failed to write index to '{}': {}",
+                        "Failed to write index to '{}': {:?}",
                         full_path, e
                     ))
                 })?;
@@ -315,6 +313,7 @@ macro_rules! impl_seismic_index {
         ///     knn_path (str, optional): Path to precomputed KNN data.
         ///     batched_indexing (int, optional): Batch size for indexing. Reducing this values reduces peak memory usage.
         ///     input_token_to_id_map (dict, optional): Predefined token-to-ID mapping. If None, the index will build its own mapping.
+        ///     load_content (bool, optional): Whether to load document content (default: True).
         ///     num_threads (int, optional): Number of threads to use (default: use Rayon default).
         ///
         /// Returns:
@@ -327,9 +326,9 @@ macro_rules! impl_seismic_index {
         ///     >>> index = seismic.SeismicIndex.build("data.tar.gz", n_postings=4000)
         #[allow(clippy::too_many_arguments)]
         #[staticmethod]
-        #[pyo3(signature = (input_path, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, input_token_to_id_map=None, num_threads=0))]
+        #[pyo3(signature = (input_path, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, input_token_to_id_map=None, load_content=true, num_threads=0))]
         #[pyo3(
-            text_signature = "(input_path, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, input_token_to_id_map=None, num_threads=0)"
+            text_signature = "(input_path, n_postings=3500, centroid_fraction=0.1, min_cluster_size=2, summary_energy=0.4, max_fraction=1.5, doc_cut=15, nknn=0, knn_path=None, batched_indexing=None, input_token_to_id_map=None, load_content=True, num_threads=0)"
         )]
         pub fn build(
             input_path: &str,
@@ -343,6 +342,7 @@ macro_rules! impl_seismic_index {
             knn_path: Option<String>,
             batched_indexing: Option<usize>,
             input_token_to_id_map: Option<HashMap<String, usize>>,
+            load_content: bool,
             num_threads: usize,
         ) -> PyResult<$rust_name> {
             let _ = batched_indexing;
@@ -371,7 +371,7 @@ macro_rules! impl_seismic_index {
             println!("\nBuilding the index...");
             println!("{:?}", config);
 
-            let index = Index::from_file(&input_path.to_owned(), config, input_token_to_id_map)
+            let index = Index::from_file(&input_path.to_owned(), config, input_token_to_id_map, load_content)
                 .map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
                         "Failed to build index from file: {}. File may not exist or be corrupted. Error: {}",
@@ -483,7 +483,7 @@ macro_rules! impl_seismic_index {
         ///     sorted (bool, optional): Whether to scan the summaries in each posting lists starting from the most similar (default: True).
         ///
         /// Returns:
-        ///     list[tuple[str, float, str]]: A list of (query_id, distance, document_id) tuples.
+        ///     list[tuple[str, float, str, str | None]]: A list of (query_id, distance, document_id, content) tuples.
         ///
         /// Example:
         ///     >>> index.search("q1", np.array(["token1", "token2"], dtype=seismic.get_string_type()), np.array([0.5, 0.3], dtype=np.float32), k=5, query_cut=10, heap_factor=0.8)
@@ -495,10 +495,11 @@ macro_rules! impl_seismic_index {
             query_cut,
             heap_factor,
             n_knn=0,
-            sorted=true
+            sorted=true,
+            return_content=false
         ))]
         #[pyo3(
-            text_signature = "(self, query_id, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True)"
+            text_signature = "(self, query_id, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True, return_content=False)"
         )]
         #[allow(clippy::too_many_arguments)]
         pub fn search<'py>(
@@ -511,7 +512,8 @@ macro_rules! impl_seismic_index {
             heap_factor: f32,
             n_knn: usize,
             sorted: bool,
-        ) -> Vec<(String, f32, String)> {
+            return_content: bool,
+        ) -> Vec<(String, f32, String, Option<String>)> {
             self.index.search(
                 &query_id,
                 &query_components
@@ -526,6 +528,7 @@ macro_rules! impl_seismic_index {
                 heap_factor,
                 n_knn,
                 sorted,
+                return_content,
             )
             .into_iter()
             .map(|r| r.to_tuple())
@@ -549,7 +552,7 @@ macro_rules! impl_seismic_index {
     ///     num_threads (int, optional): Number of threads to use for batch execution (default: 0 = Rayon default).
     ///
     /// Returns:
-    ///     list[list[tuple[str, float, str]]]: A list of result lists, one per query. Each result is a (query_id, distance, document_id) tuple.
+    ///     list[list[tuple[str, float, str, str | None]]]: A list of result lists, one per query. Each result is a (query_id, distance, document_id, content) tuple.
     ///
     /// Example:
     ///     >>> results = index.batch_search(query_ids, query_components, query_values, k=10, query_cut=20, heap_factor=0.8)
@@ -562,10 +565,11 @@ macro_rules! impl_seismic_index {
         heap_factor,
         n_knn=0,
         sorted=true,
+        return_content=false,
         num_threads=0
     ))]
     #[pyo3(
-        text_signature = "(self, queries_ids, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True, num_threads=0)"
+        text_signature = "(self, queries_ids, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True, return_content=False, num_threads=0)"
     )]
     #[allow(clippy::too_many_arguments)]
     pub fn batch_search<'py>(
@@ -578,8 +582,9 @@ macro_rules! impl_seismic_index {
         heap_factor: f32,
         n_knn: usize,
         sorted: bool,
+        return_content: bool,
         num_threads: usize,
-    ) -> Vec<Vec<(String, f32, String)>> {
+    ) -> Vec<Vec<(String, f32, String, Option<String>)>> {
         rayon::ThreadPoolBuilder::new()
             .num_threads(num_threads)
             .build()
@@ -628,6 +633,7 @@ macro_rules! impl_seismic_index {
                     heap_factor,
                     n_knn,
                     sorted,
+                    return_content,
                 )
                 .into_iter()
                 .map(|r| r.to_tuple())
@@ -783,8 +789,8 @@ macro_rules! impl_seismic_index_raw {
             pub fn get(&self, id: usize) -> PyResult<(Vec<$Key>, Vec<f32>)> {
                 let entry = self.inverted_index.dataset().get(id as u64);
                 Ok((
-                    entry.components_as_slice().to_vec(),
-                    entry.values_as_slice().to_f32_vec(),
+                    entry.components().to_vec(),
+                    entry.values().iter().map(|v| v.to_f32()).collect(),
                 ))
             }
 
@@ -809,7 +815,8 @@ macro_rules! impl_seismic_index_raw {
             #[pyo3(text_signature = "(index_path)")]
             pub fn load(index_path: &str) -> PyResult<$rust_name> {
                 let inverted_index: InvertedIndexBase<IndexDataset<$Key>> =
-                    InvertedIndexBase::load_index(&index_path);
+                    InvertedIndexBase::load_index(&index_path)
+                        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to load index: {:?}", e)))?;
 
                 Ok($rust_name { inverted_index })
             }
@@ -835,7 +842,7 @@ macro_rules! impl_seismic_index_raw {
                 println!("Saving ... {}", full_path);
                 self.inverted_index.save_index(path).map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
-                        "Failed to write index to '{}': {}",
+                        "Failed to write index to '{}': {:?}",
                         full_path, e
                     ))
                 })?;
@@ -1043,10 +1050,10 @@ macro_rules! impl_seismic_index_raw {
                     .map(|x| *x as $Key)
                     .collect::<Vec<_>>();
                 let values = query_values.to_vec().unwrap();
-                let query = SparseVector1D::new(components.as_slice(), values.as_slice());
+                let query = SparseVectorView::new(components.as_slice(), values.as_slice());
                 self.inverted_index
                     .search(
-                        &query,
+                        query,
                         k,
                         query_cut,
                         heap_factor,
@@ -1114,7 +1121,7 @@ macro_rules! impl_seismic_index_raw {
                     .map(|query| {
                         self.inverted_index
                             .search(
-                                &query,
+                                query.clone(),
                                 k,
                                 query_cut,
                                 heap_factor,

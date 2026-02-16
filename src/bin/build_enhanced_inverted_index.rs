@@ -1,8 +1,8 @@
+use seismic::SeismicIndex;
 use seismic::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
     SummarizationStrategy,
 };
-use seismic::SeismicIndex;
 use vectorium::{DotProduct, IndexSerializer, ScalarSparseQuantizer, SparseDataset};
 
 use half::f16;
@@ -165,7 +165,7 @@ pub fn main() {
     type EncoderF16 = ScalarSparseQuantizer<u16, f32, f16, DotProduct>;
     type DatasetF16 = SparseDataset<EncoderF16>;
 
-    let index_f32 = SeismicIndex::<DatasetF32>::from_json(&collection_path, config, None);
+    let index_f32 = SeismicIndex::<DatasetF32>::from_json(&collection_path, config, None, true);
     let index: SeismicIndex<DatasetF16> = index_f32.convert_dataset_into();
 
     let elapsed = time.elapsed();

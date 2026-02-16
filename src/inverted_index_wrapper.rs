@@ -48,9 +48,14 @@ pub struct SearchResult {
 }
 
 impl SearchResult {
-    /// Convert to tuple format for backwards-compatible interfaces.
-    pub fn to_tuple(&self) -> (String, f32, String) {
-        (self.query_id.clone(), self.score, self.doc_id.clone())
+    /// Convert to tuple format including optional content.
+    pub fn to_tuple(&self) -> (String, f32, String, Option<String>) {
+        (
+            self.query_id.clone(),
+            self.score,
+            self.doc_id.clone(),
+            self.content.clone(),
+        )
     }
 }
 
@@ -195,18 +200,25 @@ where
         &self,
         plain_results: impl IntoIterator<Item = ScoredVectorDotProduct>,
         query_id: &str,
+        return_content: bool,
     ) -> Vec<SearchResult> {
         let score_id_pairs: Vec<(f32, usize)> = plain_results
             .into_iter()
             .map(|result| (result.distance.distance(), result.vector as usize))
             .collect();
 
+        let content = if return_content {
+            self.document_content.as_deref()
+        } else {
+            None
+        };
+
         match &self.document_mapping {
             Some(mapping) => remap_results(
                 score_id_pairs,
                 query_id,
                 mapping,
-                self.document_content.as_deref(),
+                content,
             ),
             None => score_id_pairs
                 .into_iter()
@@ -267,6 +279,7 @@ where
         heap_factor: f32,
         n_knn: usize,
         first_sorted: bool,
+        return_content: bool,
     ) -> Vec<SearchResult>
     where
         S: SeismicSearchDataset,
@@ -288,7 +301,7 @@ where
             first_sorted,
         );
 
-        self.remap_doc_ids(results, query_id)
+        self.remap_doc_ids(results, query_id, return_content)
     }
 
     pub fn print_space_usage_byte(&self)
@@ -413,14 +426,19 @@ where
         reader: BufReader<impl std::io::Read>,
         row_count: usize,
         token_to_id_mapping: HashMap<String, usize>,
+        load_content: bool,
     ) -> (
         ScalarSparseDataset<C, V>,
         Vec<String>,
-        Vec<Option<String>>,
+        Option<Vec<Option<String>>>,
         HashMap<String, usize>,
     ) {
         let mut doc_id_mapping = Vec::with_capacity(row_count);
-        let mut doc_content_mapping = Vec::with_capacity(row_count);
+        let mut doc_content_mapping = if load_content {
+            Some(Vec::with_capacity(row_count))
+        } else {
+            None
+        };
         let dim = token_to_id_mapping.len();
         let encoder = ScalarSparseQuantizer::<C, f32, V, DotProduct>::new(dim, dim);
         let mut converted_data =
@@ -432,7 +450,9 @@ where
         for x in stream.into_iter().progress_count(row_count as u64) {
             let (doc_id, tokens, values, content) = extract_jsonl::<f32>(x.unwrap());
             doc_id_mapping.push(doc_id);
-            doc_content_mapping.push(content);
+            if let Some(ref mut mapping) = doc_content_mapping {
+                mapping.push(content);
+            }
 
             let ids: Vec<_> = tokens
                 .into_iter()
@@ -467,6 +487,7 @@ where
         make_reader: impl Fn() -> BufReader<Box<dyn io::Read>>,
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
+        load_content: bool,
     ) -> Self {
         println!("Reading the collection..");
         let start = Instant::now();
@@ -486,7 +507,7 @@ where
 
         let reader = make_reader();
         let (final_data, doc_id_mapping, doc_content_mapping, token_to_id_mapping) =
-            Self::process_data(reader, row_count, token_to_id_mapping);
+            Self::process_data(reader, row_count, token_to_id_mapping, load_content);
 
         println!(
             "Elapsed time to read the collection: {:} secs",
@@ -497,7 +518,7 @@ where
             final_data,
             config,
             Some(doc_id_mapping),
-            Some(doc_content_mapping),
+            doc_content_mapping,
             token_to_id_mapping,
         )
     }
@@ -506,11 +527,22 @@ where
         file_path: &String,
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
+        load_content: bool,
     ) -> Result<Self, io::Error> {
         if file_path.ends_with(".jsonl") {
-            Ok(Self::from_json(file_path, config, input_token_to_id_map))
+            Ok(Self::from_json(
+                file_path,
+                config,
+                input_token_to_id_map,
+                load_content,
+            ))
         } else if file_path.ends_with(".tar.gz") {
-            Ok(Self::from_tar(file_path, config, input_token_to_id_map))
+            Ok(Self::from_tar(
+                file_path,
+                config,
+                input_token_to_id_map,
+                load_content,
+            ))
         } else {
             Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -523,6 +555,7 @@ where
         json_path: &String,
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
+        load_content: bool,
     ) -> Self {
         let json_path = json_path.clone();
         Self::from_reader_factory(
@@ -533,6 +566,7 @@ where
             },
             config,
             input_token_to_id_map,
+            load_content,
         )
     }
 
@@ -540,6 +574,7 @@ where
         tar_path: &String,
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
+        load_content: bool,
     ) -> Self {
         let tar_path = tar_path.clone();
         Self::from_reader_factory(
@@ -556,6 +591,7 @@ where
             },
             config,
             input_token_to_id_map,
+            load_content,
         )
     }
 }
@@ -688,6 +724,7 @@ where
         query_components: &[String],
         query_values: &[f32],
         k: usize,
+        return_content: bool,
     ) -> Vec<SearchResult> {
         let (components, values) =
             resolve_query_tokens::<C>(query_components, query_values, &self.token_to_id_map);
@@ -699,19 +736,25 @@ where
             .map(|result| (result.distance.distance(), result.vector as usize))
             .collect();
 
-        self.remap_doc_ids(plain_results, query_id)
+        self.remap_doc_ids(plain_results, query_id, return_content)
     }
 
     pub fn remap_doc_ids(
         &self,
         plain_results: Vec<(f32, usize)>,
         query_id: &str,
+        return_content: bool,
     ) -> Vec<SearchResult> {
+        let content = if return_content {
+            Some(self.document_content.as_slice())
+        } else {
+            None
+        };
         remap_results(
             plain_results,
             query_id,
             &self.document_mapping,
-            Some(&self.document_content),
+            content,
         )
     }
 }
