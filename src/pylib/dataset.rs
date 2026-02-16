@@ -80,6 +80,7 @@ macro_rules! impl_seismic_dataset {
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>(),
                     &values.to_vec().unwrap(),
+                    None,
                 );
             }
 
@@ -120,6 +121,9 @@ macro_rules! impl_seismic_dataset {
                     &query_values.to_vec().unwrap(),
                     k,
                 )
+                .into_iter()
+                .map(|r| r.to_tuple())
+                .collect()
             }
 
 
@@ -203,6 +207,9 @@ macro_rules! impl_seismic_dataset {
                             values,
                             k,
                         )
+                        .into_iter()
+                        .map(|r| r.to_tuple())
+                        .collect()
                     })
                     .collect();
 

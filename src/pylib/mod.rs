@@ -4,6 +4,7 @@ use crate::configurations::{
 };
 use crate::inverted_index::Knn;
 
+use crate::SearchResult;
 use crate::SeismicDataset as Dataset;
 use crate::SeismicIndex as Index;
 use half::f16;
@@ -526,6 +527,9 @@ macro_rules! impl_seismic_index {
                 n_knn,
                 sorted,
             )
+            .into_iter()
+            .map(|r| r.to_tuple())
+            .collect()
         }
 
         /// Perform batched nearest neighbor search using multiple sparse query vectors.
@@ -625,6 +629,9 @@ macro_rules! impl_seismic_index {
                     n_knn,
                     sorted,
                 )
+                .into_iter()
+                .map(|r| r.to_tuple())
+                .collect()
             })
             .collect();
 

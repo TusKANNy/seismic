@@ -1,14 +1,15 @@
 use std::{
     collections::HashMap,
     fs::File,
-    io::{self, BufRead, BufReader},
+    io::{self, BufReader},
     time::Instant,
 };
 
-use crate::json_utils::{JsonFormat, extract_jsonl};
+use crate::json_utils::{JsonSparseVector, extract_jsonl};
 use half::f16;
 use num_traits::{FromPrimitive, ToPrimitive};
 use vectorium::ComponentType;
+use vectorium::IndexSerializer;
 use vectorium::dataset::ConvertFrom;
 use vectorium::dataset::ScoredVector;
 use vectorium::vector_encoder::{SparseDataEncoder, SparseVectorEncoder};
@@ -16,7 +17,6 @@ use vectorium::{
     Dataset, DatasetGrowable, Distance, DotProduct, QueryEvaluator, ScalarSparseQuantizer,
     SpaceUsage, SparseData, SparseDataset, SparseDatasetGrowable, SparseVectorView, VectorEncoder,
 };
-use vectorium::IndexSerializer;
 
 use indicatif::ProgressIterator;
 use itertools::Itertools;
@@ -37,6 +37,62 @@ use crate::{
 
 type ScoredVectorDotProduct = ScoredVector<DotProduct>;
 
+/// Represents a single search result with query metadata, score, document ID,
+/// and optionally the original document content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResult {
+    pub query_id: String,
+    pub score: f32,
+    pub doc_id: String,
+    pub content: Option<String>,
+}
+
+impl SearchResult {
+    /// Convert to tuple format for backwards-compatible interfaces.
+    pub fn to_tuple(&self) -> (String, f32, String) {
+        (self.query_id.clone(), self.score, self.doc_id.clone())
+    }
+}
+
+/// Remap raw search results (score, internal_doc_id) into `SearchResult` values
+/// using the document ID mapping and optional content mapping.
+fn remap_results(
+    results: impl IntoIterator<Item = (f32, usize)>,
+    query_id: &str,
+    doc_mapping: &[String],
+    doc_content: Option<&[Option<String>]>,
+) -> Vec<SearchResult> {
+    results
+        .into_iter()
+        .map(|(score, internal_id)| SearchResult {
+            query_id: query_id.to_owned(),
+            score,
+            doc_id: doc_mapping[internal_id].clone(),
+            content: doc_content.and_then(|c| c[internal_id].clone()),
+        })
+        .collect()
+}
+
+/// Resolve query token strings to internal component IDs using the token map.
+/// Unknown tokens are silently filtered out. Results are sorted by component ID.
+fn resolve_query_tokens<C: ComponentType + FromPrimitive>(
+    tokens: &[String],
+    values: &[f32],
+    token_map: &HashMap<String, usize>,
+) -> (Vec<C>, Vec<f32>) {
+    tokens
+        .iter()
+        .zip(values)
+        .filter_map(|(token, &value)| {
+            token_map
+                .get(token)
+                .and_then(|id| C::from_usize(*id))
+                .map(|component| (component, value))
+        })
+        .sorted_by_key(|(component, _)| *component)
+        .unzip()
+}
+
 #[derive(Default, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SeismicIndex<S>
 where
@@ -49,6 +105,7 @@ where
     ))]
     inverted_index: InvertedIndexBase<S>,
     document_mapping: Option<Box<[String]>>,
+    document_content: Option<Box<[Option<String>]>>,
     token_to_id_map: HashMap<String, usize>,
 }
 
@@ -66,8 +123,35 @@ where
     ComponentFor<S>: SpaceUsage,
 {
     fn space_usage_bytes(&self) -> usize {
-        //TODO: add the SpaceUsage of document_mapping and token_to_id_map
-        self.inverted_index.space_usage_bytes()
+        let mut total = self.inverted_index.space_usage_bytes();
+
+        // document_mapping: Box<[String]> overhead + string contents
+        if let Some(ref mapping) = self.document_mapping {
+            total += std::mem::size_of::<String>() * mapping.len();
+            total += mapping.iter().map(|s| s.capacity()).sum::<usize>();
+        }
+
+        // document_content: Box<[Option<String>]> overhead + string contents
+        if let Some(ref content) = self.document_content {
+            total += std::mem::size_of::<Option<String>>() * content.len();
+            total += content
+                .iter()
+                .filter_map(|s| s.as_ref())
+                .map(|s| s.capacity())
+                .sum::<usize>();
+        }
+
+        // token_to_id_map: HashMap overhead + key string contents
+        // Approximate HashMap overhead: each entry has a key (String) + value (usize) + hash metadata
+        total += self.token_to_id_map.capacity()
+            * (std::mem::size_of::<String>() + std::mem::size_of::<usize>() + 8);
+        total += self
+            .token_to_id_map
+            .keys()
+            .map(|k| k.capacity())
+            .sum::<usize>();
+
+        total
     }
 }
 
@@ -85,6 +169,7 @@ where
         dataset: S,
         config: Configuration,
         document_mapping: Option<impl Into<Box<[String]>>>,
+        document_content: Option<impl Into<Box<[Option<String>]>>>,
         token_to_id_map: HashMap<String, usize>,
     ) -> Self
     where
@@ -101,6 +186,7 @@ where
         Self {
             inverted_index,
             document_mapping: document_mapping.map(|d| d.into()),
+            document_content: document_content.map(|c| c.into()),
             token_to_id_map,
         }
     }
@@ -109,28 +195,26 @@ where
         &self,
         plain_results: impl IntoIterator<Item = ScoredVectorDotProduct>,
         query_id: &str,
-    ) -> Vec<(String, f32, String)> {
+    ) -> Vec<SearchResult> {
+        let score_id_pairs: Vec<(f32, usize)> = plain_results
+            .into_iter()
+            .map(|result| (result.distance.distance(), result.vector as usize))
+            .collect();
+
         match &self.document_mapping {
-            Some(mapping) => plain_results
+            Some(mapping) => remap_results(
+                score_id_pairs,
+                query_id,
+                mapping,
+                self.document_content.as_deref(),
+            ),
+            None => score_id_pairs
                 .into_iter()
-                .map(|result| {
-                    let doc_id = result.vector as usize;
-                    (
-                        query_id.to_owned(),
-                        result.distance.distance(),
-                        mapping[doc_id].clone(),
-                    )
-                })
-                .collect(),
-            None => plain_results
-                .into_iter()
-                .map(|result| {
-                    let doc_id = result.vector as usize;
-                    (
-                        query_id.to_owned(),
-                        result.distance.distance(),
-                        doc_id.to_string(),
-                    )
+                .map(|(score, internal_id)| SearchResult {
+                    query_id: query_id.to_owned(),
+                    score,
+                    doc_id: internal_id.to_string(),
+                    content: None,
                 })
                 .collect(),
         }
@@ -157,18 +241,12 @@ where
                 Distance = DotProduct,
             >,
     {
-        let (filtered_query_components, filtered_query_values): (Vec<_>, Vec<_>) =
-            query_components_original
-                .iter()
-                .zip(query_values)
-                .filter_map(|(qc, &qv)| {
-                    self.token_to_id_map
-                        .get(qc)
-                        .and_then(|id| ComponentFor::<S>::from_usize(*id))
-                        .map(|component| (component, qv))
-                })
-                .sorted_by_key(|(component, _)| *component)
-                .unzip();
+        let (filtered_query_components, filtered_query_values) =
+            resolve_query_tokens::<ComponentFor<S>>(
+                query_components_original,
+                query_values,
+                &self.token_to_id_map,
+            );
 
         let query = SparseVectorView::new(
             filtered_query_components.as_slice(),
@@ -189,7 +267,7 @@ where
         heap_factor: f32,
         n_knn: usize,
         first_sorted: bool,
-    ) -> Vec<(String, f32, String)>
+    ) -> Vec<SearchResult>
     where
         S: SeismicSearchDataset,
         ComponentFor<S>: FromPrimitive,
@@ -210,7 +288,7 @@ where
             first_sorted,
         );
 
-        self.remap_doc_ids(results, query_id) // return the documents remapped
+        self.remap_doc_ids(results, query_id)
     }
 
     pub fn print_space_usage_byte(&self)
@@ -254,6 +332,7 @@ where
         SeismicIndex {
             inverted_index: self.inverted_index.convert_dataset_into(),
             document_mapping: self.document_mapping,
+            document_content: self.document_content,
             token_to_id_map: self.token_to_id_map,
         }
     }
@@ -297,20 +376,22 @@ where
             frozen,
             config,
             Some(dataset.document_mapping),
+            Some(dataset.document_content),
             dataset.token_to_id_map,
         )
     }
 
-    fn build_token_map(
-        reader: BufReader<impl std::io::Read>,
-        row_count: usize,
-    ) -> HashMap<String, usize> {
+    /// Build the token-to-ID mapping by scanning the stream once.
+    /// Also counts the number of rows, eliminating the need for a separate line-counting pass.
+    fn build_token_map(reader: BufReader<impl std::io::Read>) -> (HashMap<String, usize>, usize) {
         let mut token_to_id_mapping = HashMap::<String, usize>::new();
-        let stream: serde_json::StreamDeserializer<_, JsonFormat> =
+        let mut row_count = 0usize;
+        let stream: serde_json::StreamDeserializer<_, JsonSparseVector> =
             Deserializer::from_reader(reader).into_iter();
 
-        for x in stream.into_iter().progress_count(row_count as u64) {
-            let (_doc_id, tokens, _values) = extract_jsonl::<f32>(x.unwrap());
+        for x in stream {
+            row_count += 1;
+            let (_doc_id, tokens, _values, _content) = extract_jsonl::<f32>(x.unwrap());
             for token in tokens {
                 if !token_to_id_mapping.contains_key(&token) {
                     token_to_id_mapping.insert(token, token_to_id_mapping.len());
@@ -325,7 +406,7 @@ where
             n_bits
         );
 
-        token_to_id_mapping
+        (token_to_id_mapping, row_count)
     }
 
     fn process_data(
@@ -335,20 +416,23 @@ where
     ) -> (
         ScalarSparseDataset<C, V>,
         Vec<String>,
+        Vec<Option<String>>,
         HashMap<String, usize>,
     ) {
         let mut doc_id_mapping = Vec::with_capacity(row_count);
+        let mut doc_content_mapping = Vec::with_capacity(row_count);
         let dim = token_to_id_mapping.len();
         let encoder = ScalarSparseQuantizer::<C, f32, V, DotProduct>::new(dim, dim);
         let mut converted_data =
             SparseDatasetGrowable::<ScalarSparseQuantizer<C, f32, V, DotProduct>>::new(encoder);
 
-        let stream: serde_json::StreamDeserializer<_, JsonFormat> =
+        let stream: serde_json::StreamDeserializer<_, JsonSparseVector> =
             Deserializer::from_reader(reader).into_iter();
 
         for x in stream.into_iter().progress_count(row_count as u64) {
-            let (doc_id, tokens, values) = extract_jsonl::<f32>(x.unwrap());
+            let (doc_id, tokens, values, content) = extract_jsonl::<f32>(x.unwrap());
             doc_id_mapping.push(doc_id);
+            doc_content_mapping.push(content);
 
             let ids: Vec<_> = tokens
                 .into_iter()
@@ -367,7 +451,55 @@ where
         }
 
         let frozen: ScalarSparseDataset<C, V> = converted_data.into();
-        (frozen, doc_id_mapping, token_to_id_mapping)
+        (
+            frozen,
+            doc_id_mapping,
+            doc_content_mapping,
+            token_to_id_mapping,
+        )
+    }
+
+    /// Core loading logic shared by `from_json` and `from_tar`.
+    /// Takes a closure that creates a fresh `BufReader` each time it is called
+    /// (needed for the 2-pass approach: first pass builds token map + counts rows,
+    /// second pass processes data).
+    fn from_reader_factory(
+        make_reader: impl Fn() -> BufReader<Box<dyn io::Read>>,
+        config: Configuration,
+        input_token_to_id_map: Option<HashMap<String, usize>>,
+    ) -> Self {
+        println!("Reading the collection..");
+        let start = Instant::now();
+
+        let (token_to_id_mapping, row_count) = match input_token_to_id_map {
+            Some(mapping) => {
+                // Still need row count: do a single pass just counting
+                let reader = make_reader();
+                let stream: serde_json::StreamDeserializer<_, JsonSparseVector> =
+                    Deserializer::from_reader(reader).into_iter();
+                let count = stream.count();
+                (mapping, count)
+            }
+            None => Self::build_token_map(make_reader()),
+        };
+        println!("Number of rows: {}", row_count);
+
+        let reader = make_reader();
+        let (final_data, doc_id_mapping, doc_content_mapping, token_to_id_mapping) =
+            Self::process_data(reader, row_count, token_to_id_mapping);
+
+        println!(
+            "Elapsed time to read the collection: {:} secs",
+            start.elapsed().as_secs()
+        );
+
+        Self::new(
+            final_data,
+            config,
+            Some(doc_id_mapping),
+            Some(doc_content_mapping),
+            token_to_id_mapping,
+        )
     }
 
     pub fn from_file(
@@ -392,94 +524,38 @@ where
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
     ) -> Self {
-        println!("Reading the collection..");
-        let start = Instant::now();
-
-        let f = File::open(json_path).unwrap_or_else(|_| panic!("Unable to open {}", json_path));
-        let reader = io::BufReader::new(f);
-        let row_count = reader.lines().count();
-        println!("Number of rows: {}", row_count);
-
-        let token_to_id_mapping = match input_token_to_id_map {
-            Some(mapping) => mapping,
-            None => {
-                let f = File::open(json_path)
+        let json_path = json_path.clone();
+        Self::from_reader_factory(
+            move || {
+                let f = File::open(&json_path)
                     .unwrap_or_else(|_| panic!("Unable to open {}", json_path));
-                let reader = BufReader::new(f);
-                Self::build_token_map(reader, row_count)
-            }
-        };
-
-        let f = File::open(json_path).unwrap_or_else(|_| panic!("Unable to open {}", json_path));
-        let reader = BufReader::new(f);
-
-        let (final_data, doc_id_mapping, token_to_id_mapping) =
-            Self::process_data(reader, row_count, token_to_id_mapping);
-
-        println!(
-            "Elapsed time to read the collection: {:} secs",
-            start.elapsed().as_secs()
-        );
-
-        Self::new(
-            final_data,
+                BufReader::new(Box::new(f) as Box<dyn io::Read>)
+            },
             config,
-            Some(doc_id_mapping),
-            token_to_id_mapping,
+            input_token_to_id_map,
         )
     }
 
-    #[allow(unused_variables)]
     pub fn from_tar(
         tar_path: &String,
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
     ) -> Self {
-        println!("Reading the collection..");
-        let start = Instant::now();
-
-        let tar_gz_file =
-            File::open(tar_path).unwrap_or_else(|_| panic!("Unable to open {}", tar_path));
-        let gz_decoder = GzDecoder::new(tar_gz_file);
-        let mut archive = Archive::new(gz_decoder);
-        let json_entry = archive.entries().unwrap().next().unwrap().unwrap();
-        let reader = BufReader::new(json_entry);
-        let row_count = reader.lines().count();
-        println!("Number of rows: {}", row_count);
-
-        let token_to_id_mapping = match input_token_to_id_map {
-            Some(mapping) => mapping,
-            None => {
+        let tar_path = tar_path.clone();
+        Self::from_reader_factory(
+            move || {
                 let tar_gz_file =
-                    File::open(tar_path).unwrap_or_else(|_| panic!("Unable to open {}", tar_path));
+                    File::open(&tar_path).unwrap_or_else(|_| panic!("Unable to open {}", tar_path));
                 let gz_decoder = GzDecoder::new(tar_gz_file);
                 let mut archive = Archive::new(gz_decoder);
                 let json_entry = archive.entries().unwrap().next().unwrap().unwrap();
-                let reader = BufReader::new(json_entry);
-                Self::build_token_map(reader, row_count)
-            }
-        };
-
-        let tar_gz_file =
-            File::open(tar_path).unwrap_or_else(|_| panic!("Unable to open {}", tar_path));
-        let gz_decoder = GzDecoder::new(tar_gz_file);
-        let mut archive = Archive::new(gz_decoder);
-        let json_entry = archive.entries().unwrap().next().unwrap().unwrap();
-        let reader = BufReader::new(json_entry);
-
-        let (final_data, doc_id_mapping, token_to_id_mapping) =
-            Self::process_data(reader, row_count, token_to_id_mapping);
-
-        println!(
-            "Elapsed time to read the collection: {:} secs",
-            start.elapsed().as_secs()
-        );
-
-        Self::new(
-            final_data,
+                // Read the entire entry into memory so we don't borrow from the archive
+                let mut buf = Vec::new();
+                io::Read::read_to_end(&mut BufReader::new(json_entry), &mut buf).unwrap();
+                BufReader::new(Box::new(io::Cursor::new(buf)) as Box<dyn io::Read>)
+            },
             config,
-            Some(doc_id_mapping),
-            token_to_id_mapping,
+            input_token_to_id_map,
         )
     }
 }
@@ -491,12 +567,13 @@ where
 {
     sparse_dataset: vectorium::PlainSparseDatasetGrowable<C, f16, vectorium::DotProduct>,
     document_mapping: Vec<String>,
+    document_content: Vec<Option<String>>,
     token_to_id_map: HashMap<String, usize>,
 }
 
 impl<C> Default for SeismicDataset<C>
 where
-    C: ComponentType + std::convert::TryFrom<usize>,
+    C: ComponentType + std::convert::TryFrom<usize> + FromPrimitive,
     <C as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
 {
     fn default() -> Self {
@@ -506,7 +583,7 @@ where
 
 impl<C> SeismicDataset<C>
 where
-    C: ComponentType + std::convert::TryFrom<usize>,
+    C: ComponentType + std::convert::TryFrom<usize> + FromPrimitive,
     <C as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
 {
     pub fn new() -> Self {
@@ -515,12 +592,11 @@ where
                 vectorium::PlainSparseQuantizer::<C, f16, vectorium::DotProduct>::new(0, 0);
             vectorium::PlainSparseDatasetGrowable::<C, f16, vectorium::DotProduct>::new(quantizer)
         };
-        let document_mapping = Vec::<String>::new();
-        let token_to_id_map = HashMap::new();
         Self {
             sparse_dataset,
-            document_mapping,
-            token_to_id_map,
+            document_mapping: Vec::new(),
+            document_content: Vec::new(),
+            token_to_id_map: HashMap::new(),
         }
     }
 
@@ -565,8 +641,15 @@ where
         self.sparse_dataset = rebuilt;
     }
 
-    pub fn add_document(&mut self, id: String, tokens: &[String], values: &[f32]) {
+    pub fn add_document(
+        &mut self,
+        id: String,
+        tokens: &[String],
+        values: &[f32],
+        content: Option<String>,
+    ) {
         self.document_mapping.push(id);
+        self.document_content.push(content);
 
         let mut components: Vec<C> = Vec::with_capacity(tokens.len());
         for c in tokens.iter() {
@@ -605,16 +688,11 @@ where
         query_components: &[String],
         query_values: &[f32],
         k: usize,
-    ) -> Vec<(String, f32, String)> {
-        let filtered_query = query_components
-            .iter()
-            .zip(query_values)
-            .filter_map(|(qc, &qv)| self.token_to_id_map.get(qc).map(|id| (*id, qv)))
-            .sorted_by(|(a, _), (b, _)| a.cmp(b))
-            .map(|(id, value)| (C::try_from(id).unwrap(), value));
-        let (components, values): (Vec<_>, Vec<_>) = filtered_query.unzip();
+    ) -> Vec<SearchResult> {
+        let (components, values) =
+            resolve_query_tokens::<C>(query_components, query_values, &self.token_to_id_map);
         let query = SparseVectorView::new(components.as_slice(), values.as_slice());
-        let plain_results = self
+        let plain_results: Vec<(f32, usize)> = self
             .sparse_dataset
             .search(query, k)
             .into_iter()
@@ -628,18 +706,12 @@ where
         &self,
         plain_results: Vec<(f32, usize)>,
         query_id: &str,
-    ) -> Vec<(String, f32, String)> {
-        let remapped_results: Vec<(String, f32, String)> = plain_results
-            .iter()
-            .map(|(distance, doc_id)| {
-                (
-                    query_id.to_string(),
-                    *distance,
-                    self.document_mapping[*doc_id].clone(),
-                )
-            })
-            .collect();
-
-        remapped_results
+    ) -> Vec<SearchResult> {
+        remap_results(
+            plain_results,
+            query_id,
+            &self.document_mapping,
+            Some(&self.document_content),
+        )
     }
 }

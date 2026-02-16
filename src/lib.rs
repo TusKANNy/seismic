@@ -20,6 +20,7 @@ pub type ScalarInvertedIndex<C, W, V> =
     inverted_index::InvertedIndexBase<ScalarSparseDataset<C, W, V, DotProduct>>;
 
 pub mod inverted_index_wrapper;
+pub use inverted_index_wrapper::SearchResult;
 pub use inverted_index_wrapper::SeismicDataset;
 pub use inverted_index_wrapper::SeismicIndex;
 

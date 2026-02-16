@@ -4,6 +4,7 @@ use std::io::Write;
 use std::time::Instant;
 
 use half::f16;
+use seismic::SearchResult;
 use seismic::SeismicIndex;
 use seismic::json_utils::read_queries;
 use vectorium::{DotProduct, IndexSerializer, ScalarSparseQuantizer, SpaceUsage, SparseDataset};
@@ -97,7 +98,7 @@ pub fn main() {
         inverted_index.nnz() / inverted_index.len()
     );
 
-    let mut results: Vec<Vec<(String, f32, String)>> = Vec::with_capacity(n_queries);
+    let mut results: Vec<Vec<SearchResult>> = Vec::with_capacity(n_queries);
     let time = Instant::now();
     for _ in 0..n_runs {
         results.clear();
@@ -146,11 +147,14 @@ pub fn main() {
 
     for current_result in results.iter() {
         // Writes results to a file in a parsable format
-        for (idx, (query_id, score, doc_id)) in current_result.iter().enumerate() {
+        for (idx, result) in current_result.iter().enumerate() {
             writeln!(
                 &mut output_file,
-                "{query_id}\t{doc_id}\t{}\t{score}",
+                "{}\t{}\t{}\t{}",
+                result.query_id,
+                result.doc_id,
                 idx + 1,
+                result.score,
             )
             .unwrap();
         }
