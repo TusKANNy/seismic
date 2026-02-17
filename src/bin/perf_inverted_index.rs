@@ -28,7 +28,7 @@ pub struct Args {
     #[clap(short, long, value_parser)]
     query_file: Option<String>,
 
-    /// Output file that receives the ranked results (see docs/RustUsage.md#using-the-rust-code).
+    /// Output file with the ranked results (see docs/RustUsage.md#using-the-rust-code).
     #[clap(short, long, value_parser)]
     output_path: Option<String>,
 
