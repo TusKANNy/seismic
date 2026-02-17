@@ -27,9 +27,7 @@ use vectorium::{
     SparseData, SparseDataset, SparseDatasetGrowable, ValueType, VectorEncoder,
 };
 
-// ============================================================================
 // Type Aliases (Centralized)
-// ============================================================================
 
 /// The encoder type for a dataset.
 pub type EncoderFor<S> = <S as Dataset>::Encoder;
@@ -40,9 +38,7 @@ pub type ComponentFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputComponent
 /// The value type (e.g., `f16`, `f32`) for a dataset.
 pub type ValueFor<S> = <EncoderFor<S> as SparseDataEncoder>::OutputValueType;
 
-// ============================================================================
-// SeismicBuildDataset
-// ============================================================================
+// SeismicBuildDataset Marker Trait
 
 /// Trait for datasets usable in index **construction**.
 ///
@@ -88,9 +84,7 @@ where
 {
 }
 
-// ============================================================================
-// SeismicSearchDataset
-// ============================================================================
+// SeismicSearchDataset Marker Trait
 
 /// Trait for datasets usable in index **search**.
 ///

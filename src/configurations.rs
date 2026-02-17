@@ -12,9 +12,7 @@ use serde::{Deserialize, Serialize};
 /// An example is the quantization strategy. Based on the chosen
 /// quantization strategy, we need to chose the right function to call while
 /// computing the distance between vectors.
-///
 #[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
-/// Configuration parameters for building the inverted index.
 pub struct Configuration {
     pub(crate) pruning: PruningStrategy,
     pub(crate) blocking: BlockingStrategy,
