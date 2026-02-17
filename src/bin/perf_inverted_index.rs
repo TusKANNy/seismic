@@ -77,7 +77,7 @@ pub struct Args {
     component_type: String,
 
     /// Value type (`f16`, `bf16`, `f32`, `fixedu8`, or `fixedu16`); see docs/RustUsage.md#using-the-rust-code for recommendations.
-    #[clap(long, value_parser)]
+    #[clap(short, long, value_parser)]
     #[arg(default_value = "f16")]
     value_type: String,
 }

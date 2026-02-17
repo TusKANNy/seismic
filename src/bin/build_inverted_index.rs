@@ -120,7 +120,7 @@ pub struct Args {
     component_type: String,
 
     /// Value type: f16, bf16, f32, fixedu16, fixedu8, or dotvbyte; see docs/RustUsage.md#using-the-rust-code for quantization choices.
-    #[clap(long, value_parser)]
+    #[clap(short, long, value_parser)]
     #[arg(default_value = "f16")]
     value_type: String,
 }
