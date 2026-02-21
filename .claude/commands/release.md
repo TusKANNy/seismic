@@ -103,7 +103,9 @@ For each notebook, read its cells and cross-check API calls against `src/pylib/m
 - `examples/HandsOnSeismic.ipynb` — gentle intro, targets new users
 - `examples/SeismicGuide.ipynb` — detailed how-to, covers all features
 - `examples/RAG.ipynb` — RAG pipeline example using `get_doc_text()`
-- `examples/LargeVocabulary.ipynb` — `SeismicIndexLV` / `SeismicDatasetLV` usage
+- `examples/LargeVocabulary.ipynb` — `SeismicIndexLV` / `SeismicDatasetLV` 
+- `examples/DotVByteIndex.ipynb` - compressed index usage
+usage
 
 > `examples/ReadListExperiments.ipynb` is an internal research notebook; skip it.
 
