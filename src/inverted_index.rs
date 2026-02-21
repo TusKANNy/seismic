@@ -6,13 +6,13 @@ use crate::utils::KHeap;
 
 use toolkit::{BitField, BitFieldGrowable};
 
+use vectorium::IndexSerializer;
 use vectorium::dataset::{ConvertFrom, ConvertInto};
 use vectorium::vector_encoder::{SparseDataEncoder, SparseVectorEncoder};
 use vectorium::{
     Dataset, Distance, DotProduct, QueryEvaluator, ScoredRange, ScoredVectorDotProduct, SpaceUsage,
     SparseData, SparseVectorView, VectorEncoder,
 };
-use vectorium::IndexSerializer;
 
 use indicatif::ParallelProgressIterator;
 
@@ -545,9 +545,7 @@ impl Knn {
         let path = output_file.to_string() + ".knn.seismic";
         println!("Saving ... {}", path.as_str());
         self.save_index(path.as_str())
-            .map_err(|err| {
-                std::io::Error::new(std::io::ErrorKind::Other, format!("{err:?}"))
-            })?;
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, format!("{err:?}")))?;
         Ok(())
     }
 

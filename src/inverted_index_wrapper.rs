@@ -71,7 +71,7 @@ fn remap_results(
 
 /// Resolve query token strings to internal component IDs using the token map.
 /// Unknown tokens are silently filtered out. Results are sorted by component ID.
-fn resolve_query_tokens<C: ComponentType + FromPrimitive>(
+pub(crate) fn resolve_query_tokens<C: ComponentType + FromPrimitive>(
     tokens: &[String],
     values: &[f32],
     token_map: &HashMap<String, usize>,
@@ -151,16 +151,13 @@ where
     }
 }
 
+// Build-only methods: require SeismicBuildDataset + SeismicSearchDataset
 impl<S> SeismicIndex<S>
 where
     S: SeismicBuildDataset + SeismicSearchDataset,
     EncoderFor<S>: SparseVectorEncoder<InputValueType = f32>,
     S: From<SparseDataset<EncoderFor<S>>>,
 {
-    pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
-        self.inverted_index.get_doc_ids_in_postings(list_id)
-    }
-
     pub fn new(
         dataset: S,
         config: Configuration,
@@ -186,7 +183,13 @@ where
             token_to_id_map,
         }
     }
+}
 
+// Search and access methods: only require SeismicSearchDataset
+impl<S> SeismicIndex<S>
+where
+    S: SeismicSearchDataset,
+{
     pub fn remap_doc_ids(
         &self,
         plain_results: impl IntoIterator<Item = ScoredVectorDotProduct>,
@@ -222,7 +225,6 @@ where
         first_sorted: bool,
     ) -> Vec<ScoredVectorDotProduct>
     where
-        S: SeismicSearchDataset,
         ComponentFor<S>: FromPrimitive,
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
@@ -259,7 +261,6 @@ where
         first_sorted: bool,
     ) -> Vec<SearchResult>
     where
-        S: SeismicSearchDataset,
         ComponentFor<S>: FromPrimitive,
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
@@ -288,6 +289,17 @@ where
         let content = self.document_content.as_deref()?;
         let idx = mapping.iter().position(|id| id == doc_id)?;
         content[idx].clone()
+    }
+}
+
+// Accessor methods with minimal trait bounds
+impl<S> SeismicIndex<S>
+where
+    S: SparseData,
+    EncoderFor<S>: SparseDataEncoder,
+{
+    pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
+        self.inverted_index.get_doc_ids_in_postings(list_id)
     }
 
     pub fn print_space_usage_byte(&self)

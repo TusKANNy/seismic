@@ -1153,6 +1153,9 @@ macro_rules! impl_seismic_index_raw {
 #[macro_use]
 mod dataset; // -> import macro from pylib/dataset.rs
 
+mod dotvbyte;
+pub use dotvbyte::SeismicIndexDotVByte;
+
 impl_seismic_dataset!(SeismicDataset, "SeismicDataset", u16);
 impl_seismic_dataset!(SeismicDatasetLV, "SeismicDatasetLV", u32);
 
