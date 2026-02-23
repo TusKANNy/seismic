@@ -37,35 +37,27 @@ use crate::{
 
 type ScoredVectorDotProduct = ScoredVector<DotProduct>;
 
-/// Represents a single search result with query metadata, score, document ID,
-/// and optionally the original document content.
+/// Represents a single search result with query metadata, score, and document ID.
+/// To retrieve document text, use `get_doc_text` on the index or dataset.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub query_id: String,
     pub score: f32,
     pub doc_id: String,
-    pub content: Option<String>,
 }
 
 impl SearchResult {
-    /// Convert to tuple format including optional content.
-    pub fn to_tuple(&self) -> (String, f32, String, Option<String>) {
-        (
-            self.query_id.clone(),
-            self.score,
-            self.doc_id.clone(),
-            self.content.clone(),
-        )
+    pub fn to_tuple(&self) -> (String, f32, String) {
+        (self.query_id.clone(), self.score, self.doc_id.clone())
     }
 }
 
 /// Remap raw search results (score, internal_doc_id) into `SearchResult` values
-/// using the document ID mapping and optional content mapping.
+/// using the document ID mapping.
 fn remap_results(
     results: impl IntoIterator<Item = (f32, usize)>,
     query_id: &str,
     doc_mapping: &[String],
-    doc_content: Option<&[Option<String>]>,
 ) -> Vec<SearchResult> {
     results
         .into_iter()
@@ -73,14 +65,13 @@ fn remap_results(
             query_id: query_id.to_owned(),
             score,
             doc_id: doc_mapping[internal_id].clone(),
-            content: doc_content.and_then(|c| c[internal_id].clone()),
         })
         .collect()
 }
 
 /// Resolve query token strings to internal component IDs using the token map.
 /// Unknown tokens are silently filtered out. Results are sorted by component ID.
-fn resolve_query_tokens<C: ComponentType + FromPrimitive>(
+pub(crate) fn resolve_query_tokens<C: ComponentType + FromPrimitive>(
     tokens: &[String],
     values: &[f32],
     token_map: &HashMap<String, usize>,
@@ -160,16 +151,13 @@ where
     }
 }
 
+// Build-only methods: require SeismicBuildDataset + SeismicSearchDataset
 impl<S> SeismicIndex<S>
 where
     S: SeismicBuildDataset + SeismicSearchDataset,
     EncoderFor<S>: SparseVectorEncoder<InputValueType = f32>,
     S: From<SparseDataset<EncoderFor<S>>>,
 {
-    pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
-        self.inverted_index.get_doc_ids_in_postings(list_id)
-    }
-
     pub fn new(
         dataset: S,
         config: Configuration,
@@ -195,38 +183,31 @@ where
             token_to_id_map,
         }
     }
+}
 
+// Search and access methods: only require SeismicSearchDataset
+impl<S> SeismicIndex<S>
+where
+    S: SeismicSearchDataset,
+{
     pub fn remap_doc_ids(
         &self,
         plain_results: impl IntoIterator<Item = ScoredVectorDotProduct>,
         query_id: &str,
-        return_content: bool,
     ) -> Vec<SearchResult> {
         let score_id_pairs: Vec<(f32, usize)> = plain_results
             .into_iter()
             .map(|result| (result.distance.distance(), result.vector as usize))
             .collect();
 
-        let content = if return_content {
-            self.document_content.as_deref()
-        } else {
-            None
-        };
-
         match &self.document_mapping {
-            Some(mapping) => remap_results(
-                score_id_pairs,
-                query_id,
-                mapping,
-                content,
-            ),
+            Some(mapping) => remap_results(score_id_pairs, query_id, mapping),
             None => score_id_pairs
                 .into_iter()
                 .map(|(score, internal_id)| SearchResult {
                     query_id: query_id.to_owned(),
                     score,
                     doc_id: internal_id.to_string(),
-                    content: None,
                 })
                 .collect(),
         }
@@ -244,7 +225,6 @@ where
         first_sorted: bool,
     ) -> Vec<ScoredVectorDotProduct>
     where
-        S: SeismicSearchDataset,
         ComponentFor<S>: FromPrimitive,
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
@@ -279,10 +259,8 @@ where
         heap_factor: f32,
         n_knn: usize,
         first_sorted: bool,
-        return_content: bool,
     ) -> Vec<SearchResult>
     where
-        S: SeismicSearchDataset,
         ComponentFor<S>: FromPrimitive,
         for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
             From<SparseVectorView<'a, ComponentFor<S>, f32>>,
@@ -301,7 +279,27 @@ where
             first_sorted,
         );
 
-        self.remap_doc_ids(results, query_id, return_content)
+        self.remap_doc_ids(results, query_id)
+    }
+
+    /// Look up the stored text content for a document by its string ID.
+    /// Returns `None` if content was not loaded or the doc ID is not found.
+    pub fn get_doc_text(&self, doc_id: &str) -> Option<String> {
+        let mapping = self.document_mapping.as_deref()?;
+        let content = self.document_content.as_deref()?;
+        let idx = mapping.iter().position(|id| id == doc_id)?;
+        content[idx].clone()
+    }
+}
+
+// Accessor methods with minimal trait bounds
+impl<S> SeismicIndex<S>
+where
+    S: SparseData,
+    EncoderFor<S>: SparseDataEncoder,
+{
+    pub fn get_doc_ids_in_postings(&self, list_id: usize) -> Vec<usize> {
+        self.inverted_index.get_doc_ids_in_postings(list_id)
     }
 
     pub fn print_space_usage_byte(&self)
@@ -724,7 +722,6 @@ where
         query_components: &[String],
         query_values: &[f32],
         k: usize,
-        return_content: bool,
     ) -> Vec<SearchResult> {
         let (components, values) =
             resolve_query_tokens::<C>(query_components, query_values, &self.token_to_id_map);
@@ -736,25 +733,21 @@ where
             .map(|result| (result.distance.distance(), result.vector as usize))
             .collect();
 
-        self.remap_doc_ids(plain_results, query_id, return_content)
+        self.remap_doc_ids(plain_results, query_id)
     }
 
     pub fn remap_doc_ids(
         &self,
         plain_results: Vec<(f32, usize)>,
         query_id: &str,
-        return_content: bool,
     ) -> Vec<SearchResult> {
-        let content = if return_content {
-            Some(self.document_content.as_slice())
-        } else {
-            None
-        };
-        remap_results(
-            plain_results,
-            query_id,
-            &self.document_mapping,
-            content,
-        )
+        remap_results(plain_results, query_id, &self.document_mapping)
+    }
+
+    /// Look up the stored text content for a document by its string ID.
+    /// Returns `None` if content was not stored for this document or the doc ID is not found.
+    pub fn get_doc_text(&self, doc_id: &str) -> Option<String> {
+        let idx = self.document_mapping.iter().position(|id| id == doc_id)?;
+        self.document_content[idx].clone()
     }
 }

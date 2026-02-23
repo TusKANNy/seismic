@@ -45,3 +45,6 @@ Thumbs.db
 .ipynb_checkpoints/
 
 cached_adjacency*
+
+# Private benchmarking results (not for public release)
+private_benchmarking/

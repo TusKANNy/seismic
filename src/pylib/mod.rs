@@ -495,11 +495,10 @@ macro_rules! impl_seismic_index {
             query_cut,
             heap_factor,
             n_knn=0,
-            sorted=true,
-            return_content=false
+            sorted=true
         ))]
         #[pyo3(
-            text_signature = "(self, query_id, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True, return_content=False)"
+            text_signature = "(self, query_id, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True)"
         )]
         #[allow(clippy::too_many_arguments)]
         pub fn search<'py>(
@@ -512,8 +511,7 @@ macro_rules! impl_seismic_index {
             heap_factor: f32,
             n_knn: usize,
             sorted: bool,
-            return_content: bool,
-        ) -> Vec<(String, f32, String, Option<String>)> {
+        ) -> Vec<(String, f32, String)> {
             self.index.search(
                 &query_id,
                 &query_components
@@ -528,11 +526,26 @@ macro_rules! impl_seismic_index {
                 heap_factor,
                 n_knn,
                 sorted,
-                return_content,
             )
             .into_iter()
             .map(|r| r.to_tuple())
             .collect()
+        }
+
+        /// Look up the stored text content for a document by its string document ID.
+        ///
+        /// Args:
+        ///     doc_id (str): The document ID as returned by `search()`.
+        ///
+        /// Returns:
+        ///     str | None: The document text if content was loaded at build time, otherwise None.
+        ///
+        /// Example:
+        ///     >>> text = index.get_doc_text("doc42")
+        #[pyo3(signature = (doc_id))]
+        #[pyo3(text_signature = "(self, doc_id)")]
+        pub fn get_doc_text(&self, doc_id: &str) -> Option<String> {
+            self.index.get_doc_text(doc_id)
         }
 
         /// Perform batched nearest neighbor search using multiple sparse query vectors.
@@ -565,11 +578,10 @@ macro_rules! impl_seismic_index {
         heap_factor,
         n_knn=0,
         sorted=true,
-        return_content=false,
         num_threads=0
     ))]
     #[pyo3(
-        text_signature = "(self, queries_ids, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True, return_content=False, num_threads=0)"
+        text_signature = "(self, queries_ids, query_components, query_values, k, query_cut, heap_factor, n_knn=0, sorted=True, num_threads=0)"
     )]
     #[allow(clippy::too_many_arguments)]
     pub fn batch_search<'py>(
@@ -582,9 +594,8 @@ macro_rules! impl_seismic_index {
         heap_factor: f32,
         n_knn: usize,
         sorted: bool,
-        return_content: bool,
         num_threads: usize,
-    ) -> Vec<Vec<(String, f32, String, Option<String>)>> {
+    ) -> Vec<Vec<(String, f32, String)>> {
         rayon::ThreadPoolBuilder::new()
             .num_threads(num_threads)
             .build()
@@ -633,7 +644,6 @@ macro_rules! impl_seismic_index {
                     heap_factor,
                     n_knn,
                     sorted,
-                    return_content,
                 )
                 .into_iter()
                 .map(|r| r.to_tuple())
@@ -1142,6 +1152,9 @@ macro_rules! impl_seismic_index_raw {
 
 #[macro_use]
 mod dataset; // -> import macro from pylib/dataset.rs
+
+mod dotvbyte;
+pub use dotvbyte::SeismicIndexDotVByte;
 
 impl_seismic_dataset!(SeismicDataset, "SeismicDataset", u16);
 impl_seismic_dataset!(SeismicDatasetLV, "SeismicDatasetLV", u32);

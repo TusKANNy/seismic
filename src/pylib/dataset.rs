@@ -101,16 +101,15 @@ macro_rules! impl_seismic_dataset {
             /// Example:
             ///     >>> string_type = seismic.get_seismic_string()
             ///     >>> results = dataset.search("q1", np.array(["token1", "token2"], dtype=string_type), np.array([0.5, 0.3], dtype=np.float32), k=5)
-            #[pyo3(signature = (query_id, query_components, query_values, k, return_content=false))]
-            #[pyo3(text_signature = "(self, query_id, query_components, query_values, k, return_content=False)")]
+            #[pyo3(signature = (query_id, query_components, query_values, k))]
+            #[pyo3(text_signature = "(self, query_id, query_components, query_values, k)")]
             pub fn search<'py>(
                 &self,
                 query_id: String,
                 query_components: PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>,
                 query_values: PyReadonlyArrayDyn<'py, f32>,
                 k: usize,
-                return_content: bool,
-            ) -> Vec<(String, f32, String, Option<String>)> {
+            ) -> Vec<(String, f32, String)> {
                 self.dataset.search(
                     &query_id,
                     &query_components
@@ -121,11 +120,26 @@ macro_rules! impl_seismic_dataset {
                         .collect::<Vec<_>>(),
                     &query_values.to_vec().unwrap(),
                     k,
-                    return_content,
                 )
                 .into_iter()
                 .map(|r| r.to_tuple())
                 .collect()
+            }
+
+            /// Look up the stored text content for a document by its string document ID.
+            ///
+            /// Args:
+            ///     doc_id (str): The document ID as returned by `search()`.
+            ///
+            /// Returns:
+            ///     str | None: The document text if content was stored, otherwise None.
+            ///
+            /// Example:
+            ///     >>> text = dataset.get_doc_text("doc42")
+            #[pyo3(signature = (doc_id))]
+            #[pyo3(text_signature = "(self, doc_id)")]
+            pub fn get_doc_text(&self, doc_id: &str) -> Option<String> {
+                self.dataset.get_doc_text(doc_id)
             }
 
 
@@ -151,11 +165,10 @@ macro_rules! impl_seismic_dataset {
                 query_components,
                 query_values,
                 k,
-                return_content=false,
                 num_threads=0
             ))]
             #[pyo3(
-                text_signature = "(self, queries_ids, query_components, query_values, k, return_content=False, num_threads=0)"
+                text_signature = "(self, queries_ids, query_components, query_values, k, num_threads=0)"
             )]
             pub fn batch_search<'py>(
                 &self,
@@ -163,9 +176,8 @@ macro_rules! impl_seismic_dataset {
                 query_components: Bound<'py, PyList>,
                 query_values: Bound<'_, PyList>,
                 k: usize,
-                return_content: bool,
                 num_threads: usize,
-            ) -> Vec<Vec<(String, f32, String, Option<String>)>> {
+            ) -> Vec<Vec<(String, f32, String)>> {
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(num_threads)
                     .build()
@@ -210,7 +222,6 @@ macro_rules! impl_seismic_dataset {
                             components,
                             values,
                             k,
-                            return_content,
                         )
                         .into_iter()
                         .map(|r| r.to_tuple())
