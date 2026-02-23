@@ -6,13 +6,9 @@ def main():
     parser = argparse.ArgumentParser(description="Parser for searching with a pre-built Seismic Index.")
     parser.add_argument("--index-path", help="Path to the index file")
     parser.add_argument("--queries-path", help="Path to the queries in the inner Seismic format")
-    
-    
+
     args = parser.parse_args()
     
-    
-    
-
     index_path = args.index_path
 
     print(f"Loading the index from {index_path}..")

@@ -43,7 +43,7 @@ kmeans-doc-cut =        [15]    # needed by "random-kmeans-inverted-index" and "
 # kmeans-pruning-factor = 0.005 # Only used by random-kmeans-inverted-index
 value-type =            ["f16"]
 min-cluster-size =      [2] 
-seismic-n-partitions =   [32, 64, 128]  # Number of partitions for the partitioned index (testing known working combination)
+seismic-n-partitions =  [32, 64, 128]  # Number of partitions for the partitioned index (testing known working combination)
 seismic-n-component-bits =  [4, 6, 8, 12, 16]  # Number of bits per component (128 partitions requires 8 bits for this dataset)
 
 [querying_parameters]

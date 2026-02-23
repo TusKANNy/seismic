@@ -5,6 +5,7 @@ use seismic::FixedU8Q;
 use seismic::FixedU16Q;
 use seismic::ScalarInvertedIndex;
 use seismic::PlainInvertedIndex;
+use seismic::ScalarSparseDataset;
 use seismic::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
     SummarizationStrategy,
@@ -19,6 +20,7 @@ use vectorium::{
     ComponentType, Dataset, DotProduct, IndexSerializer, PackedSparseDataset, SpaceUsage,
     read_seismic_format,
 };
+use vectorium::dataset::ConvertFrom;
 use vectorium::encoders::dotvbyte_fixedu8::DotVByteFixedU8Encoder;
 
 // clap does not support enums with associated values; keep CLI-only types in the bin.
@@ -201,12 +203,18 @@ fn write_index<T>(index: T, output_file: &str, elapsed: Instant)
 where
     T: IndexSerializer + serde::Serialize,
 {
+    let build_time = elapsed.elapsed().as_secs();
+    println!("Time to build {} secs", build_time);
+
     let path = output_file.to_string() + ".index.seismic";
     println!("Saving ... {}", path);
+    let save_start = Instant::now();
     if let Err(err) = index.save_index(path.as_str()) {
         eprintln!("Failed to save index to {}: {:?}", path, err);
     }
-    println!("Time to build {} secs", elapsed.elapsed().as_secs());
+    let save_time = save_start.elapsed().as_secs();
+    println!("Time to save {} secs", save_time);
+    println!("Total time {} secs", build_time + save_time);
 }
 
 fn build_for_component<C>(args: &Args)
@@ -220,27 +228,57 @@ where
         + DeserializeOwned,
 {
     let time = Instant::now();
-    let base_index = build_base_index::<C>(args);
+    let dataset_f32 =
+        read_seismic_format::<C, f32, DotProduct>(args.input_file.as_ref().unwrap()).unwrap();
+
+    println!("Number of Vectors: {}", dataset_f32.len());
+    println!("Number of Dimensions: {}", dataset_f32.input_dim());
+    println!(
+        "Avg number of components: {:.2}",
+        dataset_f32.nnz() as f32 / dataset_f32.len() as f32
+    );
+
+    let config = build_config(args);
+    println!("\nBuilding the index...");
+    println!("{:?}", config);
 
     match args.value_type.as_str() {
-        "f32" => write_index(base_index, args.output_file.as_ref().unwrap(), time),
-        "f16" => write_index(
-            ScalarInvertedIndex::<C, f32, f16>::convert_dataset_from(base_index),
+        "f32" => write_index(
+            PlainInvertedIndex::<C, f32>::build(dataset_f32, config),
             args.output_file.as_ref().unwrap(),
             time,
         ),
-        "bf16" => write_index(
-            ScalarInvertedIndex::<C, f32, bf16>::convert_dataset_from(base_index),
-            args.output_file.as_ref().unwrap(),
-            time,
-        ),
+        "f16" => {
+            let dataset =
+                ScalarSparseDataset::<C, f32, f16, DotProduct>::convert_from(dataset_f32);
+            write_index(
+                ScalarInvertedIndex::<C, f32, f16>::build(dataset, config),
+                args.output_file.as_ref().unwrap(),
+                time,
+            );
+        }
+        "bf16" => {
+            let dataset =
+                ScalarSparseDataset::<C, f32, bf16, DotProduct>::convert_from(dataset_f32);
+            write_index(
+                ScalarInvertedIndex::<C, f32, bf16>::build(dataset, config),
+                args.output_file.as_ref().unwrap(),
+                time,
+            );
+        }
+        "fixedu16" => {
+            let dataset =
+                ScalarSparseDataset::<C, f32, FixedU16Q, DotProduct>::convert_from(dataset_f32);
+            write_index(
+                ScalarInvertedIndex::<C, f32, FixedU16Q>::build(dataset, config),
+                args.output_file.as_ref().unwrap(),
+                time,
+            );
+        }
         "fixedu8" => write_index(
-            ScalarInvertedIndex::<C, f32, FixedU8Q>::convert_dataset_from(base_index),
-            args.output_file.as_ref().unwrap(),
-            time,
-        ),
-        "fixedu16" => write_index(
-            ScalarInvertedIndex::<C, f32, FixedU16Q>::convert_dataset_from(base_index),
+            ScalarInvertedIndex::<C, f32, FixedU8Q>::convert_dataset_from(
+                PlainInvertedIndex::<C, f32>::build(dataset_f32, config),
+            ),
             args.output_file.as_ref().unwrap(),
             time,
         ),

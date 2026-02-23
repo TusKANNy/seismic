@@ -356,27 +356,21 @@ where
         S: SeismicBuildDataset,
     {
         let mut new_inverted_pairs = vec![Vec::new(); dataset.input_dim()];
-
-        let tot_postings = dataset.input_dim() * n_postings; // overall number of postings to select
+        let tot_postings = dataset.input_dim() * n_postings;
 
         let largest_entries = dataset
             .iter()
             .enumerate()
             .flat_map(|(i, posting)| {
-                let components = posting.components();
-                let values = posting.values();
-                components
+                posting
+                    .components()
                     .iter()
                     .copied()
-                    .zip(values.iter().copied())
-                    .map(|p| (i, p))
-                    .collect::<Vec<_>>()
+                    .zip(posting.values().iter().copied())
+                    .map(move |(c, v)| (i, (c, v)))
             })
             .k_largest_by(tot_postings, |(_, (_, score_a)), (_, (_, score_b))| {
-                score_a
-                    .to_f32()
-                    .unwrap()
-                    .total_cmp(&score_b.to_f32().unwrap())
+                score_a.partial_cmp(score_b).unwrap()
             });
 
         for (doc, (component, value)) in largest_entries {
