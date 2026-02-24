@@ -20,7 +20,7 @@ Seismic is a fast and lightweight search engine for learned sparse embeddings, w
 
 ### Performance
 
-| Dataset | Encoder | Documents | Recall@10 | MRR@10 | Building Time |
+| Dataset | Encoder | Documents | Recall@10 | MRR@10 | Search Time |
 |---|---|---|---|---|---|
 | MSMARCO v1 Passage | SPLADE-CoCondenser | 8.8M | 99% | 0.3827 | – |
 | MSMARCO v2 Passage | SPLADE-CoCondenser | 138M | – | – | – |
