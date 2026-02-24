@@ -420,6 +420,7 @@ where
         (token_to_id_mapping, row_count)
     }
 
+    #[allow(clippy::type_complexity)]
     fn process_data(
         reader: BufReader<impl std::io::Read>,
         row_count: usize,
@@ -522,7 +523,7 @@ where
     }
 
     pub fn from_file(
-        file_path: &String,
+        file_path: &str,
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
         load_content: bool,
@@ -550,12 +551,12 @@ where
     }
 
     pub fn from_json(
-        json_path: &String,
+        json_path: &str,
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
         load_content: bool,
     ) -> Self {
-        let json_path = json_path.clone();
+        let json_path = json_path.to_owned();
         Self::from_reader_factory(
             move || {
                 let f = File::open(&json_path)
@@ -569,12 +570,12 @@ where
     }
 
     pub fn from_tar(
-        tar_path: &String,
+        tar_path: &str,
         config: Configuration,
         input_token_to_id_map: Option<HashMap<String, usize>>,
         load_content: bool,
     ) -> Self {
-        let tar_path = tar_path.clone();
+        let tar_path = tar_path.to_owned();
         Self::from_reader_factory(
             move || {
                 let tar_gz_file =

@@ -32,7 +32,7 @@ This guide provides step-by-step instructions for building a Seismic Index on yo
 
 - `n_knn`. The number of neighbors to explore for each document in the results provided by the inverted index. This value is only considered if the `knn` graph was built or passed to the index. 
 
-- `sorted`. Whether to scan the summaries of the first posting list from the most promising one to the least promising. Setting it to `True` increases efficiency, while setting it to `False` increases effectiveness (accuracy). 
+- `first_sorted` (Python) / `--first-sorted` (CLI). Whether to scan the summaries of the first posting list from the most promising one to the least promising. Setting it to `True` increases efficiency, while setting it to `False` increases effectiveness (accuracy).
 
 ### Examples
 

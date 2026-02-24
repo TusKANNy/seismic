@@ -19,14 +19,27 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
 #### Building the Index
 Let's now build an index on the Splade embeddings for the MS MARCO v1 passage. To download the encoded vectors, please refer to [Setting up for the Experiment](RunExperiments.md#bin_data).
 
-Seismic has few parameters that control the space/time trade-offs when building the index:
+Seismic has several parameters that control the space/time trade-offs when building the index:
 
-- `--n-postings` defines the posting list size, representing the average number of postings stored per list.
-- `--summary-energy` controls the summary size, preserving a fraction of the overall energy for each summary.
-- `--centroid-fraction` determines the number of centroids per posting list, capped at a fraction of the posting list length.
-- `--clustering-algorithm` selects the algorithm to cluster postings within each posting list.
+- `-i, --input-file` path to the source collection file (`documents.bin`).
+- `-o, --output-file` output index base path; the binary appends `.index.seismic`.
+- `-n, --n-postings` defines the posting list size, representing the average number of postings stored per list (default: 6000).
+- `-s, --summary-energy` controls the summary size, preserving a fraction of the overall energy for each summary (default: 0.5).
+- `--centroid-fraction` determines the number of centroids per posting list, capped at a fraction of the posting list length (default: 0.1).
+- `--clustering-algorithm` selects the algorithm to cluster postings within each posting list. Options: `random-kmeans`, `random-kmeans-inverted-index`, `random-kmeans-inverted-index-approx`.
+- `--pruning-strategy` selects the posting list pruning strategy. Options: `global-threshold`, `coi-threshold`, `fixed-size`.
+- `-b, --block-size` block size used for fixed-size blocking (default: 10).
+- `--kmeans-doc-cut` number of top components retained while clustering (default: 15).
+- `--kmeans-pruning-factor` pruning factor used by the random k-means blocking (default: 0.005).
+- `--min-cluster-size` minimum cluster size allowed (default: 2).
+- `-a, --alpha` fraction of L1 mass preserved by the COI pruning strategy (default: 0.15).
+- `-m, --max-fraction` maximum posting list length as a factor of `n_postings` (default: 1.5).
+- `--knn` number of neighbors stored per vector for the k-NN graph (default: 0, i.e., disabled).
+- `--knn-path` path to a precomputed nearest-neighbor file.
+- `--component-type` component type: `u16` (default) or `u32` for large vocabularies.
+- `-v, --value-type` value type: `f16` (default), `bf16`, `f32`, `fixedu8`, `fixedu16`, or `dotvbyte`.
 
-For **Splade on MS MARCO **, good choices are:
+For **Splade on MS MARCO**, good choices are:
 ```
 --n-postings 4000 --summary-energy 0.4 --centroid-fraction 0.1 --clustering-algorithm random-kmeans-inverted-index-approx
 ```
@@ -44,10 +57,21 @@ To create a Seismic index serialized in the file `documents.bin.4000_0.4_0.1.ind
 ```
 
 #### Executing Queries
-To query the index we need to use the `perf_inverted_index` executable. Two parameters trade off efficiency and accuracy:
+To query the index we need to use the `perf_inverted_index` executable. Its parameters are:
 
-- `--query-cut` limits the search algorithm to the top `query_cut` components of the query.
-- `--heap-factor` skips blocks whose estimated dot product exceeds `heap_factor` times the smallest dot product in the top-k results.
+- `-i, --index-file` path to the serialized index file.
+- `-q, --query-file` query file containing ground-truth vectors.
+- `-o, --output-path` output file with the ranked results.
+- `--query-cut` limits the search algorithm to the top `query_cut` components of the query (default: 10).
+- `--heap-factor` skips blocks whose estimated dot product exceeds `heap_factor` times the smallest dot product in the top-k results (default: 0.7).
+- `-k` number of top-k results to retrieve (default: 10).
+- `--n-knn` number of neighbors of top results to rescore via the k-NN graph (default: 0).
+- `-f, --first-sorted` whether to sort the first posting list by estimated dot products before search (default: false).
+- `--n-queries` number of queries to evaluate (default: 10000).
+- `-r, --n-runs` number of runs to average (default: 1).
+- `--query-energy` optional query energy filter.
+- `--component-type` component type: `u16` (default) or `u32`.
+- `-v, --value-type` value type: `f16` (default), `bf16`, `f32`, `fixedu8`, or `fixedu16`.
 
 Example command:
 
@@ -58,14 +82,6 @@ Example command:
     -o results.tsv \
     --query-cut 5 \
     --heap-factor 0.7
-```
-
-Queries are executed in **single-thread mode** by default. To enable multithreading, modify the Rust code:
-
-```rust
-queries.iter().take(n_queries).enumerate() 
-// Change to:
-queries.par_iter().take(n_queries).enumerate()
 ```
 
 The results are written to `results.tsv`. Each query produces `k` lines in the following format:
@@ -155,10 +171,11 @@ The `search` method signature:
 ```rust
 pub fn search(
     &self,
-    query_components: &[u16],
-    query_values: &[f32],
+    query: SparseVectorView<'_, ComponentFor<S>, f32>,
     k: usize,
     query_cut: usize,
     heap_factor: f32,
-) -> Vec<(f32, usize)>
+    n_knn: usize,
+    first_sorted: bool,
+) -> Vec<ScoredVectorDotProduct>
 ```

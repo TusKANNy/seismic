@@ -539,7 +539,7 @@ impl Knn {
         let path = output_file.to_string() + ".knn.seismic";
         println!("Saving ... {}", path.as_str());
         self.save_index(path.as_str())
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, format!("{err:?}")))?;
+            .map_err(|err| std::io::Error::other(format!("{err:?}")))?;
         Ok(())
     }
 

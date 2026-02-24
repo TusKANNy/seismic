@@ -5,10 +5,10 @@ This script is configurable via TOML files, which specify the parameters to buil
 The script measures average query time (in microseconds), recall with respect to the true closest vectors of the query (accuracy@k), MRR with respect to judged qrels, and index space usage (bytes).
 These results are available in the file `report.tsv` in a folder created by the script togheter with additional information (details below).
 
-The TOML files used to replicate experiments from our published papers can be found in the [`experiments`](/experiments/) folder.  
-You can easily write your TOML file by following the instructions [here](/docs/TomlInstructions.md).
+Pre-optimized TOML configurations for several datasets can be found in [`experiments/best_configs`](/experiments/best_configs/).
+You can easily write your own TOML file by following the instructions [here](/docs/TomlInstructions.md).
 
-As an example, let's now run the experiments using the TOML file [`experiments/sigir2024/splade.toml`](/experiments/sigir2024/splade.toml), which replicates the results of Seismic with Splade embeddings on the MS MARCO dataset.
+As an example, let's now run an experiment using the TOML file [`experiments/best_configs/msmarco-v1/splade-cocondenser/mem_budget_1.5/recall_95.toml`](/experiments/best_configs/msmarco-v1/splade-cocondenser/mem_budget_1.5/recall_95.toml), which runs Seismic with Splade embeddings on the MS MARCO dataset targeting 95% recall.
 
 ### <a name="bin_data">Setting up for the Experiment</a>
 Let's start by creating a working directory for the data and indexes.
@@ -55,7 +55,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Now we can run the experiment with the following command:
 
 ```bash
-python scripts/run_experiments.py --exp experiments/sigir2024/splade.toml
+python scripts/run_experiments.py --exp experiments/best_configs/msmarco-v1/splade-cocondenser/mem_budget_1.5/recall_95.toml
 ```
 
 Please install the required Python's libraries with the following command:

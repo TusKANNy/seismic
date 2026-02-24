@@ -23,6 +23,7 @@ enum PruningStrategyClap {
 // clap does not support enums with associated values; keep CLI-only types in the bin.
 #[derive(clap::ValueEnum, Default, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
+#[allow(clippy::enum_variant_names)]
 enum ClusteringAlgorithmClap {
     RandomKmeans,
     RandomKmeansInvertedIndex,

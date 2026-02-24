@@ -96,7 +96,7 @@ macro_rules! impl_seismic_dataset {
             ///     k (int): Number of results to return.
             ///
             /// Returns:
-            ///     list[tuple[str, float, str, str | None]]: A list of (query_id, distance, document_id, content) tuples.
+            ///     list[tuple[str, float, str]]: A list of (query_id, distance, document_id) tuples.
             ///
             /// Example:
             ///     >>> string_type = seismic.get_seismic_string()
@@ -156,7 +156,7 @@ macro_rules! impl_seismic_dataset {
             ///     num_threads (int, optional): Number of threads to use for parallel execution (default: 0 = Rayon default).
             ///
             /// Returns:
-            ///     list[list[tuple[str, float, str, str | None]]]: A list of result lists, one per query. Each result is a (query_id, distance, document_id, content) tuple.
+            ///     list[list[tuple[str, float, str]]]: A list of result lists, one per query. Each result is a (query_id, distance, document_id) tuple.
             ///
             /// Example:
             ///     >>> results = dataset.batch_search(query_ids, query_components, query_values, k=10)

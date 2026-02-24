@@ -13,8 +13,8 @@ python scripts/run_experiments.py --exp path/to/your/config.toml
 
 This script will:
 1. Build the search index using parameters from `[indexing_parameters]`
-2. Execute queries with different configurations from `[query]` sections
-3. Measure query time, recall, MRR, and memory usage
+2. Execute queries with different configurations from `[query]` section
+3. Measure query time, recall, ranking metrics, and memory usage
 4. Generate a `report.tsv` file with all results
 
 For complete setup instructions and detailed examples, see [RunExperiments.md](RunExperiments.md).
@@ -76,7 +76,7 @@ build =         true        # Whether to build the index (false if index already
 delete =        false       # Whether to remove index files after use to save disk space
 metric =        "RR@10"     # Evaluation metric to compute
 component-type = "u16"      # Component type for sparse vector indices
-value-type =     "f16"      # Value type for sparse vector values (options: "f16", "bf16", "f32", "fixedu8", "fixedu16")
+value-type =     "f16"      # Value type for sparse vector values (options: "f16", "bf16", "f32", "fixedu8", "fixedu16", "dotvbyte")
 # value-type =   "fixedu8"  # Example: use 8-bit fixed-point quantization
 # value-type =   "fixedu16" # Example: use 16-bit fixed-point quantization
 # NUMA =        "numactl --physcpubind='0-15' --localalloc"  # NUMA configuration
@@ -90,6 +90,8 @@ value-type =     "f16"      # Value type for sparse vector values (options: "f16
 - `component-type`: Data type for component indices in sparse vectors
   - `"u16"`: 16-bit unsigned integers (supports up to 65,535 unique components)
   - `"u32"`: 32-bit unsigned integers (supports up to 4+ billion unique components)
+  
+  - `"dotvbyte"`: DotVByte compressed format - variable-length encoding for reduced memory usage (works only if you have less than  65,535 different components)
   - **Recommendation**: Use `"u16"` for most datasets unless you have more than 65K vocabulary terms
 - `value-type`: Data type for storing vector values
   - `"f16"`: IEEE 754 half-precision (16-bit) floating point - **recommended for best performance**
@@ -97,6 +99,7 @@ value-type =     "f16"      # Value type for sparse vector values (options: "f16
   - `"f32"`: IEEE 754 single-precision (32-bit) floating point - highest precision but slower
   - `"fixedu8"`: 8-bit fixed-point quantization (Q0.8) - very compact, lowest memory usage, may reduce accuracy
   - `"fixedu16"`: 16-bit fixed-point quantization (Q0.16) - compact, higher accuracy than fixedu8, lower memory than floats
+
   - **Recommendation**: Use `"f16"` for optimal balance of speed, memory efficiency, and accuracy. Use `"fixedu8"` for maximum memory savings when some loss in accuracy is acceptable.
 - `NUMA`: Optional NUMA (Non-Uniform Memory Access) configuration string for performance optimization
 
@@ -218,10 +221,7 @@ Query sections can use any descriptive name following the pattern `[query.sectio
 
 ## Example Configurations
 
-For complete example configurations that reproduce the experiments from our published conference papers, see the configuration files in the `experiments/` directory. These configurations demonstrate various parameter combinations and use cases:
-
-- **`experiments/sigir2024/`**: Contains configurations used in our SIGIR 2024 publication
-- **`experiments/cikm2024/`**: Configurations for CIKM 2024 experiments
+For pre-optimized configurations across several datasets and memory budgets, see [`experiments/best_configs/`](../experiments/best_configs/). These configurations demonstrate various parameter combinations and were obtained through extensive grid searches. See [BestResults.md](BestResults.md) for details.
 
 ---
 
@@ -260,46 +260,14 @@ first_sorted =          [true, false]         # Boolean options
 This generates a Cartesian product of all parameter combinations.
 The experiments will be saved in the folder specified in the TOML file. 
 
-Once all combinations have been executed, use `scripts/gather_grid_search_results.py` to aggregate results into a single file (`final_report.tsv`), which can be analyzed or post-processed with additional scripts.
+Once all combinations have been executed, the results can be analyzed using the Jupyter notebooks in `scripts/Notebooks/`:
 
+### Collecting and Analyzing Grid Search Reports
 
-### Collecting Grid Search Reports
+After running a grid search with `scripts/run_grid_search.py`, each experiment produces multiple subdirectories (e.g., `building_combination_0_*/`) containing individual `report.tsv` files and `experiment_config.toml` files.
 
-After running a grid search with `scripts/run_grid_search.py`, each experiment will produce multiple subdirectories (e.g., `building_combination_0_*/`) containing individual `report.tsv` files and `experiment_config.toml` files.
+Two notebooks are provided to aggregate and analyze these results:
 
-To aggregate all of these into a single file for analysis, run:
+- **[`scripts/Notebooks/ExtractResutsGridSearch.ipynb`](../scripts/Notebooks/ExtractResutsGridSearch.ipynb)** - Aggregates all `report.tsv` files from a grid search run into a single DataFrame, enriches them with the indexing and query parameters from the corresponding TOML configs, and plots recall vs. query time curves for different memory budgets. Set the `base_dir` variable to your grid search output folder and `forward_index_size` to the size of your forward index in bytes.
 
-```bash
-python scripts/gather_grid_search_results.py <grid_search_root_folder>
-```
-
-This script collects:
-- All performance metrics from `report.tsv` files
-- Indexing and settings parameters from the TOML configuration
-- Query-specific parameters from `[query.combination_z]` sections
-
-It outputs a unified `final_report.tsv` containing one row per tested combination.
-
-
-Once the grid search has completed and all results have been collected into a `final_report.tsv` file using:
-
-```bash
-python scripts/gather_grid_search_results.py <grid_search_root_folder>
-```
-
-you can analyze the best-performing configurations across recall ranges using:
-
-```bash
-python scripts/find_best_grid_results_by_recall_range.py final_report.tsv best_results.tsv
-```
-
-This script filters the grid search results by recall intervals (e.g., 90.0–90.5, 90.5–91.0, ...) and optionally by a memory usage threshold. For each interval, it selects the configuration with the lowest query time that satisfies the constraints.
-
-Command-line options include:
-
-- `--space_usage`: Maximum allowed memory usage (in bytes)
-- `--recall_min`: Minimum recall value (default: 90.0)
-- `--recall_max`: Maximum recall value (default: 99.5)
-- `--step`: Step size for recall intervals (default: 0.5)
-
-The output is written to the specified TSV file (e.g., `best_results.tsv`), with one row per recall subrange.
+- **[`scripts/Notebooks/DumpBestConfiguration.ipynb`](../scripts/Notebooks/DumpBestConfiguration.ipynb)** - Given an aggregated grid search DataFrame, extracts the fastest configuration for each recall level (90%–99%) within a given memory budget, and dumps the results as ready-to-use TOML files under `experiments/best_configs/`. This is the notebook used to generate the pre-optimized configurations shipped with the repository.

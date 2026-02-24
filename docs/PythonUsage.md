@@ -57,7 +57,7 @@ RUSTFLAGS="-C target-cpu=native" maturin develop --release --features python
 We can first import the required packages. 
 
 ```python
-from seismic import SeismicIndex
+from seismic import SeismicIndex, get_seismic_string
 import numpy as np
 import json
 import ir_datasets
@@ -87,8 +87,7 @@ with open(queries_path, 'r') as f:
     for line in f:
         queries.append(json.loads(line))
 
-MAX_TOKEN_LEN = 30
-string_type  = f'U{MAX_TOKEN_LEN}'
+string_type = get_seismic_string()  # Returns 'U30'
 
 queries_ids = np.array([q['id'] for q in queries], dtype=string_type)
 
@@ -125,3 +124,18 @@ qrels = ir_datasets.load('msmarco-passage/dev/small').qrels
 
 ir_measures.calc_aggregate([RR@10], qrels, ir_results)
 ```
+
+## Additional Index Variants
+
+Besides `SeismicIndex`, Seismic exports several specialized classes:
+
+- **`SeismicIndexLV`** - For collections with large vocabularies (> 65,535 unique tokens). Uses `u32` component IDs instead of `u16`. Same API as `SeismicIndex`.
+- **`SeismicIndexRaw`** - Works with pre-converted binary data (Seismic inner format) instead of JSONL. Uses integer token IDs and binary query files. Useful for benchmarking and Rust-level experiments.
+- **`SeismicIndexRawLV`** - Large vocabulary variant of `SeismicIndexRaw`.
+- **`SeismicIndexDotVByte`** - Uses DotVByte compression for reduced memory usage. Same query API as `SeismicIndex`.
+- **`SeismicDataset`** - Loads an in-memory dataset for brute-force exact search (no index). Useful for computing ground truth.
+- **`SeismicDatasetLV`** - Large vocabulary variant of `SeismicDataset`.
+
+## Utility Functions
+
+- **`get_seismic_string()`** - Returns the NumPy string dtype (`'U30'`) to use when creating arrays of token strings. Use this instead of hardcoding the token length.

@@ -82,6 +82,7 @@ impl<C: ComponentType + SpaceUsage> SpaceUsage for PostingList<C> {
 
 impl<C: ComponentType> PostingList<C> {
     #[inline]
+    #[allow(clippy::borrowed_box)]
     pub(crate) fn packed_postings(&self) -> &Box<[PackedPostingBlock]> {
         &self.packed_postings
     }
@@ -92,6 +93,7 @@ impl<C: ComponentType> PostingList<C> {
     }
 
     #[inline]
+    #[allow(clippy::borrowed_box)]
     pub(crate) fn block_offsets(&self) -> &Box<[usize]> {
         &self.block_offsets
     }
@@ -274,7 +276,7 @@ impl<C: ComponentType> PostingList<C> {
             }
         };
 
-        clusters.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        clusters.sort_unstable_by_key(|a| a.0);
 
         for group in
             clusters.chunk_by(|&(centroid_id_a, _doc_id_a), &(centroid_id_b, _doc_id_b)| {
