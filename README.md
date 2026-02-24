@@ -1,6 +1,6 @@
 <h1 align="center">Seismic</h1>
 <p align="center">
-    <img width="400px" src="https://raw.githubusercontent.com/TusKANNy/seismic/main/imgs/new_logo_seismic.webp" />
+    <img width="400px" src="https://raw.githubusercontent.com/TusKANNy/seismic/main/imgs/logo.webp" />
 </p>
 
 <p align="center">
@@ -23,16 +23,21 @@ Details on how to use Seismic's core engine in Rust 🦀 can be found in [`docs/
 The instructions below explain how to use it by using the Python API. 
 
 
-### ⚡ Installation  
+### Requirements
 
-The easiest way to use Seismic is via its Python API, which can be installed in two different ways: 
+- **Python** >= 3.8
+- **Rust** toolchain (only needed if installing from source for hardware-specific optimizations)
+
+### ⚡ Installation
+
+The easiest way to use Seismic is via its Python API, which can be installed in two different ways:
 
 1) the easiest way is via pip as follows:
 ```bash
 pip install pyseismic-lsr
 ```
 
-2) via Rust compilation that allows deeper hardware optimizations as follows:
+2) via Rust compilation that allows deeper hardware optimizations as follows (requires a working Rust toolchain, installable via [rustup](https://rustup.rs/)):
 ```bash
 RUSTFLAGS="-C target-cpu=native" pip install --no-binary :all: pyseismic-lsr
 ```
@@ -101,7 +106,7 @@ Documents and queries should have the following format. Each line should be a JS
 
 This is the standard output format of several libraries to train sparse models, such as [`learned-sparse-retrieval`](https://github.com/thongnt99/learned-sparse-retrieval).
 
-The script ```convert_json_to_inner_format.py``` allows converting files formatted accordingly into the ```seismic``` inner format.
+The script ```scripts/convert_json_to_inner_format.py``` allows converting files formatted accordingly into the ```seismic``` inner format.
 
 ```bash
 python scripts/convert_json_to_inner_format.py --document-path /path/to/document.jsonl --query-path /path/to/queries.jsonl --output-dir /path/to/output 
@@ -119,6 +124,7 @@ Check out our `docs` folder for detailed guides:
 - **[PythonUsage.md](docs/PythonUsage.md)** - How to use the Seismic Python API.
 - **[RunExperiments.md](docs/RunExperiments.md)** - How to run custom experiments.
 - **[TomlInstructions.md](docs/TomlInstructions.md)** - TOML configuration reference.
+- **[Guidelines.md](docs/Guidelines.md)** - Step-by-step guide to build your Seismic index with hyperparameter tuning tips.
 
 
 ### 🏆 Best Results 
@@ -176,5 +182,29 @@ ECIR 2025
   year      = {2025},
   url       = {https://doi.org/10.1007/978-3-031-88714-7_43},
   doi       = {10.1007/978-3-031-88714-7_43}
+}
+```
+
+
+ECIR 2026 (Accepted, to appear)
+
+```bibtex
+@article{bruch2026forward,
+  title={Forward Index Compression for Learned Sparse Retrieval},
+  author={Bruch, Sebastian and Fontana, Martino and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano},
+  journal={European Conference on Information Retrieval 2026 (to appear)},
+  year={2026}
+}
+```
+
+Journal of ACM (Under Review)
+
+
+```bibtex
+@article{bruch2025efficient,
+  title={Efficient Sketching and Nearest Neighbor Search Algorithms for Sparse Vector Sets},
+  author={Bruch, Sebastian and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano},
+  journal={arXiv preprint arXiv:2509.24815},
+  year={2025}
 }
 ```

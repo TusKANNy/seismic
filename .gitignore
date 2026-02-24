@@ -48,3 +48,6 @@ cached_adjacency*
 
 # Private benchmarking results (not for public release)
 private_benchmarking/
+
+# Claude Code
+.claude/

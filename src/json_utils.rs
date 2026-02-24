@@ -4,8 +4,8 @@ use serde::Deserialize;
 
 use serde_json::Deserializer;
 
-use vectorium::ValueType;
 use vectorium::FromF32;
+use vectorium::ValueType;
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)] // This allows deserializing without tagging the enum variants
@@ -40,7 +40,9 @@ impl JsonSparseVector {
     }
 }
 
-pub fn extract_jsonl<V>(current_jsonl: JsonSparseVector) -> (String, Vec<String>, Vec<V>, Option<String>)
+pub fn extract_jsonl<V>(
+    current_jsonl: JsonSparseVector,
+) -> (String, Vec<String>, Vec<V>, Option<String>)
 where
     V: ValueType + FromF32,
 {
@@ -50,7 +52,12 @@ where
         .map(|(s, y)| (s.to_string(), V::from_f32_saturating(*y)))
         .unzip();
 
-    (current_jsonl.get_id_as_string(), coords, values, current_jsonl.content)
+    (
+        current_jsonl.get_id_as_string(),
+        coords,
+        values,
+        current_jsonl.content,
+    )
 }
 
 pub fn read_queries(input_file: &String) -> Vec<(String, Vec<String>, Vec<f32>)> {

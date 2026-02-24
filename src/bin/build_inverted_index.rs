@@ -3,8 +3,8 @@ use half::{bf16, f16};
 use num_traits::FromPrimitive;
 use seismic::FixedU8Q;
 use seismic::FixedU16Q;
-use seismic::ScalarInvertedIndex;
 use seismic::PlainInvertedIndex;
+use seismic::ScalarInvertedIndex;
 use seismic::ScalarSparseDataset;
 use seismic::configurations::{
     BlockingStrategy, ClusteringAlgorithm, Configuration, KnnConfiguration, PruningStrategy,
@@ -16,12 +16,12 @@ use serde::de::DeserializeOwned;
 use std::hash::Hash;
 use std::time::Instant;
 
+use vectorium::dataset::ConvertFrom;
+use vectorium::encoders::dotvbyte_fixedu8::DotVByteFixedU8Encoder;
 use vectorium::{
     ComponentType, Dataset, DotProduct, IndexSerializer, PackedSparseDataset, SpaceUsage,
     read_seismic_format,
 };
-use vectorium::dataset::ConvertFrom;
-use vectorium::encoders::dotvbyte_fixedu8::DotVByteFixedU8Encoder;
 
 // clap does not support enums with associated values; keep CLI-only types in the bin.
 #[derive(clap::ValueEnum, Default, Debug, Clone)]
@@ -249,8 +249,7 @@ where
             time,
         ),
         "f16" => {
-            let dataset =
-                ScalarSparseDataset::<C, f32, f16, DotProduct>::convert_from(dataset_f32);
+            let dataset = ScalarSparseDataset::<C, f32, f16, DotProduct>::convert_from(dataset_f32);
             write_index(
                 ScalarInvertedIndex::<C, f32, f16>::build(dataset, config),
                 args.output_file.as_ref().unwrap(),
@@ -275,17 +274,17 @@ where
                 time,
             );
         }
-        "fixedu8" => write_index(
-            ScalarInvertedIndex::<C, f32, FixedU8Q>::convert_dataset_from(
-                PlainInvertedIndex::<C, f32>::build(dataset_f32, config),
-            ),
-            args.output_file.as_ref().unwrap(),
-            time,
-        ),
+        "fixedu8" => {
+            write_index(
+                ScalarInvertedIndex::<C, f32, FixedU8Q>::convert_dataset_from(
+                    PlainInvertedIndex::<C, f32>::build(dataset_f32, config),
+                ),
+                args.output_file.as_ref().unwrap(),
+                time,
+            )
+        }
         _ => {
-            eprintln!(
-                "Error: value-type must be 'f16', 'bf16', 'f32', 'fixedu16', or 'fixedu8'"
-            );
+            eprintln!("Error: value-type must be 'f16', 'bf16', 'f32', 'fixedu16', or 'fixedu8'");
             std::process::exit(1);
         }
     }
@@ -299,8 +298,8 @@ fn build_dotvbyte(args: &Args) {
 
     let time = Instant::now();
     let base_index = build_base_index::<u16>(args);
-    let packed_index = base_index
-        .convert_dataset_into::<PackedSparseDataset<DotVByteFixedU8Encoder>>();
+    let packed_index =
+        base_index.convert_dataset_into::<PackedSparseDataset<DotVByteFixedU8Encoder>>();
 
     write_index(packed_index, args.output_file.as_ref().unwrap(), time);
 }
