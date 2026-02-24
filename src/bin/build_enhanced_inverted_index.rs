@@ -102,6 +102,11 @@ pub struct Args {
     /// Path to a precomputed nearest-neighbor file (see docs/RustUsage.md#using-the-rust-code).
     #[clap(long, value_parser)]
     knn_path: Option<String>,
+
+    /// Value type: f16, bf16, or f32; see docs/RustUsage.md#using-the-rust-code for quantization choices.
+    #[clap(short, long, value_parser)]
+    #[arg(default_value = "f16")]
+    value_type: String,
 }
 
 fn build_config(args: &Args) -> Configuration {

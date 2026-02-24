@@ -43,8 +43,6 @@ kmeans-doc-cut =        [15]    # needed by "random-kmeans-inverted-index" and "
 value-type =            ["fixedu8"] 
 min-cluster-size =      [10] 
 
-
-
 [querying_parameters]
 query-cut =             [2, 4, 6, 7, 8, 10, 12]
 heap-factor =           [0.7, 0.8, 0.9, 1.0]

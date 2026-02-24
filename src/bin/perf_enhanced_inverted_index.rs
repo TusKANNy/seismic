@@ -60,6 +60,11 @@ pub struct Args {
     #[clap(short, long, action)]
     #[arg(default_value_t = false)]
     first_sorted: bool,
+
+    /// Value type: f16 or f32; see docs/RustUsage.md#using-the-rust-code for quantization choices.
+    #[clap(short, long, value_parser)]
+    #[arg(default_value = "f16")]
+    value_type: String,
 }
 
 pub fn main() {
