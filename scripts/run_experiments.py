@@ -447,8 +447,14 @@ def query_execution(configs, query_config, experiment_dir, subsection_name, inde
     if "knn" in query_config:
         command_and_params.append(f"--n-knn {query_config['knn']}" )
     
-    if "first-sorted" in query_config:
+    if query_config.get("first_sorted", False):
+        print(colored("You are using the 'first_sorted' parameter, which is deprecated. Please, use 'first-sorted' instead.", "red"))
         command_and_params.append("--first-sorted")
+    
+    if query_config.get("first-sorted", False):
+        command_and_params.append("--first-sorted")
+        
+    
 
     if configs['indexing_parameters'].get("component-type", None):
         component_type = configs['indexing_parameters']["component-type"]
