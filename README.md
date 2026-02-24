@@ -98,8 +98,6 @@ Each document in the `jsonl` file should be a JSON object with an `id` (integer)
 - **RAG-ready** — Build the index with `load_content=True` and retrieve document texts alongside scores ([example](examples/RAG.ipynb))
 - **Python & Rust APIs** — Use from Python via `pyseismic-lsr` or integrate directly in Rust via `cargo add seismic` ([docs](docs/RustUsage.md))
 - **Parallel batch search** — Multi-threaded query processing via `batch_search`
-- **Serialization** — Save and load indexes to/from disk
-- **k-NN graph** — Optional nearest-neighbor graph for recall boosting
 
 
 ### Examples
