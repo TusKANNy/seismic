@@ -59,9 +59,6 @@ def compile_rust_code(configs, experiment_dir):
     print()
     print(colored("Compiling the Rust code", "green"))
     
-    # Set up environment variables for partitioned parameters
-    setup_partitioned_env_vars(configs)
-    
     compile_command = configs.get("compile-command", "RUSTFLAGS='-C target-cpu=native' cargo build --release")
 
     compilation_output_file = os.path.join(experiment_dir, "compiler.output")
@@ -127,101 +124,8 @@ def get_index_filename(base_filename, configs):
 
 
 def build_index(configs, experiment_dir):
-    """Build the index, determining if it's partitioned based on build-command structure."""
-    # Set up environment variables for partitioned parameters  
-    setup_partitioned_env_vars(configs)
-    
     build_command = configs.get("build-command", "./target/release/build_inverted_index")
-    
-    # Determine if partitioned based on build-command type
-    if isinstance(build_command, list) and len(build_command) > 1:
-        is_partitioned = True
-    else:
-        is_partitioned = False
-        return build_base_index(configs, experiment_dir, build_command=build_command, is_partitioned=is_partitioned)
-    
-    building_base_index_time, base_index_filename = build_base_index(configs, experiment_dir, build_command=build_command[0], is_partitioned=is_partitioned)
-    print(f"Base index built in {building_base_index_time} secs: {base_index_filename}")
-    
-    # Now, the conversion script 
-    # The conversion script looks like this:
-    #./target/release/convert_inverted_index_partitioned --index-file $index_path -o /home/cosimorulli/knn_indexes/sparse_datasets/msmarco_v1_passage/cocondenser/indexes/converted_index --value-type f16
-    
-    conversion_command = build_command[1]
-    
-    # Remove .index.seismic from the base filename for the conversion command
-    # The converter will add its own suffix and .index.seismic extension
-    base_index_for_conversion = base_index_filename.replace(".index.seismic", "")
-    
-    
-    
-    
-    command_and_params = [conversion_command, f"--index-file {base_index_filename}", f"-o {base_index_for_conversion}"]
-
-    # Component type is handled during construction, while values are forced to f32 during construction
-    # The desired value type for the components is obtained here
-    append_value_type(command_and_params, configs)
-    
-    # Temp: for debugging purposes
-    if configs['indexing_parameters'].get("component-type", None):
-        component_type = configs['indexing_parameters']["component-type"]
-        command_and_params.append(f"--component-type {component_type}")
-    command = ' '.join(command_and_params)
-    
-    print()
-    print(colored(f"Converting", "green"))
-    print(colored(f"Conversion command:", "blue"), command)
-
-    conversion_output_file = os.path.join(experiment_dir, "conversion.output")
-
-
-    print(colored("Converting index...", "yellow"))
-    conversion_time = 0
-    with open(conversion_output_file, "w") as conversion_output:
-        conversion_process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        for line in iter(conversion_process.stdout.readline, b''):
-            decoded_line = line.decode()
-            print(decoded_line, end='')  # Print each line as it is produced
-            conversion_output.write(decoded_line)  # Write each line to the output file
-            if decoded_line.startswith("Time to convert ") and decoded_line.strip().endswith("(before serializing)"):
-                conversion_time = int(decoded_line.split()[3])
-        conversion_process.stdout.close()
-        conversion_process.wait()
-
-    if conversion_process.returncode != 0:
-        print(colored("ERROR: Conversion failed!", "red"))
-        sys.exit(1)
-
-    print(colored(f"Index converted successfully in {conversion_time} secs!", "yellow"))
-    
-    # The conversion tool appends the partition info to the filename in the format:
-    # {base_name}.{N_PARTITIONS}_part_{N_COMPONENT_BITS}_compbits.index.seismic
-    # So we need to construct the output path accordingly
-    
-    n_partitions = os.environ["SEISMIC_N_PARTITIONS"]
-    print(f"Number of partitions: {n_partitions}")
-    seismic_n_compbits = os.environ["SEISMIC_N_COMPONENT_BITS"]
-    print(f"Number of component bits: {seismic_n_compbits}")
-    
-    # Match the format used by convert_inverted_index_partitioned.rs
-    # Use the base filename without .index.seismic since the converter adds its own extension
-    
-    if is_partitioned:
-        compresssion_kind = build_command[1].rsplit("_", maxsplit=1)[-1]
-        print(f"Compression kind: {compresssion_kind}")
-        if compresssion_kind == "partitioned":
-            base_name_clean = base_index_filename.replace(".index.seismic", "")
-            output_index_file = f"{base_name_clean}.{n_partitions}_part_{seismic_n_compbits}_compbits.index.seismic"
-        elif compresssion_kind == "fixedu16" or compresssion_kind == "fixedu8":
-            base_name_clean = base_index_filename.replace(".index.seismic", "")
-            output_index_file = f"{base_name_clean}_streamvbyte.index.seismic"
-        elif compresssion_kind == "baseline":
-            base_name_clean = base_index_filename.replace(".index.seismic", "")
-            output_index_file = f"{base_name_clean}_baseline_streamvbyte.index.seismic"
-        elif compresssion_kind == "compressed":
-            base_name_clean = base_index_filename.replace(".index.seismic", "")
-            output_index_file = f"{base_name_clean}_compressed.index.seismic"
-    return building_base_index_time + conversion_time, output_index_file
+    return build_base_index(configs, experiment_dir, build_command=build_command)
 
 
 def append_value_type(command_and_params, configs):
@@ -234,27 +138,11 @@ def append_value_type(command_and_params, configs):
     command_and_params.append(f"--value-type {value_type}")
 
 
-def setup_partitioned_env_vars(configs):
-    """Set SEISMIC_N_PARTITIONS and SEISMIC_N_COMPONENT_BITS environment variables if specified in config."""
-    indexing_params = configs.get('indexing_parameters', {})
-    
-    # Check for seismic-n-partitions parameter
-    if 'seismic-n-partitions' in indexing_params:
-        n_partitions = str(indexing_params['seismic-n-partitions'])
-        os.environ['SEISMIC_N_PARTITIONS'] = n_partitions
-        print(colored(f"Set SEISMIC_N_PARTITIONS={n_partitions}", "cyan"))
-    
-    # Check for seismic-n-component-bits parameter
-    if 'seismic-n-component-bits' in indexing_params:
-        n_component_bits = str(indexing_params['seismic-n-component-bits'])
-        os.environ['SEISMIC_N_COMPONENT_BITS'] = n_component_bits
-        print(colored(f"Set SEISMIC_N_COMPONENT_BITS={n_component_bits}", "cyan"))
+
         
 
-def build_base_index(configs, experiment_dir, build_command, is_partitioned=False):
+def build_base_index(configs, experiment_dir, build_command):
     """Build the index using the provided configuration."""
-    # Set up environment variables for partitioned parameters
-    setup_partitioned_env_vars(configs)
     
     input_file =  os.path.join(configs["folder"]["data"], configs["filename"]["dataset"])
     index_folder = configs["folder"]["index"]
@@ -263,8 +151,8 @@ def build_base_index(configs, experiment_dir, build_command, is_partitioned=Fals
     output_file = os.path.join(index_folder, get_index_filename(configs["filename"]["index"], configs))
     
     print()
-    print(colored(f"Dataset filename:", "blue"), input_file)
-    print(colored(f"Index filename:", "blue"), output_file)
+    print(colored("Dataset filename:", "blue"), input_file)
+    print(colored("Index filename:", "blue"), output_file)
 
     #build_command = configs.get("build-command", "./target/release/build_inverted_index")
 
@@ -309,12 +197,12 @@ def build_base_index(configs, experiment_dir, build_command, is_partitioned=Fals
         command_and_params.append(f"--component-type {component_type}")
 
     
-    if not is_partitioned:
-        # Partitioned dataset only supports f32 right now
-        if configs['indexing_parameters'].get("value-type", None):
-            append_value_type(command_and_params, configs)
-    else:
-        command_and_params.append("--value-type f32") # Forced to f32 for partitioned datasets
+
+
+    if configs['indexing_parameters'].get("value-type", None):
+        append_value_type(command_and_params, configs)
+
+
     pruning_strategy = configs['indexing_parameters'].get("pruning-strategy", "global-threshold")
     command_and_params.append(f"--pruning-strategy {pruning_strategy}")
 
@@ -640,7 +528,7 @@ def run_experiment(config_data):
     get_git_info(experiment_folder)
     
 
-    setup_partitioned_env_vars(config_data)
+
     compile_rust_code(config_data, experiment_folder)
 
     building_time = 0
