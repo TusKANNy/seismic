@@ -1,7 +1,7 @@
-name = "splade-cocodenser_recall_96"
-title = "Seismic Splade-cocodenser - Recall 96%"
-description = "Optimized configuration for splade-cocodenser targeting recall 96% from grid search"
-dataset = "Splade-cocodenser on MS-MARCO"
+name = "splade-v3_recall_96"
+title = "Seismic Splade-v3 - Recall 96%"
+description = "Optimized configuration for splade-v3 targeting recall 96% from grid search"
+dataset = "Splade-v3 on MS-MARCO"
 
 [settings]
 k = 10
@@ -22,17 +22,17 @@ queries = "queries.bin"
 groundtruth = "groundtruth.tsv"
 doc_ids = "doc_ids.npy"
 query_ids = "queries_ids.npy"
-index = "splade-cocodenser_recall_96"
+index = "splade-v3_recall_96"
 
 [indexing_parameters]
-n-postings = 4000
+n-postings = 3000
 centroid-fraction = 0.2
-summary-energy = 0.5
+summary-energy = 0.4
 knn = 0
 clustering-algorithm = "random-kmeans-inverted-index-approx"
 kmeans-doc-cut = 15
 kmeans-pruning-factor = 0.0
-max-fraction = 2.0
+max-fraction = 4.0
 min-cluster-size = 2
 pruning-strategy = "global-threshold"
 value-type = "dotvbyte"
@@ -41,4 +41,4 @@ value-type = "dotvbyte"
 
 [query.recall_96]
 query-cut = 4
-heap-factor = 0.8
+heap-factor = 0.9

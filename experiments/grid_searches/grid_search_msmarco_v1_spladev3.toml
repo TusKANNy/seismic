@@ -16,9 +16,9 @@ metric =        "RR@10"
 delete =        true
 
 [folder]
-data =          "~/knn_datasets/sparse_datasets/msmarco_v1_passage/splade_v3/data"
-index =         "~/knn_indexes/sparse_datasets/msmarco_v1_passage/splade-v3/indexes"
-qrels_path =    "~/knn_datasets/sparse_datasets/msmarco_v1_passage/qrels.dev.small.tsv"
+data =          "/data/cosimorulli/splade_v3/data"
+index =         "/data/cosimorulli/splade-v3/indexes"
+qrels_path =    "/data/cosimorulli/qrels.dev.small.tsv"
 experiment =    "."     # stdout and stderr here of running the experiment is saved here. in a specific subfolder for the current execution
 
 [filename]
