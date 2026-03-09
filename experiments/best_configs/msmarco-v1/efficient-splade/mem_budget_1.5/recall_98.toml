@@ -1,6 +1,6 @@
-name = "efficient-splade_recall_97"
-title = "Seismic Efficient-splade - Recall 97%"
-description = "Optimized configuration for efficient-splade targeting recall 97% from grid search"
+name = "efficient-splade_recall_98"
+title = "Seismic Efficient-splade - Recall 98%"
+description = "Optimized configuration for efficient-splade targeting recall 98% from grid search"
 dataset = "Efficient-splade on MS-MARCO"
 
 [settings]
@@ -22,12 +22,12 @@ queries = "queries.bin"
 groundtruth = "groundtruth.tsv"
 doc_ids = "doc_ids.npy"
 query_ids = "queries_ids.npy"
-index = "efficient-splade_recall_97"
+index = "efficient-splade_recall_98"
 
 [indexing_parameters]
 n-postings = 2000
 centroid-fraction = 0.2
-summary-energy = 0.4
+summary-energy = 0.5
 knn = 0
 clustering-algorithm = "random-kmeans-inverted-index-approx"
 kmeans-doc-cut = 15
@@ -39,7 +39,6 @@ value-type = "f16"
 
 [query]
 
-[query.recall_97]
-query-cut = 6
+[query.recall_98]
+query-cut = 10
 heap-factor = 0.9
-first_sorted = true
