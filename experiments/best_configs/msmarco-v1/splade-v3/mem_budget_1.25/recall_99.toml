@@ -11,10 +11,10 @@ metric = "RR@10"
 delete = true
 
 [folder]
-data = ""
-index = ""
-qrels_path = ""
-experiment = ""
+data = "/data/cosimorulli/splade_v3/data"
+index = "/data/cosimorulli/splade-v3/indexes"
+qrels_path = "/data/cosimorulli/qrels.dev.small.tsv"
+experiment = "."
 
 [filename]
 dataset = "documents.bin"
