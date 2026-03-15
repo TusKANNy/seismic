@@ -24,7 +24,8 @@ use serde::{Deserialize, Serialize};
 use std::cmp;
 
 use mem_dbg::{MemSize, SizeFlags};
-use std::collections::{HashMap, HashSet};
+use rustc_hash::FxHashSet;
+use std::collections::HashMap;
 use std::time::Instant;
 
 use std::io::Result as IoResult;
@@ -177,7 +178,10 @@ where
         let mut evaluator = self.forward_index.encoder().query_evaluator(query_for_eval);
 
         let mut heap = KHeap::new(k);
-        let mut visited = HashSet::with_capacity(query_cut.min(query_components.len()) * 5000); // TODO: 5000 should be n_postings
+        let mut visited = FxHashSet::with_capacity_and_hasher(
+            query_cut.min(query_components.len()) * 5000,
+            Default::default(),
+        ); // TODO: 5000 should be n_postings
 
         // Evaluate the posting list only for the top score query terms
         let mut iter = query_components
@@ -548,7 +552,7 @@ impl Knn {
         &self,
         evaluator: &mut <EncoderFor<S> as VectorEncoder>::Evaluator<'a>,
         heap: &mut KHeap<ScoredRange<DotProduct>>,
-        visited: &mut HashSet<usize>,
+        visited: &mut FxHashSet<usize>,
         forward_index: &'a S,
         in_n_knn: usize,
     ) where

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::hash::Hash;
 
 use crate::QuantizedSummary;
@@ -119,7 +119,7 @@ impl<C: ComponentType> PostingList<C> {
         k: usize,
         heap_factor: f32,
         heap: &mut KHeap<ScoredRange<DotProduct>>,
-        visited: &mut HashSet<usize>,
+        visited: &mut FxHashSet<usize>,
         forward_index: &'e S,
     ) where
         S: SeismicSearchDataset,
@@ -153,7 +153,7 @@ impl<C: ComponentType> PostingList<C> {
         k: usize,
         heap_factor: f32,
         heap: &mut KHeap<ScoredRange<DotProduct>>,
-        visited: &mut HashSet<usize>,
+        visited: &mut FxHashSet<usize>,
         forward_index: &'e S,
     ) where
         S: SeismicSearchDataset,
@@ -190,7 +190,7 @@ impl<C: ComponentType> PostingList<C> {
         evaluator: &<EncoderFor<S> as VectorEncoder>::Evaluator<'e>,
         packed_posting_block: &[PackedPostingBlock],
         heap: &mut KHeap<ScoredRange<DotProduct>>,
-        visited: &mut HashSet<usize>,
+        visited: &mut FxHashSet<usize>,
         forward_index: &'e S,
     ) where
         S: SeismicSearchDataset,
