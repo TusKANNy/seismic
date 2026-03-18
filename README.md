@@ -18,15 +18,6 @@
 
 Seismic is a fast and lightweight search engine for learned sparse embeddings, written in Rust with Python bindings. It indexes sparse vector collections and retrieves results in microseconds with near-exact accuracy.
 
-### Performance
-
-| Dataset | Encoder | Documents | Recall@10 | MRR@10 | Search Time |
-|---|---|---|---|---|---|
-| MSMARCO v1 Passage | SPLADE-CoCondenser | 8.8M | 99% | 0.3827 | – |
-| MSMARCO v2 Passage | SPLADE-CoCondenser | 138M | – | – | – |
-
-Exact MRR@10 on MSMARCO v1 is 0.3828 — Seismic achieves near-exact results. See [docs/BestResults.md](docs/BestResults.md) for optimized configurations across datasets and memory budgets.
-
 
 ### Requirements
 
@@ -203,10 +194,13 @@ Journal of ACM (Under Review)
 }
 ```
 
-</details>
-
 
 ### Citation License
 The source code in this repository is subject to the following citation license:
 
 By downloading and using this software, you agree to cite the papers listed in the Bibliography section above in any kind of material you produce where it was used to conduct a search or experimentation, whether be it a research paper, dissertation, article, poster, presentation, or documentation. By using this software, you have agreed to the citation license.
+
+
+</details>
+
+
