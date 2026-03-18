@@ -109,7 +109,10 @@ def main(experiment_config_filename):
         experiment_config["indexing_parameters"] = building_config
         with open(os.path.join(grid_folder, f"building_combination_{i}.json"), "w") as f:
             json.dump(building_config, f, indent=4)
-        run_experiment(experiment_config)
+        try:
+            run_experiment(experiment_config)
+        except:
+            continue
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
