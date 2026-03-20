@@ -1,6 +1,6 @@
 <h1 align="center">Seismic</h1>
 <p align="center">
-    <img width="400px" src="https://raw.githubusercontent.com/TusKANNy/seismic/main/imgs/logo.webp" />
+    <img width="400px" src="imgs/logo.webp" />
 </p>
 
 <p align="center">
