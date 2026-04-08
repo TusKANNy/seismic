@@ -102,6 +102,20 @@ Interactive Jupyter notebooks are available in the [`examples/`](examples/) fold
 - [**LargeVocabulary.ipynb**](examples/LargeVocabulary.ipynb) — Handling collections with large vocabularies (>65K tokens)
 
 
+
+### Comparison with the state-of-the-art
+Comparison with Dynamic Superblock Pruning ([DSP](https://arxiv.org/pdf/2504.17045)) using the `splade-v3` encoding of the MS MARCO dataset. 
+
+
+| Index    | MRR@10 | AQT (μs) | Memory (GB) |
+|----------|-------:|---------:|------------:|
+| DSP      |  40.28 |      745 |        24.0 |
+| Seismic  |  40.27 |      185 |         7.9 |
+
+Experiments performed in single-threaded mode on an Intel Core Ultra 7265K CPU, equipped with 124 GB of RAM. 
+
+
+
 ### Best Results
 
 Seismic is an approximate algorithm designed for high-performance retrieval over learned sparse representations. We provide **pre-optimized configurations** for several common datasets, e.g., MsMarco. Check the detailed documentation in [docs/BestResults.md](docs/BestResults.md) and the available optimized configurations in [experiments/best_configs](experiments/best_configs).
