@@ -14,8 +14,9 @@ use vectorium::dataset::ConvertFrom;
 use vectorium::dataset::ScoredVector;
 use vectorium::vector_encoder::{SparseDataEncoder, SparseVectorEncoder};
 use vectorium::{
-    Dataset, DatasetGrowable, Distance, DotProduct, QueryEvaluator, ScalarSparseQuantizer,
-    SpaceUsage, SparseData, SparseDataset, SparseDatasetGrowable, SparseVectorView, VectorEncoder,
+    Dataset, DatasetGrowable, Distance, DotProduct, FlatIndex, Index, QueryEvaluator,
+    ScalarSparseQuantizer, SpaceUsage, SparseData, SparseDataset, SparseDatasetGrowable,
+    SparseVectorView, VectorEncoder,
 };
 
 use indicatif::ProgressIterator;
@@ -727,9 +728,12 @@ where
         let (components, values) =
             resolve_query_tokens::<C>(query_components, query_values, &self.token_to_id_map);
         let query = SparseVectorView::new(components.as_slice(), values.as_slice());
-        let plain_results: Vec<(f32, usize)> = self
-            .sparse_dataset
-            .search(query, k)
+        // vectorium 0.4 removed `Dataset::search`; brute-force search now goes
+        // through `FlatIndex`. `&Dataset` implements `Dataset`, so we wrap a
+        // borrow of the dataset to avoid cloning it on every query.
+        let flat_index = FlatIndex::from(&self.sparse_dataset);
+        let plain_results: Vec<(f32, usize)> = flat_index
+            .search(query, k, &())
             .into_iter()
             .map(|result| (result.distance.distance(), result.vector as usize))
             .collect();
