@@ -102,7 +102,7 @@ def generate_query_combinations(params):
     return combination_dict
 
 
-def main(experiment_config_filename, resume_path=None):
+def main(experiment_config_filename, resume_path=None, no_gt=False):
     config_data = parse_toml(experiment_config_filename)
 
     if not config_data:
@@ -200,7 +200,7 @@ def main(experiment_config_filename, resume_path=None):
         with open(os.path.join(grid_folder, f"building_combination_{i}.json"), "w") as f:
             json.dump(building_config, f, indent=4)
         try:
-            run_experiment(experiment_config)
+            run_experiment(experiment_config, no_gt=no_gt)
         except Exception as e:
             print(e)
 
@@ -217,6 +217,10 @@ if __name__ == "__main__":
         "--resume", required=False, default=None,
         help="Path to an existing grid search directory to resume."
     )
+    parser.add_argument(
+        "--no-gt", action="store_true",
+        help="Do not load the ground truth and skip the accuracy (recall) computation. The metric is still computed."
+    )
     args = parser.parse_args()
 
-    main(args.exp, resume_path=args.resume)
+    main(args.exp, resume_path=args.resume, no_gt=args.no_gt)

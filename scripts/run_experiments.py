@@ -239,7 +239,21 @@ def build_base_index(configs, experiment_dir, build_command):
     print(colored(f"Index built successfully in {building_time} secs!", "yellow"))
     return building_time, output_file+".index.seismic"
 
-def compute_metric(configs, output_file, gt_file, metric):    
+def load_run(run_file, queries_ids, doc_ids):
+    """Read a TREC-style run file and map the internal ids to the original ones."""
+    column_names = ["query_id", "doc_id", "rank", "score"]
+    run_pd = pd.read_csv(run_file, sep='\t', names=column_names)
+    run_pd['query_id'] = run_pd['query_id'].apply(lambda x: queries_ids[x])
+    run_pd['doc_id'] = run_pd['doc_id'].apply(lambda x: doc_ids[x])
+    return run_pd
+
+
+def compute_metric(configs, output_file, gt_file, metric):
+    """Compute the IR metric of the run against the qrels.
+
+    gt_file may be None: in that case the metric of the ground truth is not
+    computed, but the metric of the run still is.
+    """
     qrels_path = configs['folder']['qrels_path']
     
     # Skip metric computation if qrels_path is empty or doesn't exist
@@ -247,40 +261,34 @@ def compute_metric(configs, output_file, gt_file, metric):
         print(f"Skipping metric computation: qrels_path is empty or file doesn't exist: '{qrels_path}'")
         return 0.0
     
-    column_names = ["query_id", "doc_id", "rank", "score"]
-    gt_pd = pd.read_csv(gt_file, sep='\t', names=column_names)
-    res_pd = pd.read_csv(output_file, sep='\t', names=column_names)
-    
     query_ids_path = os.path.join(configs['folder']['data'], configs['filename']['query_ids'])
     queries_ids = np.load(query_ids_path, allow_pickle=True)
 
     document_ids_path = os.path.join(configs['folder']['data'], configs['filename']['doc_ids'])
     doc_ids = np.load(os.path.realpath(document_ids_path), allow_pickle=True)
-    
-    gt_pd['query_id'] = gt_pd['query_id'].apply(lambda x: queries_ids[x])
-    res_pd['query_id'] = res_pd['query_id'].apply(lambda x: queries_ids[x])
-    
-    gt_pd['doc_id'] = gt_pd['doc_id'].apply(lambda x: doc_ids[x])
-    res_pd['doc_id'] = res_pd['doc_id'].apply(lambda x: doc_ids[x])
+
+    res_pd = load_run(output_file, queries_ids, doc_ids)
+    gt_pd = load_run(gt_file, queries_ids, doc_ids) if gt_file is not None else None
     
     df_qrels = pd.read_csv(qrels_path, sep="\t", names=["query_id", "useless", "doc_id", "relevance"])
     #if "nq" in configs['name']: # the order of the fields in nq is different. 
     if len(pd.unique(df_qrels['useless'])) != 1:
         df_qrels = pd.read_csv(qrels_path, sep="\t", names=["query_id", "doc_id", "relevance", "useless"])
 
-    gt_pd['doc_id'] = gt_pd['doc_id'].astype(df_qrels.doc_id.dtype)
     res_pd['doc_id'] = res_pd['doc_id'].astype(df_qrels.doc_id.dtype)
-    
-    gt_pd['query_id'] = gt_pd['query_id'].astype(df_qrels.query_id.dtype)
     res_pd['query_id'] = res_pd['query_id'].astype(df_qrels.query_id.dtype)
     
     ir_metric = ir_measures.parse_measure(metric)
     
     metric_val = ir_measures.calc_aggregate([ir_metric], df_qrels, res_pd)[ir_metric]
-    metric_gt = ir_measures.calc_aggregate([ir_metric], df_qrels, gt_pd)[ir_metric]
-    
     print(f"Metric of the run ({ir_metric}): {round(metric_val, 4)}")
-    print(f"Metric of the ground truth ({ir_metric}): {round(metric_gt, 4)}")
+
+    if gt_pd is not None:
+        gt_pd['doc_id'] = gt_pd['doc_id'].astype(df_qrels.doc_id.dtype)
+        gt_pd['query_id'] = gt_pd['query_id'].astype(df_qrels.query_id.dtype)
+        metric_gt = ir_measures.calc_aggregate([ir_metric], df_qrels, gt_pd)[ir_metric]
+        print(f"Metric of the ground truth ({ir_metric}): {round(metric_gt, 4)}")
+
     return metric_val
 
 
@@ -309,7 +317,7 @@ def compute_accuracy(query_file, gt_file):
     return accuracy
 
 
-def query_execution(configs, query_config, experiment_dir, subsection_name, index_file):
+def query_execution(configs, query_config, experiment_dir, subsection_name, index_file, no_gt=False):
     """Execute a query based on the provided configuration."""
     #index_file = os.path.join(configs["folder"]["index"], get_index_filename(configs["filename"]["index"], configs))
     query_file =  os.path.join(configs["folder"]["data"], configs["filename"]["queries"] ) 
@@ -387,8 +395,13 @@ def query_execution(configs, query_config, experiment_dir, subsection_name, inde
 
     print(f"Query for subsection '{subsection_name}' executed successfully.")
 
-    gt_file = os.path.join(configs['folder']['data'], configs['filename']['groundtruth'])
     metric = configs['settings']['metric']
+
+    if no_gt:
+        print(colored("Skipping ground truth loading and accuracy computation (--no-gt)", "yellow"))
+        return query_time, None, compute_metric(configs, output_file, None, metric), memory_usage
+
+    gt_file = os.path.join(configs['folder']['data'], configs['filename']['groundtruth'])
     return query_time, compute_accuracy(output_file, gt_file), compute_metric(configs, output_file, gt_file, metric), memory_usage
 
 
@@ -497,8 +510,12 @@ def remove_index_files(index_file_path):
         print(colored(f"Warning: Could not remove index file {index_file_path}: {e}", "red"))
 
 
-def run_experiment(config_data):
-    """Run the seismic experiment based on the provided configuration."""
+def run_experiment(config_data, no_gt=False):
+    """Run the seismic experiment based on the provided configuration.
+
+    If no_gt is True, the ground truth is not loaded and the accuracy (recall)
+    is not computed. The IR metric against the qrels is still computed.
+    """
 
      # Get the experiment name from the configuration
     experiment_name = config_data.get("name")
@@ -547,20 +564,23 @@ def run_experiment(config_data):
     print()
     print(colored(f"Evaluation", "green"))
     print(f"Evaluation runs with metric {metric}")
+    if no_gt:
+        print(colored("Ground truth disabled (--no-gt): recall is not computed", "yellow"))
 
     # Execute queries for each subsection under [query]
     with open(os.path.join(experiment_folder, "report.tsv"), 'w') as report_file:
         report_file.write(f"Subsection\tQuery Time (microsecs)\tRecall\t{metric}\tMemory Usage (Bytes)\tBuilding Time (secs)\n")
         if 'query' in config_data:
             for subsection, query_config in config_data['query'].items():
-                query_time, recall, metric, memory_usage = query_execution(config_data, query_config, experiment_folder, subsection, index_path)
-                report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric}\t{memory_usage}\t{building_time}\n")
+                query_time, recall, metric_value, memory_usage = query_execution(config_data, query_config, experiment_folder, subsection, index_path, no_gt=no_gt)
+                recall = "N/A" if recall is None else recall
+                report_file.write(f"{subsection}\t{query_time}\t{recall}\t{metric_value}\t{memory_usage}\t{building_time}\n")
 
     # Remove index files if delete parameter is set to true
     if config_data['settings'].get('delete', False):
         remove_index_files(index_path)
 
-def main(experiment_config_filename):
+def main(experiment_config_filename, no_gt=False):
     config_data = parse_toml(experiment_config_filename)
 
     if not config_data:
@@ -569,7 +589,7 @@ def main(experiment_config_filename):
         sys.exit(1)
     
     try:
-        run_experiment(config_data)
+        run_experiment(config_data, no_gt=no_gt)
     except Exception as e:
         print()
         print(colored("ERROR: Experiment execution failed!", "red"))
@@ -587,7 +607,8 @@ def main(experiment_config_filename):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a seismic experiment on a dataset and query it.")
     parser.add_argument("--exp", required=True, help="Path to the experiment configuration TOML file.")
+    parser.add_argument("--no-gt", action="store_true", help="Do not load the ground truth and skip the accuracy (recall) computation. The metric is still computed.")
     args = parser.parse_args()
 
-    main(args.exp)
+    main(args.exp, no_gt=args.no_gt)
     sys.exit(0)
