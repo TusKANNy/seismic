@@ -14,7 +14,7 @@ use vectorium::dataset::ConvertFrom;
 use vectorium::dataset::ScoredVector;
 use vectorium::vector_encoder::{SparseDataEncoder, SparseVectorEncoder};
 use vectorium::{
-    Dataset, DatasetGrowable, Distance, DotProduct, FlatIndex, Index, QueryEvaluator,
+    Dataset, DatasetGrowable, Distance, DotProduct, FlatIndex, Index, IndexStats, QueryEvaluator,
     ScalarSparseQuantizer, SpaceUsage, SparseData, SparseDataset, SparseDatasetGrowable,
     SparseVectorView, VectorEncoder,
 };
@@ -31,7 +31,7 @@ use tar::Archive;
 
 use crate::{
     InvertedIndexBase,
-    configurations::Configuration,
+    configurations::{Configuration, SearchParams},
     index_traits::{ComponentFor, EncoderFor, SeismicBuildDataset, SeismicSearchDataset, ValueFor},
     inverted_index::Knn,
 };
@@ -337,7 +337,7 @@ where
 
     pub fn convert_dataset_into<T>(self) -> SeismicIndex<T>
     where
-        T: Dataset + SparseData + ConvertFrom<S> + SpaceUsage,
+        T: Dataset + SparseData + ConvertFrom<S, Config = ()> + SpaceUsage,
         EncoderFor<T>: SparseDataEncoder<OutputComponentType = ComponentFor<S>>,
         ComponentFor<T>: SpaceUsage,
     {
@@ -845,6 +845,44 @@ where
     pub fn get_doc_text(&self, doc_id: &str) -> Option<String> {
         let idx = self.document_mapping.iter().position(|id| id == doc_id)?;
         self.document_content[idx].clone()
+    }
+}
+
+/// Same as the [`Index`] impl of [`InvertedIndexBase`]: the query is already in component-id
+/// space (no token-string lookup) and results carry internal vector ids, not document ids.
+/// Use [`SeismicIndex::remap_doc_ids`] to map them back.
+impl<S> Index for SeismicIndex<S>
+where
+    S: SeismicSearchDataset,
+    EncoderFor<S>: VectorEncoder<Distance = DotProduct, QueryParams = ()>,
+    for<'a> <EncoderFor<S> as VectorEncoder>::QueryVector<'a>:
+        From<SparseVectorView<'a, ComponentFor<S>, f32>>,
+{
+    type Query<'q> = SparseVectorView<'q, ComponentFor<S>, f32>;
+    type Distance = DotProduct;
+    type SearchParams = SearchParams;
+
+    fn search<'q>(
+        &self,
+        query: Self::Query<'q>,
+        k: usize,
+        search_params: &Self::SearchParams,
+    ) -> Vec<ScoredVectorDotProduct> {
+        Index::search(&self.inverted_index, query, k, search_params)
+    }
+}
+
+impl<S> IndexStats for SeismicIndex<S>
+where
+    S: SparseData,
+    EncoderFor<S>: SparseDataEncoder,
+{
+    fn n_elements(&self) -> usize {
+        self.len()
+    }
+
+    fn dim(&self) -> usize {
+        SeismicIndex::dim(self)
     }
 }
 

@@ -33,10 +33,11 @@ fn quantize_f32_dataset_to_f16<C>(
 ) -> IndexDataset<C>
 where
     C: ComponentType,
-    IndexDataset<C>: vectorium::dataset::ConvertFrom<PlainSparseDataset<C, f32, DotProduct>>,
+    IndexDataset<C>:
+        vectorium::dataset::ConvertFrom<PlainSparseDataset<C, f32, DotProduct>, Config = ()>,
 {
     use vectorium::dataset::ConvertFrom;
-    IndexDataset::<C>::convert_from(dataset)
+    IndexDataset::<C>::convert_from(dataset, ())
 }
 
 #[pyfunction]
