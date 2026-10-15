@@ -830,7 +830,8 @@ where
 }
 
 /// Seismic as a generic vectorium [`Index`]: a sparse query in the index's own component space,
-/// scored by dot product. Unlike the inherent search, query components need not be sorted.
+/// scored by dot product. Unlike the inherent search, query components need not be sorted, and
+/// components beyond the index's dimensionality are ignored instead of panicking.
 /// Results carry the forward index's vector ids, so a `RerankIndex` can
 /// pair this first stage with any rerank dataset stored in the same order.
 impl<S> Index for InvertedIndexBase<S>
@@ -850,20 +851,25 @@ where
         k: usize,
         search_params: &Self::SearchParams,
     ) -> Vec<ScoredVectorDotProduct> {
-        // The inherent search requires sorted components; generic callers can't be expected to
-        // know that, so sort here. Sorted queries (the common case) are passed through as is.
-        let (sorted_c, sorted_v): (Vec<ComponentFor<S>>, Vec<f32>);
-        let query = if query.components().is_sorted() {
+        // The inherent search requires sorted components within the index's dimensionality;
+        // generic callers can't be expected to know that, so normalize here. Components outside
+        // the index contribute nothing to a dot product and are dropped. Well-formed queries (the
+        // common case) are passed through as is.
+        let n_lists = self.posting_lists.len();
+        let in_range = |c: &ComponentFor<S>| -> bool { c.as_() < n_lists };
+        let (kept_c, kept_v): (Vec<ComponentFor<S>>, Vec<f32>);
+        let query = if query.components().is_sorted() && query.components().iter().all(in_range) {
             query
         } else {
-            (sorted_c, sorted_v) = query
+            (kept_c, kept_v) = query
                 .components()
                 .iter()
                 .copied()
                 .zip(query.values().iter().copied())
+                .filter(|(c, _)| in_range(c))
                 .sorted_unstable_by_key(|&(c, _)| c)
                 .unzip();
-            SparseVectorView::new(&sorted_c, &sorted_v)
+            SparseVectorView::new(&kept_c, &kept_v)
         };
         InvertedIndexBase::search(
             self,

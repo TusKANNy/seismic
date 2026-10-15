@@ -79,7 +79,7 @@ fn index_trait_matches_inherent_search() {
 }
 
 #[test]
-fn index_trait_accepts_unsorted_queries() {
+fn index_trait_normalizes_queries() {
     let index = InvertedIndexBase::build(random_dataset(7), Configuration::default());
     let params = SearchParams::default();
     let mut state = 42;
@@ -89,6 +89,12 @@ fn index_trait_accepts_unsorted_queries() {
         let (rc, rv): (Vec<u16>, Vec<f32>) = c.iter().rev().zip(v.iter().rev()).unzip();
         let reversed = search_generic(&index, SparseVectorView::new(&rc, &rv), 10, &params);
         assert_eq!(sorted, reversed);
+
+        let (mut oc, mut ov) = (c.clone(), v.clone());
+        oc.push(DIM as u16 + 5);
+        ov.push(1.0);
+        let out_of_range = search_generic(&index, SparseVectorView::new(&oc, &ov), 10, &params);
+        assert_eq!(sorted, out_of_range);
     }
 }
 
