@@ -79,6 +79,20 @@ fn index_trait_matches_inherent_search() {
 }
 
 #[test]
+fn index_trait_accepts_unsorted_queries() {
+    let index = InvertedIndexBase::build(random_dataset(7), Configuration::default());
+    let params = SearchParams::default();
+    let mut state = 42;
+    for _ in 0..20 {
+        let (c, v) = random_vector(&mut state);
+        let sorted = search_generic(&index, SparseVectorView::new(&c, &v), 10, &params);
+        let (rc, rv): (Vec<u16>, Vec<f32>) = c.iter().rev().zip(v.iter().rev()).unzip();
+        let reversed = search_generic(&index, SparseVectorView::new(&rc, &rv), 10, &params);
+        assert_eq!(sorted, reversed);
+    }
+}
+
+#[test]
 fn seismic_index_wrapper_implements_index() {
     let index = SeismicIndex::new(
         random_dataset(7),
