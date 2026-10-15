@@ -957,4 +957,17 @@ mod tests {
         assert_eq!(dataset.len(), 0);
         assert!(dataset.token_to_id_map().is_empty());
     }
+
+    /// Compiles only if `SeismicIndex` satisfies vectorium's `Index` and `IndexStats` with the
+    /// expected associated types. Its search forwards to `InvertedIndexBase`, whose behavior is
+    /// tested in `inverted_index.rs`.
+    #[test]
+    fn seismic_index_satisfies_index_and_index_stats() {
+        fn assert_bounds<I>()
+        where
+            I: Index<Distance = DotProduct, SearchParams = SearchParams> + IndexStats,
+        {
+        }
+        assert_bounds::<SeismicIndex<vectorium::PlainSparseDataset<u16, f32, DotProduct>>>();
+    }
 }
