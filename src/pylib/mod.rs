@@ -9,7 +9,7 @@ use half::f16;
 
 use indicatif::ParallelProgressIterator;
 use numpy::{PyArrayMethods, PyFixedUnicode, PyReadonlyArray1, PyReadonlyArrayDyn};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use rayon::iter::{ParallelBridge, ParallelIterator};
@@ -22,8 +22,8 @@ use vectorium::{
     ScalarSparseQuantizer, SparseDataset, SparseVectorView,
 };
 
-const MAX_TOKEN_LEN: usize = 30;
-const SEISMIC_STRING: &str = "U30";
+const MAX_TOKEN_LEN: usize = 100;
+const SEISMIC_STRING: &str = "U100";
 
 type IndexQuantizer<C> = ScalarSparseQuantizer<C, f32, f16, DotProduct>;
 type IndexDataset<C> = SparseDataset<IndexQuantizer<C>>;
@@ -42,6 +42,82 @@ where
 #[pyfunction]
 pub fn get_seismic_string() -> &'static str {
     SEISMIC_STRING
+}
+
+/// What an argument turned out to be, for error messages: its dtype when it
+/// is a NumPy array, its type otherwise.
+fn describe(obj: &Bound<'_, PyAny>) -> PyResult<String> {
+    Ok(match obj.getattr("dtype") {
+        Ok(dtype) => format!("a NumPy array with dtype {}", dtype.str()?),
+        Err(_) => format!("an object of type {}", obj.get_type().name()?),
+    })
+}
+
+/// Reads a NumPy array of token strings (dtype `SEISMIC_STRING`) into owned
+/// strings. Anything else gets a `TypeError` naming the argument, what was
+/// received and what is expected: the default message for a failed
+/// `PyReadonlyArrayDyn` extraction mentions neither.
+pub(crate) fn extract_tokens<'py>(name: &str, obj: &Bound<'py, PyAny>) -> PyResult<Vec<String>> {
+    match obj.extract::<PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>>() {
+        Ok(array) => Ok(array.to_vec()?.iter().map(|s| s.to_string()).collect()),
+        Err(_) => Err(PyTypeError::new_err(format!(
+            "argument '{}': expected a NumPy array with dtype {} but got {}. Build the array \
+             with dtype=seismic.get_seismic_string(), or convert it with \
+             .astype(seismic.get_seismic_string()).",
+            name,
+            SEISMIC_STRING,
+            describe(obj)?
+        ))),
+    }
+}
+
+/// Reads a NumPy float32 array into a `Vec`, with a `TypeError` naming the
+/// argument on any other input.
+pub(crate) fn extract_values<'py>(name: &str, obj: &Bound<'py, PyAny>) -> PyResult<Vec<f32>> {
+    match obj.extract::<PyReadonlyArrayDyn<'py, f32>>() {
+        Ok(array) => Ok(array.to_vec()?),
+        Err(_) => Err(PyTypeError::new_err(format!(
+            "argument '{}': expected a NumPy array with dtype float32 but got {}.",
+            name,
+            describe(obj)?
+        ))),
+    }
+}
+
+/// `extract_tokens` over a list of arrays; the error names the list entry.
+pub(crate) fn extract_tokens_list(
+    name: &str,
+    list: &Bound<'_, PyList>,
+) -> PyResult<Vec<Vec<String>>> {
+    list.iter()
+        .enumerate()
+        .map(|(i, item)| extract_tokens(&format!("{}[{}]", name, i), &item))
+        .collect()
+}
+
+/// `extract_values` over a list of arrays; the error names the list entry.
+pub(crate) fn extract_values_list(name: &str, list: &Bound<'_, PyList>) -> PyResult<Vec<Vec<f32>>> {
+    list.iter()
+        .enumerate()
+        .map(|(i, item)| extract_values(&format!("{}[{}]", name, i), &item))
+        .collect()
+}
+
+/// `ValueError` for a document that `SeismicDataset::add_document` rejected.
+/// When a token of the document fills the whole fixed width, the likely cause
+/// is NumPy truncating longer, distinct tokens onto the same string, so the
+/// message says so.
+pub(crate) fn add_document_error(message: String, tokens: &[String]) -> PyErr {
+    if tokens.iter().any(|t| t.chars().count() >= MAX_TOKEN_LEN) {
+        PyValueError::new_err(format!(
+            "{} Some tokens are {} characters long, the full width of the {} NumPy dtype: \
+             NumPy silently truncates longer strings, so two distinct tokens sharing their \
+             first {} characters collapse onto the same token.",
+            message, MAX_TOKEN_LEN, SEISMIC_STRING, MAX_TOKEN_LEN
+        ))
+    } else {
+        PyValueError::new_err(message)
+    }
 }
 
 macro_rules! impl_seismic_index {
@@ -505,32 +581,31 @@ macro_rules! impl_seismic_index {
         pub fn search<'py>(
             &self,
             query_id: String,
-            query_components: PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>,
+            query_components: &Bound<'py, PyAny>,
             query_values: PyReadonlyArrayDyn<'py, f32>,
             k: usize,
             query_cut: usize,
             heap_factor: f32,
             n_knn: usize,
             sorted: bool,
-        ) -> Vec<(String, f32, String)> {
-            self.index.search(
-                &query_id,
-                &query_components
-                    .to_vec()
-                    .unwrap()
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>(),
-                &query_values.to_vec().unwrap(),
-                k,
-                query_cut,
-                heap_factor,
-                n_knn,
-                sorted,
-            )
-            .into_iter()
-            .map(|r| r.to_tuple())
-            .collect()
+        ) -> PyResult<Vec<(String, f32, String)>> {
+            let query_components = extract_tokens("query_components", query_components)?;
+            let query_values = query_values.to_vec()?;
+            Ok(self
+                .index
+                .search(
+                    &query_id,
+                    &query_components,
+                    &query_values,
+                    k,
+                    query_cut,
+                    heap_factor,
+                    n_knn,
+                    sorted,
+                )
+                .into_iter()
+                .map(|r| r.to_tuple())
+                .collect())
         }
 
         /// Look up the stored text content for a document by its string document ID.
@@ -587,7 +662,7 @@ macro_rules! impl_seismic_index {
     #[allow(clippy::too_many_arguments)]
     pub fn batch_search<'py>(
         &self,
-        queries_ids: PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>,
+        queries_ids: &Bound<'py, PyAny>,
         query_components: Bound<'py, PyList>,
         query_values: Bound<'_, PyList>,
         k: usize,
@@ -596,63 +671,41 @@ macro_rules! impl_seismic_index {
         n_knn: usize,
         sorted: bool,
         num_threads: usize,
-    ) -> Vec<Vec<(String, f32, String)>> {
+    ) -> PyResult<Vec<Vec<(String, f32, String)>>> {
         rayon::ThreadPoolBuilder::new()
             .num_threads(num_threads)
             .build()
             .unwrap();
 
-        let qv: Vec<Vec<f32>> = query_values
-            .iter()
-            .map(|i| {
-                i.extract::<PyReadonlyArrayDyn<f32>>()
-                    .unwrap()
-                    .to_vec()
-                    .unwrap()
-            })
-            .collect();
-
-        let qc = query_components
-            .iter()
-            .map(|i| {
-                let array = i
-                    .extract::<PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>>()
-                    .unwrap();
-                array
-                    .to_vec()
-                    .unwrap()
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+        let queries_ids = extract_tokens("queries_ids", queries_ids)?;
+        let qc = extract_tokens_list("query_components", &query_components)?;
+        let qv = extract_values_list("query_values", &query_values)?;
 
         let results: Vec<_> = queries_ids
-            .to_vec()
-            .unwrap()
             .iter()
             .zip(qc.iter())
             .zip(qv.iter())
             .par_bridge()
-            .progress_count(queries_ids.len().unwrap() as u64)
+            .progress_count(queries_ids.len() as u64)
             .map(|((query_id, components), values)| {
-                self.index.search(
-                    &query_id.to_string(),
-                    components,
-                    values,
-                    k,
-                    query_cut,
-                    heap_factor,
-                    n_knn,
-                    sorted,
-                )
-                .into_iter()
-                .map(|r| r.to_tuple())
-                .collect()
+                self.index
+                    .search(
+                        query_id,
+                        components,
+                        values,
+                        k,
+                        query_cut,
+                        heap_factor,
+                        n_knn,
+                        sorted,
+                    )
+                    .into_iter()
+                    .map(|r| r.to_tuple())
+                    .collect()
             })
             .collect();
 
-        results
+        Ok(results)
     }
 
 

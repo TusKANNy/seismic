@@ -684,45 +684,74 @@ where
         self.sparse_dataset = rebuilt;
     }
 
+    /// Append one document given by token strings and their weights. New
+    /// tokens get the next free id in order of first appearance. The
+    /// document is rejected, and the dataset (token map included) left
+    /// unchanged, when two of its tokens resolve to the same component:
+    /// the same string twice, or two different strings sharing an id, which
+    /// only happens when this is mixed with `add_documents_by_id`.
     pub fn add_document(
         &mut self,
         id: String,
         tokens: &[String],
         values: &[f32],
         content: Option<String>,
-    ) {
-        self.document_mapping.push(id);
-        self.document_content.push(content);
-
-        let mut components: Vec<C> = Vec::with_capacity(tokens.len());
-        for c in tokens.iter() {
-            let next_token_id = self.token_to_id_map.len();
-            let token_id = *self
-                .token_to_id_map
-                .entry(c.to_string())
-                .or_insert_with(|| next_token_id);
-            components.push(C::try_from(token_id).unwrap());
-            let n_bits = size_of::<C>() as u32 * 8;
-            assert!(
-                self.token_to_id_map.len() < 2_usize.pow(n_bits),
-                "The number of different tokens exceeds 2^{}.",
-                n_bits
-            );
+    ) -> Result<(), String> {
+        // Resolve ids without touching the token map, so that a rejected
+        // document needs no rollback.
+        let mut pending: HashMap<&str, usize> = HashMap::new();
+        let mut resolved: Vec<(usize, &str, f32)> = Vec::with_capacity(tokens.len());
+        for (token, &value) in tokens.iter().zip(values) {
+            let token_id = match self.token_to_id_map.get(token) {
+                Some(&token_id) => token_id,
+                None => {
+                    let next_token_id = self.token_to_id_map.len() + pending.len();
+                    *pending.entry(token.as_str()).or_insert(next_token_id)
+                }
+            };
+            resolved.push((token_id, token.as_str(), value));
         }
 
+        let n_bits = size_of::<C>() as u32 * 8;
+        if self.token_to_id_map.len() + pending.len() >= 2_usize.pow(n_bits) {
+            return Err(format!(
+                "Document {}: the number of different tokens exceeds 2^{}.",
+                id, n_bits
+            ));
+        }
+
+        resolved.sort_by_key(|(token_id, _, _)| *token_id);
+        if let Some(pair) = resolved.windows(2).find(|w| w[0].0 == w[1].0) {
+            let (token_id, first, _) = pair[0];
+            let (_, second, _) = pair[1];
+            return Err(if first == second {
+                format!("Document {} has duplicate token {:?}.", id, first)
+            } else {
+                format!(
+                    "Document {}: tokens {:?} and {:?} both map to component {}; \
+                     add_document and add_documents_by_id must not be mixed on the same dataset.",
+                    id, first, second, token_id
+                )
+            });
+        }
+
+        for (token, token_id) in pending {
+            self.token_to_id_map.insert(token.to_string(), token_id);
+        }
         self.ensure_dim(self.token_to_id_map.len());
 
-        let values: Vec<_> = values.iter().map(|v| f16::from_f32(*v)).collect();
-        let sorted_components_values = components
-            .into_iter()
-            .zip(values)
-            .sorted_by_key(|(c, _)| *c);
-        let (components, values): (Vec<_>, Vec<_>) = sorted_components_values.unzip();
+        let (components, values): (Vec<C>, Vec<f16>) = resolved
+            .iter()
+            .map(|&(token_id, _, value)| (C::try_from(token_id).unwrap(), f16::from_f32(value)))
+            .unzip();
 
+        self.document_mapping.push(id);
+        self.document_content.push(content);
         self.sparse_dataset.push(SparseVectorView::new(
             components.as_slice(),
             values.as_slice(),
         ));
+        Ok(())
     }
 
     /// Append a batch of documents given directly by component id, in CSR
@@ -862,8 +891,12 @@ mod tests {
     #[test]
     fn add_documents_by_id_matches_add_document() {
         let mut by_token = SeismicDataset::<u16>::new();
-        by_token.add_document("d0".into(), &["1".into(), "7".into()], &[0.5, 1.0], None);
-        by_token.add_document("d2".into(), &["3".into(), "7".into()], &[2.0, 0.25], None);
+        by_token
+            .add_document("d0".into(), &["1".into(), "7".into()], &[0.5, 1.0], None)
+            .unwrap();
+        by_token
+            .add_document("d2".into(), &["3".into(), "7".into()], &[2.0, 0.25], None)
+            .unwrap();
 
         // Same two docs in one CSR call, plus an empty row ("d1") that is skipped.
         let mut by_id = SeismicDataset::<u16>::with_dim(8);
@@ -883,6 +916,37 @@ mod tests {
         let got = ranked(&by_id.search("q", &query, &[1.0, 1.0], 2));
         assert_eq!(got, expected);
         assert_eq!(got[0], ("d2".to_string(), 2.25));
+    }
+
+    #[test]
+    fn add_document_rejects_duplicates_and_leaves_dataset_unchanged() {
+        let mut dataset = SeismicDataset::<u16>::new();
+        dataset
+            .add_document("d0".into(), &["a".into()], &[1.0], None)
+            .unwrap();
+
+        // Same token twice: what two tokens truncated onto the same
+        // fixed-width string look like once they get here.
+        let err = dataset
+            .add_document("bad".into(), &["b".into(), "b".into()], &[1.0, 1.0], None)
+            .unwrap_err();
+        assert!(
+            err.contains("Document bad has duplicate token \"b\""),
+            "{err}"
+        );
+
+        // Nothing of the rejected document survives: not its id, not its token.
+        assert_eq!(dataset.len(), 1);
+        assert_eq!(dataset.document_mapping.len(), dataset.len());
+        assert_eq!(dataset.document_content.len(), dataset.len());
+        assert!(!dataset.token_to_id_map.contains_key("b"));
+
+        // The next document is found under its own id, not the rejected one.
+        dataset
+            .add_document("d1".into(), &["c".into()], &[1.0], None)
+            .unwrap();
+        let got = ranked(&dataset.search("q", &["c".to_string()], &[1.0], 1));
+        assert_eq!(got, vec![("d1".to_string(), 1.0)]);
     }
 
     #[test]

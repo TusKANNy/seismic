@@ -7,7 +7,7 @@ use crate::inverted_index::Knn;
 
 use half::f16;
 use indicatif::ParallelProgressIterator;
-use numpy::{PyArrayMethods, PyFixedUnicode, PyReadonlyArrayDyn};
+use numpy::{PyArrayMethods, PyReadonlyArrayDyn};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use rayon::iter::{ParallelBridge, ParallelIterator};
@@ -15,7 +15,7 @@ use rayon::iter::{ParallelBridge, ParallelIterator};
 use vectorium::encoders::dotvbyte_fixedu8::DotVByteFixedU8Encoder;
 use vectorium::{IndexSerializer, PackedSparseDataset, ScalarSparseQuantizer, SparseDataset};
 
-use super::{MAX_TOKEN_LEN, SeismicDataset};
+use super::{SeismicDataset, extract_tokens, extract_tokens_list, extract_values_list};
 
 type IndexQuantizer = ScalarSparseQuantizer<u16, f32, f16, vectorium::DotProduct>;
 type IndexDataset = SparseDataset<IndexQuantizer>;
@@ -301,24 +301,22 @@ impl SeismicIndexDotVByte {
     pub fn search<'py>(
         &self,
         query_id: String,
-        query_components: PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>,
+        query_components: &Bound<'py, PyAny>,
         query_values: PyReadonlyArrayDyn<'py, f32>,
         k: usize,
         query_cut: usize,
         heap_factor: f32,
         n_knn: usize,
         sorted: bool,
-    ) -> Vec<(String, f32, String)> {
-        self.index
+    ) -> PyResult<Vec<(String, f32, String)>> {
+        let query_components = extract_tokens("query_components", query_components)?;
+        let query_values = query_values.to_vec()?;
+        Ok(self
+            .index
             .search(
                 &query_id,
-                &query_components
-                    .to_vec()
-                    .unwrap()
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>(),
-                &query_values.to_vec().unwrap(),
+                &query_components,
+                &query_values,
                 k,
                 query_cut,
                 heap_factor,
@@ -327,7 +325,7 @@ impl SeismicIndexDotVByte {
             )
             .into_iter()
             .map(|r| r.to_tuple())
-            .collect()
+            .collect())
     }
 
     /// Look up document text by its string ID.
@@ -355,7 +353,7 @@ impl SeismicIndexDotVByte {
     #[allow(clippy::too_many_arguments)]
     pub fn batch_search<'py>(
         &self,
-        queries_ids: PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>,
+        queries_ids: &Bound<'py, PyAny>,
         query_components: Bound<'py, PyList>,
         query_values: Bound<'_, PyList>,
         k: usize,
@@ -364,49 +362,26 @@ impl SeismicIndexDotVByte {
         n_knn: usize,
         sorted: bool,
         num_threads: usize,
-    ) -> Vec<Vec<(String, f32, String)>> {
+    ) -> PyResult<Vec<Vec<(String, f32, String)>>> {
         rayon::ThreadPoolBuilder::new()
             .num_threads(num_threads)
             .build()
             .unwrap();
 
-        let qv: Vec<Vec<f32>> = query_values
-            .iter()
-            .map(|i| {
-                i.extract::<PyReadonlyArrayDyn<f32>>()
-                    .unwrap()
-                    .to_vec()
-                    .unwrap()
-            })
-            .collect();
-
-        let qc = query_components
-            .iter()
-            .map(|i| {
-                let array = i
-                    .extract::<PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>>()
-                    .unwrap();
-                array
-                    .to_vec()
-                    .unwrap()
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+        let queries_ids = extract_tokens("queries_ids", queries_ids)?;
+        let qc = extract_tokens_list("query_components", &query_components)?;
+        let qv = extract_values_list("query_values", &query_values)?;
 
         let results: Vec<_> = queries_ids
-            .to_vec()
-            .unwrap()
             .iter()
             .zip(qc.iter())
             .zip(qv.iter())
             .par_bridge()
-            .progress_count(queries_ids.len().unwrap() as u64)
+            .progress_count(queries_ids.len() as u64)
             .map(|((query_id, components), values)| {
                 self.index
                     .search(
-                        &query_id.to_string(),
+                        query_id,
                         components,
                         values,
                         k,
@@ -421,6 +396,6 @@ impl SeismicIndexDotVByte {
             })
             .collect();
 
-        results
+        Ok(results)
     }
 }

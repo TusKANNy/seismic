@@ -60,10 +60,9 @@ and then exploit Seismic to retrieve your set of queries quickly
 
 ```python
 import numpy as np
+from seismic import get_seismic_string
 
-MAX_TOKEN_LEN = 30
-
-string_type  = f'U{MAX_TOKEN_LEN}'
+string_type = get_seismic_string()  # 'U100': fixed-width dtype for token strings
 
 query = {"a": 3.5, "certain": 3.5, "query": 0.4}
 query_id = "0"

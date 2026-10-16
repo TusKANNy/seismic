@@ -87,7 +87,7 @@ with open(queries_path, 'r') as f:
     for line in f:
         queries.append(json.loads(line))
 
-string_type = get_seismic_string()  # Returns 'U30'
+string_type = get_seismic_string()  # Returns 'U100'
 
 queries_ids = np.array([q['id'] for q in queries], dtype=string_type)
 
@@ -138,4 +138,4 @@ Besides `SeismicIndex`, Seismic exports several specialized classes:
 
 ## Utility Functions
 
-- **`get_seismic_string()`** - Returns the NumPy string dtype (`'U30'`) to use when creating arrays of token strings. Use this instead of hardcoding the token length.
+- **`get_seismic_string()`** - Returns the NumPy string dtype (`'U100'`) to use when creating arrays of token strings. Use this instead of hardcoding the token length.

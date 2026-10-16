@@ -1,3 +1,47 @@
+# Longer token strings in the Python interface
+
+- **Token dtype widened from `U30` to `U100`.** `get_seismic_string()` now
+  returns `'U100'` and every token-string argument of the Python classes
+  (document tokens, query components, query ids) expects that width. NumPy
+  silently truncates strings that exceed the fixed width, so with `U30` two
+  distinct terms sharing their first 30 characters (common for word-level
+  encoders on corpora with long terms or URLs) collapsed onto the same token
+  and `SeismicDataset.add_document` crashed with the opaque vectorium assert
+  "Components must be given in strictly ascending order". Colliding terms are
+  not merged on purpose: scores must match an exact dot product on the
+  original terms. The wider dtype costs 400 bytes per element instead of 120,
+  only for the Python-side arrays; the index stores integer ids and is
+  unaffected.
+  → `MAX_TOKEN_LEN`, `SEISMIC_STRING` in `src/pylib/mod.rs`
+
+  **Breaking for callers that hardcode `'U30'`.** An array with any other
+  dtype is rejected with a `TypeError` that names the argument, the dtype
+  received and the one expected. Build arrays with
+  `dtype=get_seismic_string()`, or convert existing ones with
+  `.astype(get_seismic_string())`.
+
+  **Indexes built with 0.5.3 or earlier.** Their token map holds the strings
+  truncated to 30 characters. Loaded in 0.5.4, a query token longer than 30
+  characters arrives in full, matches no entry and is silently dropped:
+  lower recall, no error. Rebuild such indexes with 0.5.4, or truncate query
+  tokens to 30 characters until then.
+
+- **`add_document` raises `ValueError` on duplicate tokens** instead of
+  tripping the vectorium assert. The message names the document id and the
+  token, and adds the fixed-width truncation explanation when a token of the
+  document fills the whole width. The check runs before anything is stored.
+  Previously the rejected document's id was recorded without its vector, so a
+  caller that caught the exception and kept adding documents got every later
+  result labelled with the wrong document id. The Rust
+  `SeismicDataset::add_document` now returns `Result<(), String>`.
+  → `SeismicDataset::add_document` in `src/inverted_index_wrapper.rs`
+
+- **No Rust panic on a wrong array dtype.** `batch_search` (index classes
+  and datasets) extracted each per-query array with `unwrap()`, so a wrong
+  dtype inside the list surfaced as a `PanicException`. It is now a
+  `TypeError` that names the offending list entry.
+  → `extract_tokens`, `extract_values` in `src/pylib/mod.rs`
+
 # Faster index construction
 
 Optimizations to the index build. None of them changes the built index: the

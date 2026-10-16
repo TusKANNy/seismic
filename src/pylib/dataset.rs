@@ -122,28 +122,28 @@ macro_rules! impl_seismic_dataset {
             ///     tokens (ndarray[str]): Array of tokens (as strings).
             ///     values (ndarray[float32]): Array of corresponding values (same length as tokens).
             ///
+            /// Raises:
+            ///     ValueError: If two tokens of the document resolve to the same component,
+            ///         typically because NumPy truncated two longer tokens onto the same
+            ///         fixed-width string. The dataset is left unchanged.
+            ///     TypeError: If `tokens` is not a NumPy array with dtype `get_seismic_string()`.
+            ///
             /// Example:
             ///     >>> string_type = seismic.get_seismic_string()
-            ///     >>> dataset.add_document("doc42", np.array(["a", "b"], dtype=string_type), np.array([0.5, 1.0]))
+            ///     >>> dataset.add_document("doc42", np.array(["a", "b"], dtype=string_type), np.array([0.5, 1.0], dtype=np.float32))
             #[pyo3(signature = (doc_id, tokens, values))]
             #[pyo3(text_signature = "(self, doc_id, tokens, values)")]
             pub fn add_document(
                 &mut self,
                 doc_id: &str,
-                tokens: PyReadonlyArrayDyn<'_, PyFixedUnicode<MAX_TOKEN_LEN>>,
+                tokens: &Bound<'_, PyAny>,
                 values: PyReadonlyArrayDyn<'_, f32>,
-            ) {
-                self.dataset.add_document(
-                    doc_id.to_string(),
-                    &tokens
-                        .to_vec()
-                        .unwrap()
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<String>>(),
-                    &values.to_vec().unwrap(),
-                    None,
-                );
+            ) -> PyResult<()> {
+                let tokens = extract_tokens("tokens", tokens)?;
+                let values = values.to_vec()?;
+                self.dataset
+                    .add_document(doc_id.to_string(), &tokens, &values, None)
+                    .map_err(|message| add_document_error(message, &tokens))
             }
 
             /// Perform a single sparse query search on the dataset.
@@ -168,24 +168,18 @@ macro_rules! impl_seismic_dataset {
             pub fn search<'py>(
                 &self,
                 query_id: String,
-                query_components: PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>,
+                query_components: &Bound<'py, PyAny>,
                 query_values: PyReadonlyArrayDyn<'py, f32>,
                 k: usize,
-            ) -> Vec<(String, f32, String)> {
-                self.dataset.search(
-                    &query_id,
-                    &query_components
-                        .to_vec()
-                        .unwrap()
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<_>>(),
-                    &query_values.to_vec().unwrap(),
-                    k,
-                )
-                .into_iter()
-                .map(|r| r.to_tuple())
-                .collect()
+            ) -> PyResult<Vec<(String, f32, String)>> {
+                let query_components = extract_tokens("query_components", query_components)?;
+                let query_values = query_values.to_vec()?;
+                Ok(self
+                    .dataset
+                    .search(&query_id, &query_components, &query_values, k)
+                    .into_iter()
+                    .map(|r| r.to_tuple())
+                    .collect())
             }
 
             /// Look up the stored text content for a document by its string document ID.
@@ -234,64 +228,37 @@ macro_rules! impl_seismic_dataset {
             )]
             pub fn batch_search<'py>(
                 &self,
-                queries_ids: PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>,
+                queries_ids: &Bound<'py, PyAny>,
                 query_components: Bound<'py, PyList>,
                 query_values: Bound<'_, PyList>,
                 k: usize,
                 num_threads: usize,
-            ) -> Vec<Vec<(String, f32, String)>> {
+            ) -> PyResult<Vec<Vec<(String, f32, String)>>> {
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(num_threads)
                     .build()
                     .unwrap();
 
-                let qv: Vec<Vec<f32>> = query_values
-                    .iter()
-                    .map(|i| {
-                        i.extract::<PyReadonlyArrayDyn<f32>>()
-                            .unwrap()
-                            .to_vec()
-                            .unwrap()
-                    })
-                    .collect();
-
-                let qc = query_components
-                    .iter()
-                    .map(|i| {
-                        let array = i
-                            .extract::<PyReadonlyArrayDyn<'py, PyFixedUnicode<MAX_TOKEN_LEN>>>()
-                            .unwrap();
-                        array
-                            .to_vec()
-                            .unwrap()
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect::<Vec<_>>()
-                    })
-                    .collect::<Vec<_>>();
+                let queries_ids = extract_tokens("queries_ids", queries_ids)?;
+                let qc = extract_tokens_list("query_components", &query_components)?;
+                let qv = extract_values_list("query_values", &query_values)?;
 
                 let results: Vec<_> = queries_ids
-                    .to_vec()
-                    .unwrap()
                     .iter()
                     .zip(qc.iter())
                     .zip(qv.iter())
                     .par_bridge()
-                    .progress_count(queries_ids.len().unwrap() as u64)
+                    .progress_count(queries_ids.len() as u64)
                     .map(|((query_id, components), values)| {
-                        self.dataset.search(
-                            &query_id.to_string(),
-                            components,
-                            values,
-                            k,
-                        )
-                        .into_iter()
-                        .map(|r| r.to_tuple())
-                        .collect()
+                        self.dataset
+                            .search(query_id, components, values, k)
+                            .into_iter()
+                            .map(|r| r.to_tuple())
+                            .collect()
                     })
                     .collect();
 
-                results
+                Ok(results)
             }
         }
     };
