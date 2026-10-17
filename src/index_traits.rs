@@ -101,12 +101,12 @@ where
 /// | `SparseData` | Range-based access |
 /// | `Sync` | Parallel search |
 /// | `SparseDataEncoder` | Component type for summaries |
-/// | `VectorEncoder<Distance = DotProduct>` | Distance computation |
+/// | `VectorEncoder<Distance = DotProduct, QueryParams = ()>` | Distance computation, no query-side encoder params |
 /// | `OutputComponentType: Hash + Ord` | Summary component matching |
 pub trait SeismicSearchDataset:
     Dataset<
         Encoder: SparseDataEncoder<OutputComponentType: ComponentType + Hash + Ord>
-                     + VectorEncoder<Distance = DotProduct>,
+                     + VectorEncoder<Distance = DotProduct, QueryParams = ()>,
     > + SparseData
     + Sync
 {
@@ -114,14 +114,18 @@ pub trait SeismicSearchDataset:
 
 impl<E> SeismicSearchDataset for SparseDataset<E>
 where
-    E: SparseVectorEncoder + SparseDataEncoder + VectorEncoder<Distance = DotProduct>,
+    E: SparseVectorEncoder
+        + SparseDataEncoder
+        + VectorEncoder<Distance = DotProduct, QueryParams = ()>,
     <E as SparseDataEncoder>::OutputComponentType: ComponentType + Hash + Ord,
 {
 }
 
 impl<E> SeismicSearchDataset for SparseDatasetGrowable<E>
 where
-    E: SparseVectorEncoder + SparseDataEncoder + VectorEncoder<Distance = DotProduct>,
+    E: SparseVectorEncoder
+        + SparseDataEncoder
+        + VectorEncoder<Distance = DotProduct, QueryParams = ()>,
     <E as SparseDataEncoder>::OutputComponentType: ComponentType + Hash + Ord,
 {
 }
@@ -129,14 +133,18 @@ where
 // Impls for PackedSparseDataset (used for packed/compressed storage)
 impl<E> SeismicSearchDataset for PackedSparseDataset<E>
 where
-    E: PackedSparseVectorEncoder + SparseDataEncoder + VectorEncoder<Distance = DotProduct>,
+    E: PackedSparseVectorEncoder
+        + SparseDataEncoder
+        + VectorEncoder<Distance = DotProduct, QueryParams = ()>,
     <E as SparseDataEncoder>::OutputComponentType: ComponentType + Hash + Ord,
 {
 }
 
 impl<E> SeismicSearchDataset for PackedSparseDatasetGrowable<E>
 where
-    E: PackedSparseVectorEncoder + SparseDataEncoder + VectorEncoder<Distance = DotProduct>,
+    E: PackedSparseVectorEncoder
+        + SparseDataEncoder
+        + VectorEncoder<Distance = DotProduct, QueryParams = ()>,
     <E as SparseDataEncoder>::OutputComponentType: ComponentType + Hash + Ord,
 {
 }

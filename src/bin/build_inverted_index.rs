@@ -250,7 +250,8 @@ where
             time,
         ),
         "f16" => {
-            let dataset = ScalarSparseDataset::<C, f32, f16, DotProduct>::convert_from(dataset_f32);
+            let dataset =
+                ScalarSparseDataset::<C, f32, f16, DotProduct>::convert_from(dataset_f32, ());
             write_index(
                 ScalarInvertedIndex::<C, f32, f16>::build(dataset, config),
                 args.output_file.as_ref().unwrap(),
@@ -259,7 +260,7 @@ where
         }
         "bf16" => {
             let dataset =
-                ScalarSparseDataset::<C, f32, bf16, DotProduct>::convert_from(dataset_f32);
+                ScalarSparseDataset::<C, f32, bf16, DotProduct>::convert_from(dataset_f32, ());
             write_index(
                 ScalarInvertedIndex::<C, f32, bf16>::build(dataset, config),
                 args.output_file.as_ref().unwrap(),
@@ -268,7 +269,7 @@ where
         }
         "fixedu16" => {
             let dataset =
-                ScalarSparseDataset::<C, f32, FixedU16Q, DotProduct>::convert_from(dataset_f32);
+                ScalarSparseDataset::<C, f32, FixedU16Q, DotProduct>::convert_from(dataset_f32, ());
             write_index(
                 ScalarInvertedIndex::<C, f32, FixedU16Q>::build(dataset, config),
                 args.output_file.as_ref().unwrap(),
